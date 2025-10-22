@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y \
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies
-RUN npm ci --only=production
+# Install production dependencies (using install instead of ci for flexibility)
+RUN npm install --production --no-package-lock
 
 # Copy application code
 COPY . .
