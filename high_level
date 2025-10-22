@@ -1,0 +1,23 @@
+[Cloud Scheduler]
+       │               ┌───────────────┐
+       └──► (cron) ───►│ Ingestion API │◄─── Extension (optional, later)
+                       └──────┬────────┘
+                              │ emits
+                          [Job Queue]
+                              │
+                    ┌─────────▼─────────┐
+                    │  Fetcher Workers  │  (Greenhouse/Lever/Ashby/JSON-LD/Sitemap)
+                    └─────────┬─────────┘
+                              │
+                    ┌─────────▼─────────┐
+                    │ Normalize/Dedupe  │──► Postgres (jobs, companies, locations,…)
+                    └─────────┬─────────┘            │
+                              │                      │ logical replication (later)
+                              │                      ▼
+                          [Index Builder] ───────►  Search Index (start with PG FTS; later OpenSearch)
+                              │
+                              ▼
+                      REST/GraphQL API  ───► Web App (Next.js) / Mobile
+                              │
+                              ├──► Alerts (email/push) via saved searches
+                              └──► Tracker & Prep (apps, resumes, mentors)

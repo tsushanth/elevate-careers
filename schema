@@ -1,0 +1,65 @@
+-- companies
+CREATE TABLE company (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  domain TEXT UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- jobs (current snapshot + pointer to versioning)
+CREATE TABLE job (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT REFERENCES company(id),
+  provider TEXT NOT NULL,             -- greenhouse, lever, jsonld, etc.
+  external_id TEXT,                   -- provider job id, nullable
+  apply_url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  employment_type TEXT,               -- full_time, contract...
+  remote BOOLEAN,
+  salary_min NUMERIC, salary_max NUMERIC, salary_currency TEXT,
+  posted_at TIMESTAMPTZ, valid_through TIMESTAMPTZ,
+  description_excerpt TEXT,
+  tsv TSVECTOR,                       -- search index
+  current_version_id BIGINT,
+  dedupe_key TEXT UNIQUE,             -- idempotency
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- job_versions (full description, diffs over time)
+CREATE TABLE job_version (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT REFERENCES job(id),
+  description_md TEXT,
+  skills TEXT[],                      -- extracted tokens/skills
+  captured_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- locations (1..n per job)
+CREATE TABLE job_location (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT REFERENCES job(id),
+  city TEXT, region TEXT, country TEXT, remote BOOLEAN
+);
+
+-- saved searches
+CREATE TABLE saved_search (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID NOT NULL,
+  query TEXT,                         -- JSON of filters
+  frequency TEXT CHECK (frequency IN ('instant','daily','weekly')),
+  last_run TIMESTAMPTZ
+);
+
+-- tracker
+CREATE TABLE application (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID NOT NULL,
+  job_id BIGINT REFERENCES job(id),
+  status TEXT CHECK (status IN ('saved','applied','phone_screen','interview','offer','rejected')) DEFAULT 'saved',
+  resume_variant TEXT,
+  notes TEXT,
+  next_action_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);

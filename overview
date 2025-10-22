@@ -1,0 +1,55 @@
+MVP components (what they do)
+1) Ingestion API
+
+Endpoints like POST /ingest/org (body: { provider: "greenhouse", org: "acme" })
+
+Validates and enqueues jobs to Job Queue.
+
+Also has POST /ingest/discover to crawl a list of career URLs (for JSON-LD & sitemaps).
+
+2) Fetcher Workers (adapters)
+
+Small modules per source:
+
+GreenhouseSource, LeverSource, AshbySource, SmartRecruitersSource
+
+JSONLDSource (extract <script type="application/ld+json"> JobPosting)
+
+SitemapSource (discover URLs; low frequency)
+
+Each returns RawJob with external_id, company_domain, raw_description, apply_url, locations, posted_at.
+
+3) Normalizer & Deduper
+
+Maps fields into Job table (see schema below).
+
+Idempotency key: sha1(company_domain + provider + external_id)
+If a provider lacks external_id, hash (title + city + first_200_chars).
+
+Versioning: if description / valid_through / salary changes, create a new job_version row; keep job.current_version_id.
+
+4) Index Builder
+
+Creates/updates tsvector fields (title, company, location_names, skills, description_excerpt) and refreshes materialized views for facets.
+
+Emits “new matches” for Saved Searches (alerts).
+
+5) Public API
+
+GET /jobs (filters: keyword, location, remote, salary, seniority, company, posted_since)
+
+POST /saved-searches → alert channel (email/push, daily/instant).
+
+POST /applications (user adds an applied job to tracker).
+
+Later: GET /recommendations (skills-based).
+
+6) Web App (Next.js) + minimal mobile
+
+Search + filters, job details, “Save”, “Alert me”.
+
+Tracker: add application, stage, notes, due dates.
+
+Prep: 3 curated tracks (SWE/PM/DS) with checklists and mock-interview booking (Calendly link v0).
+
+Optional extension v1: “Recognize ATS form → Prefill”.
