@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Job Autofill Starter",
+  "version": "0.1.0",
+  "description": "Autofill widget that appears automatically on enabled sites, with line-by-line fill progress.",
+  "action": { "default_title": "Job Autofill" },
+  "permissions": ["storage", "scripting", "activeTab", "declarativeContent"],
+  "host_permissions": ["*://*.greenhouse.io/*","*://*.lever.co/*","*://*.myworkdayjobs.com/*"],
+  "background": { "service_worker": "sw.js", "type": "module" },
+  "options_page": "options.html"
+}
