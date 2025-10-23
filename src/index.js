@@ -14,7 +14,37 @@ async function startServer() {
     if (config.serviceMode === 'worker') {
       // Start worker
       logger.info('Starting in WORKER mode');
+      
+      // Import express for health check endpoint
+      const express = (await import('express')).default;
+      const healthApp = express();
+      
+      // Simple health endpoint for Cloud Run
+      healthApp.get('/health', (req, res) => {
+        res.json({ status: 'healthy', mode: 'worker', timestamp: new Date().toISOString() });
+      });
+      
+      // Start health check server
+      const healthServer = healthApp.listen(config.port, () => {
+        logger.info({ port: config.port }, 'Worker health check server started');
+      });
+      
+      // Start the actual worker
       await import('./workers/worker.js');
+      
+      // Graceful shutdown for worker
+      const shutdownWorker = async (signal) => {
+        logger.info({ signal }, 'Shutdown signal received');
+        healthServer.close(() => {
+          logger.info('Health check server closed');
+        });
+        await db.close();
+        process.exit(0);
+      };
+
+      process.on('SIGTERM', () => shutdownWorker('SIGTERM'));
+      process.on('SIGINT', () => shutdownWorker('SIGINT'));
+      
     } else {
       // Start API server
       logger.info('Starting in API mode');

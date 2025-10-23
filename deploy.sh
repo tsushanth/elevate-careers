@@ -11,6 +11,9 @@ PROJECT_ID="summarizerproxy"
 REGION="europe-west1"
 SERVICE_NAME="elevate-careers"
 DATABASE_URL="postgresql://postgres:KashtePhale%219@db.uuntgvccvepqhfaupjqa.supabase.co:5432/postgres"
+REDIS_HOST="outgoing-worm-35597.upstash.io"
+REDIS_PORT="6379"
+REDIS_PASSWORD="AYsNAAIncDFiNGQzNjkzZGRmZTY0ZWRhYjY0MTI3OWE4NWYwNTE1Y3AxMzU1OTc"
 
 echo "📦 Building with fixes..."
 gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME --project=$PROJECT_ID
