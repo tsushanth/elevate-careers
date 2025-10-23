@@ -47,8 +47,29 @@ app.post('/ingest/org', async (req, res) => {
       });
     }
     
-    // Enqueue job
-    const job = await enqueueJob('fetch-jobs', { provider, org });
+    // Enqueue job with timeout
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Queue operation timeout')), 5000)
+    );
+    
+    const job = await Promise.race([
+      enqueueJob('fetch-jobs', { provider, org }),
+      timeoutPromise
+    ]);
+    
+    // Check if queue is available
+    if (job.id === 'no-queue') {
+      return res.status(503).json({
+        message: 'Job queue not configured',
+        note: 'Redis and Worker must be set up to process job ingestion',
+        provider,
+        org,
+        setup_required: {
+          redis: 'Configure Redis connection',
+          worker: 'Deploy worker service'
+        }
+      });
+    }
     
     res.json({
       message: 'Job enqueued successfully',
@@ -57,7 +78,15 @@ app.post('/ingest/org', async (req, res) => {
       org,
     });
   } catch (error) {
-    logger.error({ error }, 'Ingestion API error');
+    logger.error({ error: error.message }, 'Ingestion API error');
+    
+    if (error.message === 'Queue operation timeout') {
+      return res.status(503).json({ 
+        error: 'Queue service unavailable',
+        message: 'Job queue is not configured. Set up Redis + Worker to enable job ingestion.'
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to enqueue job' });
   }
 });
@@ -72,12 +101,47 @@ app.post('/ingest/discover', async (req, res) => {
       });
     }
     
-    // Enqueue JSON-LD discovery job
-    const job = await enqueueJob('discover-jobs', { 
-      provider: 'jsonld', 
-      url 
-    });
+    // Enqueue JSON-LD discovery job with timeout
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Queue operation timeout')), 5000)
+    );
     
+    const job = await Promise.race([
+      enqueueJob('discover-jobs', { provider: 'jsonld', url }),
+      timeoutPromise
+    ]);
+    
+    // Check if queue is available
+    if (job.id === 'no-queue') {
+      return res.status(503).json({
+        message: 'Job queue not configured',
+        note: 'Redis and Worker must be set up to process job discovery',
+        url,
+        setup_required: {
+          redis: 'Configure Redis connection',
+          worker: 'Deploy worker service'
+        }
+      });
+    }
+    
+    res.json({
+      message: 'Discovery job enqueued successfully',
+      jobId: job.id,
+      url,
+    });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Discovery API error');
+    
+    if (error.message === 'Queue operation timeout') {
+      return res.status(503).json({ 
+        error: 'Queue service unavailable',
+        message: 'Job queue is not configured. Set up Redis + Worker to enable job discovery.'
+      });
+    }
+    
+    res.status(500).json({ error: 'Failed to enqueue discovery job' });
+  }
+});
     res.json({
       message: 'Discovery job enqueued successfully',
       jobId: job.id,
