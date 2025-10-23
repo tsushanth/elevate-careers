@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fixed Deployment Script for Elevate Careers
+# Debug Deployment Script
 
 set -e
 
@@ -7,34 +7,25 @@ PROJECT_ID="summarizerproxy"
 REGION="europe-west1"
 SERVICE_NAME="elevate-careers"
 
-echo "🚀 Deploying Elevate Careers Job Aggregator"
-echo "============================================"
+# Your database URL with URL-encoded password
+DATABASE_URL="postgresql://postgres:KashtePhale%219@db.uuntgvccvepqhfaupjqa.supabase.co:5432/postgres"
+
+echo "🔍 Debug Deployment with Better Error Logging"
+echo "=============================================="
 echo ""
 
-# Step 1: Build and push image
-echo "📦 Step 1: Building Docker image..."
+echo "📦 Building container..."
 gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME --project=$PROJECT_ID
 
-# Step 2: Get Supabase credentials
 echo ""
-echo "📝 Step 2: Enter your Supabase credentials"
-echo "Get these from: https://supabase.com/dashboard/project/_/settings/database"
-echo ""
-read -p "Enter your Supabase DATABASE_URL: " DATABASE_URL
-
-# For now, we'll skip Redis (worker won't work but API will)
-REDIS_HOST="localhost"
-
-# Step 3: Deploy API
-echo ""
-echo "🌐 Step 3: Deploying API service..."
+echo "🚀 Deploying with improved error logging..."
 gcloud run deploy $SERVICE_NAME \
   --image gcr.io/$PROJECT_ID/$SERVICE_NAME \
   --platform managed \
   --region $REGION \
   --project $PROJECT_ID \
   --allow-unauthenticated \
-  --set-env-vars "SERVICE_MODE=api,NODE_ENV=production,DATABASE_URL=$DATABASE_URL,REDIS_HOST=$REDIS_HOST" \
+  --set-env-vars "SERVICE_MODE=api,NODE_ENV=production,DATABASE_URL=$DATABASE_URL,REDIS_HOST=localhost" \
   --memory 1Gi \
   --cpu 1 \
   --min-instances 0 \
@@ -42,10 +33,17 @@ gcloud run deploy $SERVICE_NAME \
   --port 8080
 
 echo ""
-echo "✅ Deployment complete!"
+echo "✅ Deployment complete. Checking logs..."
+sleep 5
+
 echo ""
-echo "Your API is available at:"
-gcloud run services describe $SERVICE_NAME --region $REGION --project $PROJECT_ID --format="value(status.url)"
+echo "📋 Recent logs:"
+gcloud run services logs read $SERVICE_NAME \
+  --region $REGION \
+  --project $PROJECT_ID \
+  --limit 30
+
 echo ""
-echo "🧪 Test it:"
-echo "curl \$(gcloud run services describe $SERVICE_NAME --region $REGION --project $PROJECT_ID --format='value(status.url)')/health"
+echo "🧪 Testing health endpoint..."
+sleep 3
+curl -v https://elevate-careers-917362189743.europe-west1.run.app/health
