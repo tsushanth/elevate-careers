@@ -142,16 +142,6 @@ app.post('/ingest/discover', async (req, res) => {
     res.status(500).json({ error: 'Failed to enqueue discovery job' });
   }
 });
-    res.json({
-      message: 'Discovery job enqueued successfully',
-      jobId: job.id,
-      url,
-    });
-  } catch (error) {
-    logger.error({ error }, 'Discovery API error');
-    res.status(500).json({ error: 'Failed to enqueue discovery job' });
-  }
-});
 
 // Jobs API
 app.get('/jobs', async (req, res) => {
