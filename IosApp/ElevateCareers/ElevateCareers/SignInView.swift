@@ -1,12 +1,4 @@
 //
-//  SignInView 2.swift
-//  ElevateCareers
-//
-//  Created by Sushanth Tiruvaipati on 10/24/25.
-//
-
-
-//
 //  SignInView.swift
 //  ElevateCareers
 //
@@ -17,74 +9,128 @@ import SwiftUI
 import AuthenticationServices
 
 struct SignInView: View {
-    @ObservedObject var authViewModel: AuthViewModel
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @Binding var hasSeenWelcome: Bool
+    @Environment(\.dismiss) private var dismiss
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var errorMessage: String?
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 24) {
-                    Spacer().frame(height: 20)
+        NavigationStack {
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: 24) {
+                        Spacer().frame(height: 20)
 
-                    // Header
-                    VStack(spacing: 8) {
-                        Image(systemName: "briefcase.circle.fill")
-                            .resizable()
-                            .frame(width: 60, height: 60)
-                            .foregroundColor(Color(red: 0.04, green: 0.4, blue: 0.76))
-                        
-                        Text("Welcome to ElevateCareers")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        Text("Sign in to save jobs and track applications")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+                        // Header
+                        VStack(spacing: 8) {
+                            Image(systemName: "briefcase.circle.fill")
+                                .resizable()
+                                .frame(width: 60, height: 60)
+                                .foregroundColor(Color(red: 0.04, green: 0.4, blue: 0.76))
+                            
+                            Text("Welcome to ElevateCareers")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            
+                            Text("Sign in to save jobs and track applications")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+                        .padding(.bottom, 10)
+
+                        // Social Sign In Buttons
+                        VStack(spacing: 12) {
+                            appleSignInButton(width: geometry.size.width)
+                            googleSignInButton
+                        }
+
+                        // Divider
+                        HStack {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(height: 1)
+                            
+                            Text("or")
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 8)
+                            
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(height: 1)
+                        }
+                        .padding(.horizontal)
+
+                        // Email/Password Fields
+                        emailPasswordFields
+
+                        // Continue Without Sign In
+                        Button(action: {
+                            // Mark welcome as seen and dismiss
+                            UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+                            hasSeenWelcome = true
+                            dismiss()
+                        }) {
+                            Text("Continue without signing in")
+                                .font(.subheadline)
+                                .foregroundColor(Color(red: 0.04, green: 0.4, blue: 0.76))
+                                .underline()
+                        }
+                        .padding(.top, 8)
+
+                        // Benefits Section
+                        benefitsSection
+
+                        Spacer()
                     }
-                    .padding(.bottom, 10)
-
-                    // Social Sign In Buttons
-                    VStack(spacing: 12) {
-                        googleSignInButton
-                        appleSignInButton(width: geometry.size.width)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        dismiss()
+                    }) {
+                        Image(systemName: "xmark")
+                            .foregroundColor(.primary)
                     }
-
-                    // Divider
-                    HStack {
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(height: 1)
-                        
-                        Text("or")
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 8)
-                        
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(height: 1)
-                    }
-                    .padding(.horizontal)
-
-                    // Email/Password Fields
-                    emailPasswordFields
-
-                    // Benefits Section
-                    benefitsSection
-
-                    Spacer()
                 }
             }
         }
-        .onChange(of: authViewModel.isSignedIn) { isSignedIn in
-            if isSignedIn {
-                dismiss()
+    }
+    
+    private func appleSignInButton(width: CGFloat) -> some View {
+        SignInWithAppleButton(
+            onRequest: { request in
+                print("🍎 Apple Sign In - onRequest called")
+                let nonce = authViewModel.generateNonce()
+                authViewModel.currentNonce = nonce
+                print("🍎 Nonce generated: \(nonce)")
+                request.requestedScopes = [.fullName, .email]
+                request.nonce = authViewModel.sha256(nonce)
+                print("🍎 Request configured with scopes and nonce")
+            },
+            onCompletion: { result in
+                print("🍎 Apple Sign In - onCompletion called")
+                authViewModel.handleAppleSignIn(result: result) { success, userEmail, userId in
+                    print("🍎 handleAppleSignIn completed - Success: \(success)")
+                    if success {
+                        print("✅ Signed in with Apple: \(userEmail ?? "")")
+                        UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+                        hasSeenWelcome = true
+                        dismiss()
+                    } else {
+                        print("❌ Apple Sign In failed in handler")
+                    }
+                }
             }
-        }
+        )
+        .frame(width: width * 0.9, height: 50)
+        .cornerRadius(10)
+        .signInWithAppleButtonStyle(.black)
     }
     
     private var googleSignInButton: some View {
@@ -92,6 +138,9 @@ struct SignInView: View {
             authViewModel.signInWithGoogle { success, userEmail, userId in
                 if success {
                     print("✅ Signed in with Google: \(userEmail ?? "")")
+                    UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+                    hasSeenWelcome = true
+                    dismiss()
                 }
             }
         }) {
@@ -110,26 +159,6 @@ struct SignInView: View {
         }
         .frame(height: 50)
         .padding(.horizontal)
-    }
-
-    private func appleSignInButton(width: CGFloat) -> some View {
-        SignInWithAppleButton(
-            onRequest: { request in
-                let nonce = authViewModel.generateNonce()
-                authViewModel.currentNonce = nonce
-                request.requestedScopes = [.fullName, .email]
-                request.nonce = authViewModel.sha256(nonce)
-            },
-            onCompletion: { result in
-                authViewModel.handleAppleSignIn(result: result) { success, userEmail, userId in
-                    if success {
-                        print("✅ Signed in with Apple: \(userEmail ?? "")")
-                    }
-                }
-            }
-        )
-        .frame(width: width * 0.9, height: 50)
-        .cornerRadius(10)
     }
 
     private var emailPasswordFields: some View {
@@ -159,6 +188,9 @@ struct SignInView: View {
                     authViewModel.signInWithEmail(email: email, password: password) { success, error in
                         if success {
                             print("✅ Signed in with email")
+                            UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+                            hasSeenWelcome = true
+                            dismiss()
                         } else {
                             self.errorMessage = error
                         }
@@ -177,6 +209,9 @@ struct SignInView: View {
                     authViewModel.signUpWithEmail(email: email, password: password) { success, error in
                         if success {
                             print("✅ Account created with email")
+                            UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+                            hasSeenWelcome = true
+                            dismiss()
                         } else {
                             self.errorMessage = error
                         }
@@ -243,5 +278,6 @@ struct BenefitRow: View {
 }
 
 #Preview {
-    SignInView(authViewModel: AuthViewModel())
+    SignInView(hasSeenWelcome: .constant(false))
+        .environmentObject(AuthViewModel())
 }

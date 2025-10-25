@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  ElevateCareers
 //
-//  Created on 2024
+//  Created by Sushanth Tiruvaipati on 10/24/25.
 //
 
 import SwiftUI
@@ -76,7 +76,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    Link(destination: URL(string: "https://kreativekoala.com/privacy")!) {
+                    Link(destination: URL(string: "https://www.sendsmiles.biz/privacy-policy")!) {
                         HStack {
                             Text("Privacy Policy")
                             Spacer()
@@ -86,7 +86,7 @@ struct SettingsView: View {
                         }
                     }
                     
-                    Link(destination: URL(string: "https://kreativekoala.com/terms")!) {
+                    Link(destination: URL(string: "https://www.sendsmiles.biz/terms-of-service")!) {
                         HStack {
                             Text("Terms of Service")
                             Spacer()
