@@ -2,11 +2,12 @@
 //  ProfileViewModel.swift
 //  ElevateCareers
 //
-//  Handles profile management, resume upload, and LinkedIn import
+//  Handles profile management, resume upload to Supabase Storage
 //
 
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 class ProfileViewModel: ObservableObject {
@@ -14,6 +15,7 @@ class ProfileViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var showError = false
     @Published var errorMessage: String?
+    @Published var uploadProgress: Double = 0.0
     
     private let apiService = ApiService()
     private let supabase = SupabaseService.shared
@@ -29,32 +31,66 @@ class ProfileViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            let data = try await apiService.getProfile()
-            profile = data.profile
+            // Get profile from backend (which queries Supabase)
+            profile = try await apiService.getProfile()
         } catch {
             errorMessage = "Failed to load profile: \(error.localizedDescription)"
             showError = true
         }
     }
     
-    // MARK: - Upload Resume
+    // MARK: - Upload Resume (Direct to Supabase Storage)
     
     func uploadResume(url: URL) async {
         isLoading = true
-        defer { isLoading = false }
+        uploadProgress = 0.0
+        defer {
+            isLoading = false
+            uploadProgress = 0.0
+        }
         
         do {
-            // Read file data
+            // 1. Get current user
+            guard let userId = supabase.currentUser?.id.uuidString else {
+                throw NSError(domain: "ProfileViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+            }
+            
+            // 2. Read file data
+            guard url.startAccessingSecurityScopedResource() else {
+                throw NSError(domain: "ProfileViewModel", code: 403, userInfo: [NSLocalizedDescriptionKey: "Cannot access file"])
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            
             let data = try Data(contentsOf: url)
+            let fileName = url.lastPathComponent
             
-            // Upload to backend
-            let result = try await apiService.uploadResume(data: data, fileName: url.lastPathComponent)
+            uploadProgress = 0.3
             
-            // Reload profile to get updated info
+            // 3. Upload to Supabase Storage
+            let storagePath = try await supabase.uploadResume(
+                data: data,
+                fileName: fileName,
+                userId: userId
+            )
+            
+            uploadProgress = 0.6
+            
+            // 4. Tell backend to parse the resume
+            let result = try await apiService.parseResume(
+                storagePath: storagePath,
+                fileName: fileName,
+                fileSize: data.count
+            )
+            
+            uploadProgress = 0.9
+            
+            // 5. Reload profile to get updated info
             await loadProfile()
             
-            // Show success message
-            errorMessage = "Resume uploaded successfully! Profile updated with \(result.profile.skills.count) skills."
+            uploadProgress = 1.0
+            
+            // 6. Show success message
+            errorMessage = "Resume uploaded successfully! Found \(result.skillsCount) skills and \(result.experienceCount) work experiences."
             showError = true
             
         } catch {
@@ -70,14 +106,57 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
+                // Get signed URL from Supabase Storage
                 let url = try await supabase.getResumeURL(path: resume.filePath)
+                
                 await MainActor.run {
                     UIApplication.shared.open(url)
                 }
             } catch {
-                errorMessage = "Failed to open resume"
+                errorMessage = "Failed to open resume: \(error.localizedDescription)"
                 showError = true
             }
+        }
+    }
+    
+    // MARK: - Download Resume
+    
+    func downloadResume() async -> Data? {
+        guard let resume = profile?.resume?.first else { return nil }
+        
+        do {
+            let data = try await supabase.downloadResume(path: resume.filePath)
+            return data
+        } catch {
+            errorMessage = "Failed to download resume: \(error.localizedDescription)"
+            showError = true
+            return nil
+        }
+    }
+    
+    // MARK: - Delete Resume
+    
+    func deleteResume() async {
+        guard let resume = profile?.resume?.first else { return }
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            // Delete from Supabase Storage
+            try await supabase.deleteResume(path: resume.filePath)
+            
+            // Delete from database
+            try await apiService.deleteResume(resumeId: resume.id)
+            
+            // Reload profile
+            await loadProfile()
+            
+            errorMessage = "Resume deleted successfully"
+            showError = true
+        } catch {
+            errorMessage = "Failed to delete resume: \(error.localizedDescription)"
+            showError = true
         }
     }
     
@@ -88,7 +167,12 @@ class ProfileViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            let updatedProfile = try await apiService.updateProfile(updates)
+            guard let userId = supabase.currentUser?.id.uuidString else {
+                throw NSError(domain: "ProfileViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+            }
+            
+            // Update via Supabase directly
+            let updatedProfile = try await supabase.updateProfile(userId: userId, updates: updates)
             profile = updatedProfile
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
@@ -262,34 +346,24 @@ struct Resume: Codable, Identifiable {
     }
 }
 
-struct UploadResumeResponse: Codable {
+struct ParseResumeResponse: Codable {
     let success: Bool
-    let resume: ResumeInfo
-    let profile: ProfileInfo
+    let skillsCount: Int
+    let experienceCount: Int
+    let educationCount: Int
     
-    struct ResumeInfo: Codable {
-        let id: String
-        let fileName: String
-        let uploadedAt: String
-        
-        enum CodingKeys: String, CodingKey {
-            case id
-            case fileName = "fileName"
-            case uploadedAt = "uploadedAt"
-        }
-    }
-    
-    struct ProfileInfo: Codable {
-        let skills: [String]
-        let experience: Int
-        let education: Int
+    enum CodingKeys: String, CodingKey {
+        case success
+        case skillsCount = "skills_count"
+        case experienceCount = "experience_count"
+        case educationCount = "education_count"
     }
 }
 
 // MARK: - API Service Extension
 
 extension ApiService {
-    func getProfile() async throws -> (profile: UserProfile?) {
+    func getProfile() async throws -> UserProfile? {
         let url = URL(string: "\(baseURL)/api/profile")!
         var request = URLRequest(url: url)
         request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
@@ -300,54 +374,49 @@ extension ApiService {
             throw APIError.serverError("Failed to fetch profile")
         }
         
-        let result = try JSONDecoder().decode([String: UserProfile?].self, from: data)
-        return (profile: result["profile"] ?? nil)
+        struct ProfileResponse: Codable {
+            let profile: UserProfile?
+        }
+        
+        let result = try JSONDecoder().decode(ProfileResponse.self, from: data)
+        return result.profile
     }
     
-    func uploadResume(data: Data, fileName: String) async throws -> UploadResumeResponse {
-        let url = URL(string: "\(baseURL)/api/profile/resume")!
-        
-        let boundary = UUID().uuidString
+    func parseResume(storagePath: String, fileName: String, fileSize: Int) async throws -> ParseResumeResponse {
+        let url = URL(string: "\(baseURL)/api/profile/resume/parse")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"resume\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(data)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        
-        request.httpBody = body
-        
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw APIError.serverError("Failed to upload resume")
-        }
-        
-        return try JSONDecoder().decode(UploadResumeResponse.self, from: responseData)
-    }
-    
-    func updateProfile(_ updates: [String: Any]) async throws -> UserProfile {
-        let url = URL(string: "\(baseURL)/api/profile")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        request.httpBody = try JSONSerialization.data(withJSONObject: updates)
+        let body: [String: Any] = [
+            "storage_path": storagePath,
+            "file_name": fileName,
+            "file_size": fileSize
+        ]
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw APIError.serverError("Failed to update profile")
+            throw APIError.serverError("Failed to parse resume")
         }
         
-        let result = try JSONDecoder().decode([String: UserProfile].self, from: data)
-        return result["profile"]!
+        return try JSONDecoder().decode(ParseResumeResponse.self, from: data)
+    }
+    
+    func deleteResume(resumeId: String) async throws {
+        let url = URL(string: "\(baseURL)/api/profile/resume/\(resumeId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
+        
+        let (_, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.serverError("Failed to delete resume")
+        }
     }
     
     func importLinkedIn(data: [String: Any]) async throws -> UserProfile {
@@ -366,12 +435,17 @@ extension ApiService {
             throw APIError.serverError("Failed to import LinkedIn")
         }
         
-        let result = try JSONDecoder().decode([String: UserProfile].self, from: responseData)
-        return result["profile"]!
+        struct LinkedInResponse: Codable {
+            let success: Bool
+            let profile: UserProfile
+        }
+        
+        let result = try JSONDecoder().decode(LinkedInResponse.self, from: responseData)
+        return result.profile
     }
     
     private func getAuthToken() -> String {
-        // Get from Supabase or your auth system
+        // Get from Supabase
         return SupabaseService.shared.currentSession?.accessToken ?? ""
     }
 }
@@ -384,7 +458,8 @@ struct DocumentPicker: UIViewControllerRepresentable {
     let viewModel: ProfileViewModel
     
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf, .doc, .docx])
+        let supportedTypes: [UTType] = [.pdf]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker
@@ -410,17 +485,5 @@ struct DocumentPicker: UIViewControllerRepresentable {
                 await viewModel.uploadResume(url: url)
             }
         }
-    }
-}
-
-// MARK: - UTType Extensions
-
-extension UTType {
-    static var doc: UTType {
-        UTType(filenameExtension: "doc")!
-    }
-    
-    static var docx: UTType {
-        UTType(filenameExtension: "docx")!
     }
 }
