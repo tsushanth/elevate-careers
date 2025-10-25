@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+import Foundation
 import FirebaseAuth
+import FirebaseFirestore
 import GoogleSignIn
 import Firebase
 import CryptoKit
@@ -273,4 +275,76 @@ class AuthViewModel: ObservableObject {
         
         return hashString
     }
+    
+    func signInWithLinkedIn(email: String, linkedInId: String, name: String, completion: @escaping (Bool) -> Void) {
+            print("🔵 Signing in with LinkedIn: \(email)")
+            
+            // Check if already signed in
+            if let currentUser = Auth.auth().currentUser {
+                print("ℹ️ Already signed in as: \(currentUser.uid)")
+                // Just update LinkedIn info
+                updateLinkedInInfo(userId: currentUser.uid, email: email, linkedInId: linkedInId, name: name)
+                
+                DispatchQueue.main.async {
+                    self.userEmail = email
+                    self.userName = name
+                    self.isSignedIn = true
+                }
+                completion(true)
+                return
+            }
+            
+            // Sign in anonymously
+            Auth.auth().signInAnonymously { [weak self] result, error in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("❌ Anonymous sign in failed: \(error.localizedDescription)")
+                    completion(false)
+                    return
+                }
+                
+                guard let user = result?.user else {
+                    print("❌ No user after sign in")
+                    completion(false)
+                    return
+                }
+                
+                print("✅ Firebase anonymous sign in successful: \(user.uid)")
+                
+                // Update user info
+                DispatchQueue.main.async {
+                    self.userId = user.uid
+                    self.userEmail = email
+                    self.userName = name
+                    self.isSignedIn = true
+                }
+                
+                // Save LinkedIn profile
+                self.updateLinkedInInfo(userId: user.uid, email: email, linkedInId: linkedInId, name: name)
+                
+                completion(true)
+            }
+        }
+        
+        private func updateLinkedInInfo(userId: String, email: String, linkedInId: String, name: String) {
+            let db = Firestore.firestore()
+            
+            let userData: [String: Any] = [
+                "email": email,
+                "displayName": name,
+                "linkedInId": linkedInId,
+                "linkedInConnected": true,
+                "authProvider": "linkedin",
+                "updatedAt": FieldValue.serverTimestamp()
+            ]
+            
+            db.collection("users").document(userId).setData(userData, merge: true) { error in
+                if let error = error {
+                    print("❌ Failed to save LinkedIn info: \(error.localizedDescription)")
+                } else {
+                    print("✅ LinkedIn info saved to Firestore")
+                }
+            }
+        }
 }

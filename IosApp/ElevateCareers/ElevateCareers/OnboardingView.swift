@@ -77,8 +77,26 @@ struct OnboardingView: View {
                                 // Connect LinkedIn Button
                                 Button(action: {
                                     linkedInManager.signInWithLinkedIn { success, profile in
-                                        if success {
+                                        if success, let profile = profile {
                                             print("✅ LinkedIn connected in onboarding")
+                                            print("   - Name: \(profile.fullName)")
+                                            print("   - Email: \(profile.email ?? "nil")")
+                                            
+                                            // Update Firebase with LinkedIn info if user is signed in
+                                            if authViewModel.isSignedIn, !authViewModel.userId.isEmpty {
+                                                let email = profile.email ?? "linkedin_\(profile.id)@elevatecareers.temp"
+                                                authViewModel.signInWithLinkedIn(
+                                                    email: email,
+                                                    linkedInId: profile.id,
+                                                    name: profile.fullName
+                                                ) { firebaseSuccess in
+                                                    if firebaseSuccess {
+                                                        print("✅ LinkedIn info updated in Firebase")
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            print("❌ LinkedIn connection failed in onboarding")
                                         }
                                     }
                                 }) {
@@ -252,20 +270,23 @@ struct OnboardingView: View {
     }
     
     private func saveOnboardingData() {
+        print("🔵 Saving onboarding data...")
+        
         // Save LinkedIn connection status
         if linkedInManager.isLinkedInConnected {
-            print("✅ LinkedIn profile saved")
-            // TODO: Upload to Firestore/Supabase
+            print("✅ LinkedIn profile saved locally")
+            // Already saved to Firebase in the connection callback
         }
         
         // Save resume
-        if let resumeURL = selectedResumeURL {
-            print("✅ Resume saved: \(resumeURL)")
+        if let resumeURL = selectedResumeURL, let fileName = resumeFileName {
+            print("✅ Resume saved: \(fileName)")
             // TODO: Upload resume to Firebase Storage/Supabase
         }
         
         // Mark onboarding as completed
         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+        print("✅ Onboarding marked as completed")
     }
 }
 
