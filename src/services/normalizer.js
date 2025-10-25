@@ -109,8 +109,9 @@ export class NormalizerService {
         company_id, provider, external_id, apply_url, title,
         employment_type, remote, salary_min, salary_max, salary_currency,
         posted_at, valid_through, description_excerpt, dedupe_key,
+        raw, -- ADD THIS LINE
         tsv
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
         to_tsvector('english', $5 || ' ' || COALESCE($13, ''))
       ) RETURNING id
     `, [
@@ -128,6 +129,7 @@ export class NormalizerService {
       job.valid_through,
       descriptionExcerpt,
       dedupeKey,
+      JSON.stringify(job.raw), // ADD THIS LINE - stores original job data
     ]);
     
     return result.rows[0].id;
@@ -146,9 +148,10 @@ export class NormalizerService {
         salary_currency = $8,
         valid_through = $9,
         description_excerpt = $10,
+        raw = $11, -- ADD THIS LINE
         tsv = to_tsvector('english', $3 || ' ' || COALESCE($10, '')),
         updated_at = now()
-      WHERE id = $11
+      WHERE id = $12
     `, [
       companyId,
       job.apply_url,
@@ -160,6 +163,7 @@ export class NormalizerService {
       job.salary_currency,
       job.valid_through,
       descriptionExcerpt,
+      JSON.stringify(job.raw), // ADD THIS LINE
       existing.id,
     ]);
   }
