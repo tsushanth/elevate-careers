@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  ElevateCareers
 //
-//  Created by Sushanth Tiruvaipati on 10/24/25.
+//  Created on 2024
 //
 
 import SwiftUI
@@ -10,6 +10,7 @@ import FirebaseAuth
 
 struct SettingsView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
+    @StateObject private var linkedInManager = LinkedInManager()
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteAlert = false
     @State private var showDeleteConfirmation = false
@@ -35,6 +36,60 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("Account")
+                }
+                
+                // LinkedIn Connection Section
+                if authViewModel.isSignedIn {
+                    Section {
+                        if linkedInManager.isLinkedInConnected {
+                            // LinkedIn Connected
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("LinkedIn Connected")
+                                        .font(.headline)
+                                    Text(linkedInManager.linkedInProfile?.fullName ?? "")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                            }
+                            
+                            Button(role: .destructive, action: {
+                                linkedInManager.disconnectLinkedIn()
+                            }) {
+                                HStack {
+                                    Image(systemName: "link.badge.minus")
+                                    Text("Disconnect LinkedIn")
+                                }
+                            }
+                        } else {
+                            // Connect LinkedIn
+                            Button(action: {
+                                linkedInManager.signInWithLinkedIn { success, profile in
+                                    if success {
+                                        print("✅ LinkedIn connected from settings")
+                                    }
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "person.crop.circle.badge.plus")
+                                        .foregroundColor(.blue)
+                                    Text("Connect LinkedIn")
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("LinkedIn Integration")
+                    } footer: {
+                        Text("Connect your LinkedIn to get personalized job recommendations and quick apply.")
+                    }
                 }
                 
                 // Account Actions Section
@@ -76,7 +131,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    Link(destination: URL(string: "https://www.sendsmiles.biz/privacy-policy")!) {
+                    Link(destination: URL(string: "https://kreativekoala.com/privacy")!) {
                         HStack {
                             Text("Privacy Policy")
                             Spacer()
@@ -86,7 +141,7 @@ struct SettingsView: View {
                         }
                     }
                     
-                    Link(destination: URL(string: "https://www.sendsmiles.biz/terms-of-service")!) {
+                    Link(destination: URL(string: "https://kreativekoala.com/terms")!) {
                         HStack {
                             Text("Terms of Service")
                             Spacer()
@@ -132,6 +187,9 @@ struct SettingsView: View {
                 if let error = deleteError {
                     Text(error)
                 }
+            }
+            .onAppear {
+                linkedInManager.loadSavedProfile()
             }
         }
     }

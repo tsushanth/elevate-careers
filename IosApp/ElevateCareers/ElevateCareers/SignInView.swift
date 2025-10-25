@@ -10,11 +10,13 @@ import AuthenticationServices
 
 struct SignInView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
+    @StateObject private var linkedInManager = LinkedInManager()
     @Binding var hasSeenWelcome: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var errorMessage: String?
+    @State private var showOnboarding = false
 
     var body: some View {
         NavigationStack {
@@ -46,6 +48,7 @@ struct SignInView: View {
                         VStack(spacing: 12) {
                             appleSignInButton(width: geometry.size.width)
                             googleSignInButton
+                            linkedInSignInButton
                         }
 
                         // Divider
@@ -69,7 +72,6 @@ struct SignInView: View {
 
                         // Continue Without Sign In
                         Button(action: {
-                            // Mark welcome as seen and dismiss
                             UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
                             hasSeenWelcome = true
                             dismiss()
@@ -99,6 +101,10 @@ struct SignInView: View {
                     }
                 }
             }
+            .fullScreenCover(isPresented: $showOnboarding) {
+                OnboardingView(linkedInManager: linkedInManager)
+                    .environmentObject(authViewModel)
+            }
         }
     }
     
@@ -121,7 +127,7 @@ struct SignInView: View {
                         print("✅ Signed in with Apple: \(userEmail ?? "")")
                         UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
                         hasSeenWelcome = true
-                        dismiss()
+                        dismiss() // Go to JobListView
                     } else {
                         print("❌ Apple Sign In failed in handler")
                     }
@@ -140,7 +146,7 @@ struct SignInView: View {
                     print("✅ Signed in with Google: \(userEmail ?? "")")
                     UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
                     hasSeenWelcome = true
-                    dismiss()
+                    dismiss() // Go to JobListView
                 }
             }
         }) {
@@ -154,7 +160,86 @@ struct SignInView: View {
             }
             .frame(maxWidth: .infinity)
             .padding()
-            .background(Color(red: 0.85, green: 0.33, blue: 0.0)) // Google Orange
+            .background(Color(red: 0.85, green: 0.33, blue: 0.0))
+            .cornerRadius(10)
+        }
+        .frame(height: 50)
+        .padding(.horizontal)
+    }
+    
+    private var linkedInSignInButton: some View {
+        Button(action: {
+            print("🔵 LinkedIn button tapped")
+            
+            linkedInManager.signInWithLinkedIn { success, profile in
+                print("🔵 LinkedIn callback received - success: \(success)")
+                
+                if let profile = profile {
+                    print("✅ LinkedIn profile received:")
+                    print("   - ID: \(profile.id)")
+                    print("   - Name: \(profile.fullName)")
+                    print("   - Email: \(profile.email ?? "nil")")
+                } else {
+                    print("❌ LinkedIn profile is nil")
+                }
+                
+                if success, let profile = profile {
+                    print("✅ LinkedIn OAuth successful: \(profile.fullName)")
+                    
+                    let email = profile.email ?? "linkedin_\(profile.id)@elevatecareers.temp"
+                    print("🔵 Using email: \(email)")
+                    
+                    // Sign in to Firebase with LinkedIn credentials
+                    authViewModel.signInWithLinkedIn(
+                        email: email,
+                        linkedInId: profile.id,
+                        name: profile.fullName
+                    ) { firebaseSuccess in
+                        print("🔵 Firebase callback - success: \(firebaseSuccess)")
+                        
+                        DispatchQueue.main.async {
+                            if firebaseSuccess {
+                                print("✅ Firebase auth successful")
+                                print("   - isSignedIn: \(self.authViewModel.isSignedIn)")
+                                print("   - userId: \(self.authViewModel.userId)")
+                                print("   - userEmail: \(self.authViewModel.userEmail)")
+                                
+                                UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
+                                self.hasSeenWelcome = true
+                                
+                                print("🔵 Dismissing SignInView")
+                                self.dismiss() // Go to job list
+                                
+                                // Show onboarding after dismissing
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    print("🔵 Showing onboarding")
+                                    self.showOnboarding = true
+                                }
+                            } else {
+                                print("❌ Firebase auth failed")
+                                self.errorMessage = "Failed to complete sign in. Please try again."
+                            }
+                        }
+                    }
+                } else {
+                    print("❌ LinkedIn OAuth failed - success: \(success), profile: \(profile != nil)")
+                    DispatchQueue.main.async {
+                        self.errorMessage = "Failed to connect with LinkedIn. Please try again."
+                    }
+                }
+            }
+        }) {
+            HStack {
+                Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                    .font(.title2)
+                    .foregroundColor(.white)
+                Text("Continue with LinkedIn")
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(Color(red: 0.0, green: 0.47, blue: 0.71)) // LinkedIn Blue
             .cornerRadius(10)
         }
         .frame(height: 50)
@@ -190,7 +275,7 @@ struct SignInView: View {
                             print("✅ Signed in with email")
                             UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
                             hasSeenWelcome = true
-                            dismiss()
+                            dismiss() // Go to JobListView
                         } else {
                             self.errorMessage = error
                         }
@@ -211,7 +296,7 @@ struct SignInView: View {
                             print("✅ Account created with email")
                             UserDefaults.standard.set(true, forKey: "hasSeenWelcome")
                             hasSeenWelcome = true
-                            dismiss()
+                            dismiss() // Go to JobListView
                         } else {
                             self.errorMessage = error
                         }
