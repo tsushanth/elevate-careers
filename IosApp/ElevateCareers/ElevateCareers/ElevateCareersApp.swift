@@ -2,16 +2,41 @@
 //  ElevateCareersApp.swift
 //  ElevateCareers
 //
-//  Created by Sushanth Tiruvaipati on 10/24/25.
+//  Created on 2024
 //
 
 import SwiftUI
+import FirebaseCore
+import GoogleSignIn
 
 @main
 struct ElevateCareersApp: App {
+    @StateObject private var authViewModel = AuthViewModel()
+    @State private var hasSeenWelcome = false
+    
+    init() {
+        // Configure Firebase
+        FirebaseApp.configure()
+        
+        // Check if user has seen welcome screen before
+        let seen = UserDefaults.standard.bool(forKey: "hasSeenWelcome")
+        _hasSeenWelcome = State(initialValue: seen)
+    }
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                if !hasSeenWelcome {
+                    WelcomeView(hasSeenWelcome: $hasSeenWelcome)
+                        .environmentObject(authViewModel)
+                } else {
+                    JobListView(hasSeenWelcome: $hasSeenWelcome)
+                        .environmentObject(authViewModel)
+                }
+            }
+            .onOpenURL { url in
+                GIDSignIn.sharedInstance.handle(url)
+            }
         }
     }
 }

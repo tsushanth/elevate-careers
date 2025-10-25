@@ -35,37 +35,65 @@ class AuthViewModel: ObservableObject {
     
     // MARK: - Google Sign In
     func signInWithGoogle(completion: @escaping (Bool, String?, String?) -> Void) {
+        print("🔵 signInWithGoogle called")
+        
         guard let clientID = FirebaseApp.app()?.options.clientID else {
+            print("❌ No Firebase client ID found")
             completion(false, nil, nil)
             return
         }
+        
+        print("🔵 Client ID: \(clientID)")
         
         let config = GIDConfiguration(clientID: clientID)
         GIDSignIn.sharedInstance.configuration = config
         
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first?.rootViewController else {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            print("❌ No window scene found")
             completion(false, nil, nil)
             return
         }
+        
+        guard let rootViewController = windowScene.windows.first?.rootViewController else {
+            print("❌ No root view controller found")
+            completion(false, nil, nil)
+            return
+        }
+        
+        print("🔵 Presenting Google Sign In...")
         
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { [weak self] result, error in
             guard let self = self else { return }
             
             if let error = error {
                 print("❌ Google Sign In Error: \(error.localizedDescription)")
+                print("❌ Error details: \(error)")
                 completion(false, nil, nil)
                 return
             }
             
-            guard let user = result?.user,
-                  let idToken = user.idToken?.tokenString else {
+            print("🔵 Google Sign In returned result")
+            
+            guard let user = result?.user else {
+                print("❌ No user in result")
                 completion(false, nil, nil)
                 return
             }
+            
+            print("🔵 Got user from Google")
+            
+            guard let idToken = user.idToken?.tokenString else {
+                print("❌ No ID token")
+                completion(false, nil, nil)
+                return
+            }
+            
+            print("🔵 Got ID token, creating Firebase credential")
             
             let credential = GoogleAuthProvider.credential(withIDToken: idToken,
                                                           accessToken: user.accessToken.tokenString)
+            
+            print("🔵 Signing in to Firebase...")
             
             Auth.auth().signIn(with: credential) { authResult, error in
                 if let error = error {
@@ -75,6 +103,7 @@ class AuthViewModel: ObservableObject {
                 }
                 
                 if let user = authResult?.user {
+                    print("✅ Successfully signed in to Firebase")
                     DispatchQueue.main.async {
                         self.isSignedIn = true
                         self.userEmail = user.email ?? ""
@@ -110,9 +139,10 @@ class AuthViewModel: ObservableObject {
                     return
                 }
                 
-                let credential = OAuthProvider.credential(withProviderID: "apple.com",
-                                                         idToken: idTokenString,
-                                                         rawNonce: nonce)
+                // ✅ Updated for newer Firebase SDK
+                let credential = OAuthProvider.appleCredential(withIDToken: idTokenString,
+                                                              rawNonce: nonce,
+                                                              fullName: appleIDCredential.fullName)
                 
                 Auth.auth().signIn(with: credential) { [weak self] authResult, error in
                     guard let self = self else { return }

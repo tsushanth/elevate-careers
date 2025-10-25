@@ -19,8 +19,8 @@ struct Job: Codable, Identifiable, Hashable {
     let salaryCurrency: String?
     let postedAt: String?
     let descriptionExcerpt: String?
-    let locations: [Location]
-    let skills: [String]
+    let locations: [Location]?  // Made optional - API may not include this
+    let skills: [String]?        // Made optional - API may not include this
     
     enum CodingKeys: String, CodingKey {
         case id, title, remote, locations, skills
@@ -44,7 +44,7 @@ struct Job: Codable, Identifiable, Hashable {
     }
     
     var locationDisplay: String {
-        if let firstLocation = locations.first {
+        if let locations = locations, let firstLocation = locations.first {
             return firstLocation.displayString
         } else if remote {
             return "Remote"

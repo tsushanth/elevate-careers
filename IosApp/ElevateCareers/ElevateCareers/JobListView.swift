@@ -9,6 +9,10 @@ import SwiftUI
 
 struct JobListView: View {
     @StateObject private var viewModel = JobListViewModel()
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @Binding var hasSeenWelcome: Bool
+    @State private var showSettings = false
+    @State private var showSignIn = false
     
     var body: some View {
         NavigationStack {
@@ -121,8 +125,45 @@ struct JobListView: View {
                 }
             }
             .navigationTitle("Jobs")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 16) {
+                        // Sign In button for guests
+                        if !authViewModel.isSignedIn {
+                            Button(action: {
+                                showSignIn = true
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.circle")
+                                        .font(.title3)
+                                    Text("Sign In")
+                                        .font(.subheadline)
+                                }
+                                .foregroundColor(.blue)
+                            }
+                        }
+                        
+                        // Settings button
+                        Button(action: {
+                            showSettings = true
+                        }) {
+                            Image(systemName: authViewModel.isSignedIn ? "gearshape.fill" : "gearshape")
+                                .font(.title3)
+                        }
+                    }
+                }
+            }
             .navigationDestination(for: Job.self) { job in
                 JobDetailView(job: job)
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+                    .environmentObject(authViewModel)
+            }
+            .sheet(isPresented: $showSignIn) {
+                SignInView(hasSeenWelcome: $hasSeenWelcome)
+                    .environmentObject(authViewModel)
             }
         }
     }
@@ -233,17 +274,13 @@ struct JobCardView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                // Posted time and promoted
+                // Posted time
                 HStack {
                     Text(job.timeAgo)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                     
                     Spacer()
-                    
-                    Text("Promoted")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
                 }
             }
         }
@@ -252,5 +289,6 @@ struct JobCardView: View {
 }
 
 #Preview {
-    JobListView()
+    JobListView(hasSeenWelcome: .constant(true))
+        .environmentObject(AuthViewModel())
 }

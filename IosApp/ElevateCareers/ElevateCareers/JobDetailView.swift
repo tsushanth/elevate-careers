@@ -2,14 +2,6 @@
 //  JobDetailView.swift
 //  ElevateCareers
 //
-//  Created by Sushanth Tiruvaipati on 10/24/25.
-//
-
-
-//
-//  JobDetailView.swift
-//  ElevateCareers
-//
 //  Created on 2024
 //
 
@@ -126,14 +118,14 @@ struct JobDetailView: View {
                 }
                 
                 // Skills
-                if !job.skills.isEmpty {
+                if let skills = job.skills, !skills.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Skills")
                             .font(.title2)
                             .fontWeight(.bold)
                         
                         FlowLayout(spacing: 8) {
-                            ForEach(job.skills, id: \.self) { skill in
+                            ForEach(skills, id: \.self) { skill in
                                 SkillChipView(skill: skill)
                             }
                         }

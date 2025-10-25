@@ -1,32 +1,26 @@
 //
-//  LoginWelcomeView.swift
+//  WelcomeView.swift
 //  ElevateCareers
 //
-//  Created by Sushanth Tiruvaipati on 10/24/25.
+//  Created on 2024
 //
-
-
-//
-//  LoginWelcomeView.swift
-//  PuzzleForge
-//
-//  Created by Sushanth Tiruvaipati on 5/23/25.
-//
-
 
 import SwiftUI
-import FirebaseAuth
 
-struct LoginWelcomeView: View {
-    @State private var navigateToNext = false
-    @StateObject private var viewModel = QAPuzzleViewModel()
+struct WelcomeView: View {
+    @Binding var hasSeenWelcome: Bool
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @State private var showSignIn = false
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // ✅ Gradient Background
+                // LinkedIn-inspired gradient
                 LinearGradient(
-                    gradient: Gradient(colors: [Color.purple.opacity(0.9), Color.purple]),
+                    gradient: Gradient(colors: [
+                        Color(red: 0.04, green: 0.4, blue: 0.76), // LinkedIn Blue
+                        Color(red: 0.0, green: 0.25, blue: 0.51)  // Darker Blue
+                    ]),
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -35,76 +29,94 @@ struct LoginWelcomeView: View {
                 VStack(spacing: 40) {
                     Spacer()
 
-                    // ✅ Question Marks
-                    HStack(spacing: 16) {
-                        Image(systemName: "questionmark.circle.fill")
+                    // App Icon/Logo Area
+                    VStack(spacing: 16) {
+                        Image(systemName: "briefcase.circle.fill")
                             .resizable()
-                            .frame(width: 60, height: 60)
-                            .foregroundColor(.pink)
-
-                        Image(systemName: "questionmark.circle.fill")
-                            .resizable()
-                            .frame(width: 80, height: 80)
-                            .foregroundColor(.orange)
-
-                        Image(systemName: "questionmark.circle.fill")
-                            .resizable()
-                            .frame(width: 60, height: 60)
-                            .foregroundColor(.purple.opacity(0.7))
+                            .frame(width: 100, height: 100)
+                            .foregroundColor(.white)
+                        
+                        Text("ElevateCareers")
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundColor(.white)
+                        
+                        Text("Find Your Dream Job")
+                            .font(.headline)
+                            .foregroundColor(.white.opacity(0.9))
                     }
 
                     Spacer()
 
-                    // ✅ Get Started Button
+                    // Features
+                    VStack(alignment: .leading, spacing: 12) {
+                        FeatureRow(icon: "magnifyingglass", text: "Search thousands of jobs")
+                        FeatureRow(icon: "slider.horizontal.3", text: "Filter by remote, salary & more")
+                        FeatureRow(icon: "bookmark.fill", text: "Save your favorite positions")
+                        FeatureRow(icon: "chart.line.uptrend.xyaxis", text: "Track your applications")
+                    }
+                    .padding(.horizontal, 40)
+
+                    Spacer()
+
+                    // Get Started Button
                     Button(action: {
-                        navigateToNext = true
+                        showSignIn = true
                     }) {
                         Text("Get Started")
-                            .foregroundColor(.white)
+                            .font(.headline)
+                            .foregroundColor(Color(red: 0.04, green: 0.4, blue: 0.76))
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color.orange)
-                            .cornerRadius(30)
+                            .background(Color.white)
+                            .cornerRadius(12)
                             .padding(.horizontal, 40)
-                            .shadow(radius: 4)
+                            .shadow(radius: 8)
                     }
 
-                    // ✅ Log in Text
+                    // Log in Text
                     HStack(spacing: 4) {
                         Text("Already have an account?")
-                            .foregroundColor(.white)
+                            .foregroundColor(.white.opacity(0.9))
 
                         Button(action: {
-                            navigateToNext = true
+                            showSignIn = true
                         }) {
                             Text("Log in")
-                                .foregroundColor(.orange)
+                                .foregroundColor(.white)
+                                .fontWeight(.semibold)
                                 .underline()
                         }
                     }
                     .font(.subheadline)
 
-                    // ✅ Navigate based on sign-in status
-                    NavigationLink(
-                        destination: viewModel.isSignedIn
-                            ? AnyView(HomeView())
-                            : AnyView(SignInView(viewModel: viewModel)),
-                        isActive: $navigateToNext
-                    ) {
-                        EmptyView()
-                    }
-
                     Spacer().frame(height: 30)
                 }
                 .padding()
             }
-        }
-        .onAppear {
-            if let user = Auth.auth().currentUser {
-                viewModel.isSignedIn = true
-                viewModel.userEmail = user.email ?? ""
-                viewModel.userId = user.uid
+            .sheet(isPresented: $showSignIn) {
+                SignInView(hasSeenWelcome: $hasSeenWelcome)
+                    .environmentObject(authViewModel)
             }
+        }
+    }
+}
+
+struct FeatureRow: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(.white)
+                .frame(width: 30)
+            
+            Text(text)
+                .font(.body)
+                .foregroundColor(.white)
+            
+            Spacer()
         }
     }
 }
