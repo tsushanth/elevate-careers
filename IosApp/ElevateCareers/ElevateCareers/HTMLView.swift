@@ -2,6 +2,14 @@
 //  HTMLView.swift
 //  ElevateCareers
 //
+//  Created by Sushanth Tiruvaipati on 10/25/25.
+//
+
+
+//
+//  HTMLView.swift
+//  ElevateCareers
+//
 //  Renders HTML content (job descriptions) in SwiftUI
 //
 

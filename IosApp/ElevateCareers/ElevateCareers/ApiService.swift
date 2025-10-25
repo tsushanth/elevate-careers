@@ -38,7 +38,7 @@ class ApiService {
         limit: Int = 50,
         offset: Int = 0
     ) async throws -> [Job] {
-        var components = URLComponents(string: "\(baseURL)/jobs")
+        let components = URLComponents(string: "\(baseURL)/jobs")
         guard var urlComponents = components else {
             throw APIError.invalidURL
         }

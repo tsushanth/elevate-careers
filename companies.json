@@ -1,0 +1,24 @@
+{
+  "greenhouse": [
+    "anthropic",
+    "stripe",
+    "airbnb",
+    "notion",
+    "figma"
+  ],
+  "lever": [
+    "netflix",
+    "uber",
+    "slack",
+    "spotify"
+  ],
+  "ashby": [
+    "rippling",
+    "ramp"
+  ],
+  "smartrecruiters": [
+    "bosch",
+    "visa",
+    "ikea"
+  ]
+}

@@ -2,6 +2,14 @@
 //  ProfileView.swift
 //  ElevateCareers
 //
+//  Created by Sushanth Tiruvaipati on 10/25/25.
+//
+
+
+//
+//  ProfileView.swift
+//  ElevateCareers
+//
 //  User profile management with resume upload and LinkedIn import
 //
 

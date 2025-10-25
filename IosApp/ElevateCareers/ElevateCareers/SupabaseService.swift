@@ -2,6 +2,14 @@
 //  SupabaseService.swift
 //  ElevateCareers
 //
+//  Created by Sushanth Tiruvaipati on 10/25/25.
+//
+
+
+//
+//  SupabaseService.swift
+//  ElevateCareers
+//
 //  Supabase client for authentication and storage
 //
 
