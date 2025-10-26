@@ -1,8 +1,8 @@
 // routes/ai-resume.js
-const express = require('express');
+import express from 'express';
+import { OpenAI } from 'openai';
+import { createClient } from '@supabase/supabase-js';
 const router = express.Router();
-const { OpenAI } = require('openai');
-const { createClient } = require('@supabase/supabase-js');
 
 // Initialize OpenAI
 const openai = new OpenAI({
@@ -589,4 +589,4 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000); // Run every hour
 
-module.exports = router;
+export default router; 
