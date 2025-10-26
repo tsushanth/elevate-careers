@@ -2,14 +2,6 @@
 //  SupabaseService.swift
 //  ElevateCareers
 //
-//  Created by Sushanth Tiruvaipati on 10/25/25.
-//
-
-
-//
-//  SupabaseService.swift
-//  ElevateCareers
-//
 //  Supabase client for authentication and storage
 //
 
@@ -22,9 +14,10 @@ class SupabaseService {
     let client: SupabaseClient
     
     private init() {
-        guard let supabaseURL = URL(string: Configuration.supabaseURL),
+        guard let supabaseURLString = Configuration.supabaseURL,
+              let supabaseURL = URL(string: supabaseURLString),
               let supabaseKey = Configuration.supabaseAnonKey else {
-            fatalError("Missing Supabase configuration")
+            fatalError("Missing Supabase configuration. Add SUPABASE_URL and SUPABASE_ANON_KEY to Info.plist")
         }
         
         client = SupabaseClient(
@@ -36,12 +29,15 @@ class SupabaseService {
     // MARK: - Authentication
     
     var currentSession: Session? {
-        // Get session from Supabase
-        return try? client.auth.session
+        get async {
+            return try? await client.auth.session
+        }
     }
     
     var currentUser: User? {
-        return currentSession?.user
+        get async {
+            return try? await client.auth.session.user
+        }
     }
     
     func signUp(email: String, password: String) async throws -> Session {
@@ -49,15 +45,20 @@ class SupabaseService {
             email: email,
             password: password
         )
-        return response.session
+        
+        guard let session = response.session else {
+            throw NSError(domain: "SupabaseService", code: 401, userInfo: [NSLocalizedDescriptionKey: "No session returned"])
+        }
+        
+        return session
     }
     
     func signIn(email: String, password: String) async throws -> Session {
-        let response = try await client.auth.signIn(
+        let session = try await client.auth.signIn(
             email: email,
             password: password
         )
-        return response.session
+        return session
     }
     
     func signOut() async throws {
@@ -72,7 +73,7 @@ class SupabaseService {
         let path = "\(userId)/\(timestamp)-\(fileName)"
         
         // Upload to Supabase Storage
-        let uploadResponse = try await client.storage
+        _ = try await client.storage
             .from("resumes")
             .upload(
                 path: path,
@@ -113,7 +114,7 @@ class SupabaseService {
     // MARK: - Database Queries
     
     func getProfile(userId: String) async throws -> UserProfile? {
-        let response = try await client.database
+        let response: UserProfile = try await client.database
             .from("user_profile")
             .select("""
                 *,
@@ -124,24 +125,24 @@ class SupabaseService {
             .eq("user_id", value: userId)
             .single()
             .execute()
+            .value
         
-        let profile = try JSONDecoder().decode(UserProfile.self, from: response.data)
-        return profile
+        return response
     }
     
     func updateProfile(userId: String, updates: [String: Any]) async throws -> UserProfile {
         // Convert updates to JSON
         let jsonData = try JSONSerialization.data(withJSONObject: updates)
         
-        let response = try await client.database
+        let response: UserProfile = try await client.database
             .from("user_profile")
             .upsert(jsonData)
             .eq("user_id", value: userId)
             .single()
             .execute()
+            .value
         
-        let profile = try JSONDecoder().decode(UserProfile.self, from: response.data)
-        return profile
+        return response
     }
     
     func saveJob(userId: String, jobId: Int) async throws {
@@ -160,15 +161,24 @@ class SupabaseService {
     }
     
     func getSavedJobs(userId: String) async throws -> [SavedJob] {
-        let response = try await client.database
+        let response: [SavedJob] = try await client.database
             .from("saved_job")
             .select("*, job (*)")
             .eq("user_id", value: userId)
             .order("saved_at", ascending: false)
             .execute()
+            .value
         
-        let savedJobs = try JSONDecoder().decode([SavedJob].self, from: response.data)
-        return savedJobs
+        return response
+    }
+    
+    // MARK: - Get Auth Token
+    
+    func getAuthToken() async -> String? {
+        guard let session = try? await client.auth.session else {
+            return nil
+        }
+        return session.accessToken
     }
     
     // MARK: - Helpers
@@ -196,8 +206,8 @@ struct Configuration {
         if let url = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String {
             return url
         }
-        // Fallback to hardcoded (for development only)
-        return "https://your-project.supabase.co"
+        // Fallback for development (replace with your actual URL)
+        return nil  // Set this to your Supabase URL for development
     }()
     
     static let supabaseAnonKey: String? = {
@@ -205,8 +215,8 @@ struct Configuration {
         if let key = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String {
             return key
         }
-        // Fallback to hardcoded (for development only)
-        return "your-anon-key-here"
+        // Fallback for development (replace with your actual key)
+        return nil  // Set this to your anon key for development
     }()
 }
 

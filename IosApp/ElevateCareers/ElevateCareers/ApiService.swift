@@ -23,7 +23,7 @@ enum APIError: Error {
 }
 
 class ApiService {
-    private let baseURL = "https://elevate-careers-917362189743.europe-west1.run.app"
+    public let baseURL = "https://elevate-careers-917362189743.europe-west1.run.app"
     
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()

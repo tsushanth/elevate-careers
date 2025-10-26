@@ -51,9 +51,11 @@ class ProfileViewModel: ObservableObject {
         
         do {
             // 1. Get current user
-            guard let userId = supabase.currentUser?.id.uuidString else {
+            guard let user = await supabase.currentUser else {
                 throw NSError(domain: "ProfileViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
             }
+            
+            let userId = user.id.uuidString  // ✅ UUID is always a valid string
             
             // 2. Read file data
             guard url.startAccessingSecurityScopedResource() else {
@@ -167,9 +169,11 @@ class ProfileViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            guard let userId = supabase.currentUser?.id.uuidString else {
+            guard let user = await supabase.currentUser else {
                 throw NSError(domain: "ProfileViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
             }
+            
+            let userId = user.id.uuidString  // ✅ UUID is always a valid string
             
             // Update via Supabase directly
             let updatedProfile = try await supabase.updateProfile(userId: userId, updates: updates)
@@ -366,7 +370,7 @@ extension ApiService {
     func getProfile() async throws -> UserProfile? {
         let url = URL(string: "\(baseURL)/api/profile")!
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(await getAuthToken())", forHTTPHeaderField: "Authorization")
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -386,7 +390,7 @@ extension ApiService {
         let url = URL(string: "\(baseURL)/api/profile/resume/parse")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(await getAuthToken())", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let body: [String: Any] = [
@@ -410,7 +414,7 @@ extension ApiService {
         let url = URL(string: "\(baseURL)/api/profile/resume/\(resumeId)")!
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(await getAuthToken())", forHTTPHeaderField: "Authorization")
         
         let (_, response) = try await URLSession.shared.data(for: request)
         
@@ -423,7 +427,7 @@ extension ApiService {
         let url = URL(string: "\(baseURL)/api/profile/linkedin")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(getAuthToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(await getAuthToken())", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let body = ["linkedinData": data]
@@ -444,9 +448,9 @@ extension ApiService {
         return result.profile
     }
     
-    private func getAuthToken() -> String {
+    private func getAuthToken() async -> String {
         // Get from Supabase
-        return SupabaseService.shared.currentSession?.accessToken ?? ""
+        return await SupabaseService.shared.getAuthToken() ?? ""
     }
 }
 
@@ -455,7 +459,8 @@ extension ApiService {
 import UIKit
 
 struct DocumentPicker: UIViewControllerRepresentable {
-    let viewModel: ProfileViewModel
+    @Binding var selectedURL: URL?
+    @Binding var fileName: String?
     
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let supportedTypes: [UTType] = [.pdf]
@@ -468,22 +473,22 @@ struct DocumentPicker: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel)
+        Coordinator(selectedURL: $selectedURL, fileName: $fileName)
     }
     
     class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let viewModel: ProfileViewModel
+        @Binding var selectedURL: URL?
+        @Binding var fileName: String?
         
-        init(viewModel: ProfileViewModel) {
-            self.viewModel = viewModel
+        init(selectedURL: Binding<URL?>, fileName: Binding<String?>) {
+            _selectedURL = selectedURL
+            _fileName = fileName
         }
         
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-            
-            Task {
-                await viewModel.uploadResume(url: url)
-            }
+            selectedURL = url
+            fileName = url.lastPathComponent
         }
     }
 }
