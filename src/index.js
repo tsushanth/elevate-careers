@@ -23,6 +23,8 @@ async function startServer() {
       healthApp.get('/health', (req, res) => {
         res.json({ status: 'healthy', mode: 'worker', timestamp: new Date().toISOString() });
       });
+
+      const HOST = '0.0.0.0';
       
       // Start health check server
       const healthServer = healthApp.listen(config.port, () => {
@@ -49,6 +51,8 @@ async function startServer() {
       // Start API server
       logger.info('Starting in API mode');
       const app = (await import('./api/server.js')).default;
+
+      const HOST = '0.0.0.0';
       
       const server = app.listen(config.port, () => {
         logger.info({ 
