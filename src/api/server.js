@@ -28,7 +28,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-const aiResumeRoutes = require('../routes/ai-resume.js');
+import aiResumeRoutes from '../routes/ai-resume.js';
 app.use('/api/ai-resume', aiResumeRoutes);
 
 // Ingestion API
