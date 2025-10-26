@@ -28,6 +28,9 @@ app.get('/health', async (req, res) => {
   }
 });
 
+const aiResumeRoutes = require('./routes/ai-resume');
+app.use('/api/ai-resume', aiResumeRoutes);
+
 // Ingestion API
 app.post('/ingest/org', async (req, res) => {
   try {

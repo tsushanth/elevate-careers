@@ -32,6 +32,12 @@
 		88B87C432EAC2B9A002D6D06 /* FirebaseRemoteConfig in Frameworks */ = {isa = PBXBuildFile; productRef = 88B87C422EAC2B9A002D6D06 /* FirebaseRemoteConfig */; };
 		88B87C452EAC2B9A002D6D06 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 88B87C442EAC2B9A002D6D06 /* FirebaseStorage */; };
 		88B87C472EAC2B9A002D6D06 /* FirebaseStorageCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = 88B87C462EAC2B9A002D6D06 /* FirebaseStorageCombine-Community */; };
+		88F215642EAD53A3003346E1 /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 88F215632EAD53A3003346E1 /* Auth */; };
+		88F215662EAD53A3003346E1 /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = 88F215652EAD53A3003346E1 /* Functions */; };
+		88F215682EAD53A3003346E1 /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 88F215672EAD53A3003346E1 /* PostgREST */; };
+		88F2156A2EAD53A4003346E1 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 88F215692EAD53A4003346E1 /* Realtime */; };
+		88F2156C2EAD53A4003346E1 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 88F2156B2EAD53A4003346E1 /* Storage */; };
+		88F2156E2EAD53A4003346E1 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 88F2156D2EAD53A4003346E1 /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -65,6 +71,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				88B87C332EAC2B9A002D6D06 /* FirebaseFirestoreCombine-Community in Frameworks */,
+				88F2156E2EAD53A4003346E1 /* Supabase in Frameworks */,
 				88B87C352EAC2B9A002D6D06 /* FirebaseFunctions in Frameworks */,
 				88B87C412EAC2B9A002D6D06 /* FirebasePerformance in Frameworks */,
 				88B87C472EAC2B9A002D6D06 /* FirebaseStorageCombine-Community in Frameworks */,
@@ -76,14 +83,19 @@
 				88B87C1B2EAC2B9A002D6D06 /* FirebaseAI in Frameworks */,
 				88B87C312EAC2B9A002D6D06 /* FirebaseFirestore in Frameworks */,
 				88B87C3F2EAC2B9A002D6D06 /* FirebaseMessaging in Frameworks */,
+				88F215662EAD53A3003346E1 /* Functions in Frameworks */,
 				88B87C3B2EAC2B9A002D6D06 /* FirebaseInstallations in Frameworks */,
 				88B87C372EAC2B9A002D6D06 /* FirebaseFunctionsCombine-Community in Frameworks */,
 				88B87C272EAC2B9A002D6D06 /* FirebaseAuth in Frameworks */,
+				88F215682EAD53A3003346E1 /* PostgREST in Frameworks */,
 				88B87C252EAC2B9A002D6D06 /* FirebaseAppDistribution-Beta in Frameworks */,
+				88F2156C2EAD53A4003346E1 /* Storage in Frameworks */,
 				88B87C392EAC2B9A002D6D06 /* FirebaseInAppMessaging-Beta in Frameworks */,
 				88201B792EAC2CF5003B2359 /* GoogleSignIn in Frameworks */,
 				88B87C2D2EAC2B9A002D6D06 /* FirebaseCrashlytics in Frameworks */,
+				88F2156A2EAD53A4003346E1 /* Realtime in Frameworks */,
 				88B87C2F2EAC2B9A002D6D06 /* FirebaseDatabase in Frameworks */,
+				88F215642EAD53A3003346E1 /* Auth in Frameworks */,
 				88201B7B2EAC2CF5003B2359 /* GoogleSignInSwift in Frameworks */,
 				88B87C3D2EAC2B9A002D6D06 /* FirebaseMLModelDownloader in Frameworks */,
 				88B87C452EAC2B9A002D6D06 /* FirebaseStorage in Frameworks */,
@@ -156,6 +168,12 @@
 				88B87C462EAC2B9A002D6D06 /* FirebaseStorageCombine-Community */,
 				88201B782EAC2CF5003B2359 /* GoogleSignIn */,
 				88201B7A2EAC2CF5003B2359 /* GoogleSignInSwift */,
+				88F215632EAD53A3003346E1 /* Auth */,
+				88F215652EAD53A3003346E1 /* Functions */,
+				88F215672EAD53A3003346E1 /* PostgREST */,
+				88F215692EAD53A4003346E1 /* Realtime */,
+				88F2156B2EAD53A4003346E1 /* Storage */,
+				88F2156D2EAD53A4003346E1 /* Supabase */,
 			);
 			productName = ElevateCareers;
 			productReference = 88B87A9B2EABE2B4002D6D06 /* ElevateCareers.app */;
@@ -188,6 +206,7 @@
 			packageReferences = (
 				88B87AB82EAC1E75002D6D06 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				88201B772EAC2CF5003B2359 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 88B87A9C2EABE2B4002D6D06 /* Products */;
@@ -346,7 +365,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ElevateCareers/ElevateCareersDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"ElevateCareers/Preview Content\"";
 				DEVELOPMENT_TEAM = 7RS696YC75;
 				ENABLE_PREVIEWS = YES;
@@ -362,7 +381,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kreativekoala.elevatecareers;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -378,7 +397,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ElevateCareers/ElevateCareersRelease.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"ElevateCareers/Preview Content\"";
 				DEVELOPMENT_TEAM = 7RS696YC75;
 				ENABLE_PREVIEWS = YES;
@@ -394,7 +413,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kreativekoala.elevatecareers;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -441,6 +460,14 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 12.4.0;
+			};
+		};
+		88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -570,6 +597,36 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 88B87AB82EAC1E75002D6D06 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = "FirebaseStorageCombine-Community";
+		};
+		88F215632EAD53A3003346E1 /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+		88F215652EAD53A3003346E1 /* Functions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Functions;
+		};
+		88F215672EAD53A3003346E1 /* PostgREST */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = PostgREST;
+		};
+		88F215692EAD53A4003346E1 /* Realtime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Realtime;
+		};
+		88F2156B2EAD53A4003346E1 /* Storage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Storage;
+		};
+		88F2156D2EAD53A4003346E1 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 88F215622EAD53A3003346E1 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

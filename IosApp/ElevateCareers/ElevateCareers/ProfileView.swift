@@ -2,15 +2,8 @@
 //  ProfileView.swift
 //  ElevateCareers
 //
-//  Created by Sushanth Tiruvaipati on 10/25/25.
-//
-
-
-//
-//  ProfileView.swift
-//  ElevateCareers
-//
 //  User profile management with resume upload and LinkedIn import
+//  Fixed for iOS 15+
 //
 
 import SwiftUI
@@ -18,149 +11,192 @@ import UniformTypeIdentifiers
 
 struct ProfileView: View {
     @StateObject private var viewModel = ProfileViewModel()
-    @EnvironmentObject var authViewModel: AuthViewModel
-    @State private var showingDocumentPicker = false
-    @State private var showingLinkedInImport = false
+    
+    // State for document picker
+    @State private var showDocumentPicker = false
+    @State private var selectedResumeURL: URL?
+    @State private var resumeFileName: String?
+    
+    // State for other sheets
     @State private var showingEditProfile = false
+    @State private var showingLinkedInImport = false
     
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 20) {
                     // Profile Header
-                    ProfileHeaderView(profile: viewModel.profile)
-                    
-                    // Profile Completeness
-                    if let completeness = viewModel.profile?.profileCompleteness {
-                        ProfileCompletenessCard(completeness: completeness)
+                    if let profile = viewModel.profile {
+                        ProfileHeaderView(profile: profile)
                     }
                     
                     // Resume Section
-                    ResumeSection(
-                        hasResume: viewModel.hasResume,
-                        resumeFileName: viewModel.profile?.resume?.first?.fileName,
-                        onUpload: { showingDocumentPicker = true },
-                        onView: { viewModel.viewResume() }
-                    )
-                    
-                    // Quick Actions
-                    QuickActionsSection(
-                        onEditProfile: { showingEditProfile = true },
-                        onLinkedInImport: { showingLinkedInImport = true }
-                    )
-                    
-                    // Profile Sections
-                    if let profile = viewModel.profile {
-                        // Skills
-                        if let skills = profile.skills, !skills.isEmpty {
-                            SkillsSection(skills: skills)
-                        }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Resume")
+                            .font(.headline)
                         
-                        // Work Experience
-                        if let experience = profile.workExperience, !experience.isEmpty {
-                            WorkExperienceSection(experiences: experience)
+                        if viewModel.hasResume {
+                            // Show existing resume
+                            ResumeCardView(
+                                resume: viewModel.profile?.resume?.first,
+                                onView: { viewModel.viewResume() },
+                                onDelete: {
+                                    Task {
+                                        await viewModel.deleteResume()
+                                    }
+                                }
+                            )
+                        } else {
+                            // Upload resume button
+                            Button(action: {
+                                showDocumentPicker = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "doc.badge.plus")
+                                    Text("Upload Resume")
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                }
+                                .padding()
+                                .background(Color(.systemGray6))
+                                .cornerRadius(12)
+                            }
                         }
-                        
-                        // Education
-                        if let education = profile.education, !education.isEmpty {
-                            EducationSection(education: education)
-                        }
-                        
-                        // Job Preferences
-                        PreferencesSection(profile: profile)
                     }
+                    .padding(.horizontal)
                     
-                    // Sign Out
-                    Button(action: {
-                        authViewModel.signOut()
-                    }) {
-                        Text("Sign Out")
-                            .foregroundColor(.red)
-                            .frame(maxWidth: .infinity)
+                    // Action Buttons
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            showingEditProfile = true
+                        }) {
+                            HStack {
+                                Image(systemName: "pencil")
+                                Text("Edit Profile")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }
                             .padding()
-                            .background(Color.red.opacity(0.1))
+                            .background(Color(.systemGray6))
                             .cornerRadius(12)
+                        }
+                        
+                        Button(action: {
+                            showingLinkedInImport = true
+                        }) {
+                            HStack {
+                                Image(systemName: "person.crop.circle.badge.plus")
+                                Text("Import from LinkedIn")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(12)
+                        }
                     }
                     .padding(.horizontal)
                 }
-                .padding(.vertical)
             }
             .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.large)
-            .sheet(isPresented: $showingDocumentPicker) {
-                DocumentPicker(viewModel: viewModel)
+            .task {
+                await viewModel.loadProfile()
+            }
+            // MARK: - Document Picker Sheet
+            .sheet(isPresented: $showDocumentPicker) {
+                DocumentPicker(
+                    selectedURL: $selectedResumeURL,
+                    fileName: $resumeFileName
+                )
+            }
+            // MARK: - Handle Resume Upload (iOS 15+ compatible)
+            .onChange(of: selectedResumeURL) { newValue in
+                if let url = newValue {
+                    Task {
+                        await viewModel.uploadResume(url: url)
+                        // Reset after upload
+                        selectedResumeURL = nil
+                        resumeFileName = nil
+                    }
+                }
+            }
+            // MARK: - Other Sheets
+            .sheet(isPresented: $showingEditProfile) {
+                EditProfileView(viewModel: viewModel)
             }
             .sheet(isPresented: $showingLinkedInImport) {
                 LinkedInImportView(viewModel: viewModel)
             }
-            .sheet(isPresented: $showingEditProfile) {
-                EditProfileView(viewModel: viewModel)
-            }
-            .task {
-                await viewModel.loadProfile()
-            }
-            .refreshable {
-                await viewModel.loadProfile()
-            }
+            // MARK: - Loading Overlay
             .overlay {
                 if viewModel.isLoading {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black.opacity(0.3))
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                        
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            
+                            if viewModel.uploadProgress > 0 && viewModel.uploadProgress < 1 {
+                                Text("\(Int(viewModel.uploadProgress * 100))%")
+                                    .foregroundColor(.white)
+                                    .font(.headline)
+                            }
+                        }
+                    }
                 }
             }
-            .alert("Error", isPresented: $viewModel.showError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(viewModel.errorMessage ?? "An error occurred")
+            // MARK: - Alerts
+            .alert(isPresented: $viewModel.showError) {
+                Alert(
+                    title: Text(viewModel.errorMessage?.contains("successfully") == true ? "Success" : "Error"),
+                    message: Text(viewModel.errorMessage ?? "An error occurred"),
+                    dismissButton: .default(Text("OK"))
+                )
             }
         }
     }
 }
 
-// MARK: - Profile Header
+// MARK: - Supporting Views
 
 struct ProfileHeaderView: View {
-    let profile: UserProfile?
+    let profile: UserProfile
     
     var body: some View {
         VStack(spacing: 12) {
-            // Avatar
+            // Profile Picture
             Circle()
-                .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 100, height: 100)
-                .overlay {
-                    if let name = profile?.fullName {
-                        Text(name.prefix(1).uppercased())
-                            .font(.system(size: 40, weight: .semibold))
-                            .foregroundColor(.white)
-                    } else {
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 40))
-                            .foregroundColor(.white)
-                    }
-                }
+                .fill(Color.blue.opacity(0.2))
+                .frame(width: 80, height: 80)
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.blue)
+                )
             
-            VStack(spacing: 4) {
-                Text(profile?.fullName ?? "Complete Your Profile")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                if let headline = profile?.headline {
-                    Text(headline)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                
-                if let location = profile?.locationCity {
-                    HStack(spacing: 4) {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(.caption)
-                        Text(location)
-                            .font(.caption)
-                    }
+            // Name
+            Text(profile.fullName ?? "No Name")
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            // Headline
+            if let headline = profile.headline {
+                Text(headline)
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
+            }
+            
+            // Completeness
+            if let completeness = profile.profileCompleteness {
+                HStack(spacing: 8) {
+                    ProgressView(value: Double(completeness), total: 100)
+                        .frame(width: 150)
+                    Text("\(completeness)%")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
         }
@@ -168,173 +204,129 @@ struct ProfileHeaderView: View {
     }
 }
 
-// MARK: - Profile Completeness
-
-struct ProfileCompletenessCard: View {
-    let completeness: Int
+struct ResumeCardView: View {
+    let resume: Resume?
+    let onView: () -> Void
+    let onDelete: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        if let resume = resume {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Profile Strength")
-                        .font(.headline)
-                    Text("\(completeness)% Complete")
+                    Text(resume.fileName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    // FIX: uploadedAt is String, not String?
+                    Text("Uploaded \(formatDate(resume.uploadedAt))")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 
                 Spacer()
                 
-                ZStack {
-                    Circle()
-                        .stroke(Color.gray.opacity(0.2), lineWidth: 8)
-                        .frame(width: 60, height: 60)
-                    
-                    Circle()
-                        .trim(from: 0, to: CGFloat(completeness) / 100)
-                        .stroke(completenessColor, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                        .frame(width: 60, height: 60)
-                        .rotationEffect(.degrees(-90))
-                    
-                    Text("\(completeness)%")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                }
-            }
-            
-            if completeness < 100 {
-                Text("Complete your profile to get better job matches!")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
-        .padding(.horizontal)
-    }
-    
-    var completenessColor: Color {
-        if completeness >= 80 { return .green }
-        if completeness >= 50 { return .orange }
-        return .red
-    }
-}
-
-// MARK: - Resume Section
-
-struct ResumeSection: View {
-    let hasResume: Bool
-    let resumeFileName: String?
-    let onUpload: () -> Void
-    let onView: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Resume")
-                .font(.headline)
-                .padding(.horizontal)
-            
-            if hasResume {
+                // View button
                 Button(action: onView) {
-                    HStack {
-                        Image(systemName: "doc.text.fill")
-                            .foregroundColor(.blue)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(resumeFileName ?? "Resume.pdf")
-                                .font(.subheadline)
-                                .foregroundColor(.primary)
-                            Text("Tap to view")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                        
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
+                    Image(systemName: "eye")
+                        .foregroundColor(.blue)
                 }
-                .padding(.horizontal)
+                .buttonStyle(.borderless)
                 
-                Button(action: onUpload) {
-                    HStack {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                        Text("Upload New Resume")
-                    }
-                    .font(.subheadline)
-                    .foregroundColor(.blue)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue.opacity(0.1))
-                    .cornerRadius(12)
+                // Delete button
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
                 }
-                .padding(.horizontal)
-            } else {
-                Button(action: onUpload) {
-                    VStack(spacing: 12) {
-                        Image(systemName: "arrow.up.doc.fill")
-                            .font(.system(size: 40))
-                            .foregroundColor(.blue)
-                        
-                        Text("Upload Resume")
-                            .font(.headline)
-                        
-                        Text("Get better job matches with your resume")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 32)
-                    .background(Color.blue.opacity(0.05))
-                    .cornerRadius(12)
-                }
-                .padding(.horizontal)
+                .buttonStyle(.borderless)
             }
+            .padding()
+            .background(Color.green.opacity(0.1))
+            .cornerRadius(12)
         }
     }
+    
+    private func formatDate(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: dateString) {
+            let displayFormatter = DateFormatter()
+            displayFormatter.dateStyle = .medium
+            return displayFormatter.string(from: date)
+        }
+        return dateString
+    }
 }
-
-// MARK: - Quick Actions
-
-struct QuickActionsSection: View {
-    let onEditProfile: () -> Void
-    let onLinkedInImport: () -> Void
+/*
+struct SkillChip: View {
+    let text: String
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Quick Actions")
-                .font(.headline)
-                .padding(.horizontal)
-            
-            VStack(spacing: 12) {
-                ActionButton(
-                    icon: "person.fill",
-                    title: "Edit Profile",
-                    subtitle: "Update your information",
-                    color: .blue,
-                    action: onEditProfile
-                )
-                
-                ActionButton(
-                    icon: "link",
-                    title: "Import from LinkedIn",
-                    subtitle: "Auto-fill from LinkedIn profile",
-                    color: .blue,
-                    action: onLinkedInImport
-                )
-            }
-            .padding(.horizontal)
-        }
+        Text(text)
+            .font(.caption)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.blue.opacity(0.1))
+            .foregroundColor(.blue)
+            .cornerRadius(16)
     }
 }
+
+// MARK: - FlowLayout for skills
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        
+        var totalHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+        
+        var lineWidth: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        
+        for size in sizes {
+            if lineWidth + size.width > proposal.width ?? 0 {
+                totalHeight += lineHeight + spacing
+                lineWidth = size.width
+                lineHeight = size.height
+            } else {
+                lineWidth += size.width + spacing
+                lineHeight = max(lineHeight, size.height)
+            }
+            totalWidth = max(totalWidth, lineWidth)
+        }
+        
+        totalHeight += lineHeight
+        
+        return CGSize(width: totalWidth, height: totalHeight)
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        
+        var lineX = bounds.minX
+        var lineY = bounds.minY
+        var lineHeight: CGFloat = 0
+        
+        for index in subviews.indices {
+            let size = sizes[index]
+            
+            if lineX + size.width > bounds.maxX {
+                lineY += lineHeight + spacing
+                lineHeight = 0
+                lineX = bounds.minX
+            }
+            
+            subviews[index].place(
+                at: CGPoint(x: lineX, y: lineY),
+                proposal: ProposedViewSize(size)
+            )
+            
+            lineHeight = max(lineHeight, size.height)
+            lineX += size.width + spacing
+        }
+    }
+}*/
 
 struct ActionButton: View {
     let icon: String

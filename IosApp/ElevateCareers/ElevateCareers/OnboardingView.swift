@@ -308,42 +308,6 @@ struct OnboardingBenefit: View {
     }
 }
 
-// Document Picker
-struct DocumentPicker: UIViewControllerRepresentable {
-    @Binding var selectedURL: URL?
-    @Binding var fileName: String?
-    @Environment(\.dismiss) private var dismiss
-    
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf, .plainText, .data], asCopy: true)
-        picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
-        return picker
-    }
-    
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let parent: DocumentPicker
-        
-        init(_ parent: DocumentPicker) {
-            self.parent = parent
-        }
-        
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            parent.selectedURL = url
-            parent.fileName = url.lastPathComponent
-            print("✅ Selected file: \(url.lastPathComponent)")
-            parent.dismiss()
-        }
-    }
-}
-
 #Preview {
     OnboardingView(linkedInManager: LinkedInManager())
         .environmentObject(AuthViewModel())
