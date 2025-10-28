@@ -1,8 +1,9 @@
-// routes/ai-resume.js
-const express = require('express');
+// routes/ai-resume.js - ES Module version for existing project
+import express from 'express';
+import { OpenAI } from 'openai';
+import { createClient } from '@supabase/supabase-js';
+
 const router = express.Router();
-const { OpenAI } = require('openai');
-const { createClient } = require('@supabase/supabase-js');
 
 // Initialize OpenAI
 const openai = new OpenAI({
@@ -12,13 +13,13 @@ const openai = new OpenAI({
 // Initialize Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY // Use service key for admin operations
+  process.env.SUPABASE_SERVICE_KEY
 );
 
 // In-memory conversation storage (use Redis in production)
 const conversations = new Map();
 
-// System prompt that guides the AI
+// System prompt
 const SYSTEM_PROMPT = `You are a professional resume building assistant. Your role is to help users create a complete professional resume through conversation.
 
 RULES:
@@ -37,20 +38,12 @@ CONVERSATION FLOW:
 - Start with: "Hi! I'm your AI resume assistant. Let's build your professional resume together. What's your full name?"
 - After each answer, acknowledge briefly and ask the next question
 - If answer is unclear, ask for clarification
-- Provide suggestions when appropriate (e.g., "Many candidates highlight their leadership experience here")
-- When a section is complete, move to the next: "Great! Now let's talk about your education..."
-
-IMPORTANT:
-- Be conversational, not robotic
-- Celebrate progress: "Awesome! We're making great progress."
-- If user says "skip" or "none", move to next question
-- Keep track of what information you still need
+- When a section is complete, move to the next
 
 Current conversation stage: [Will be injected dynamically]`;
 
 /**
  * POST /api/ai-resume/start
- * Start a new AI resume building conversation
  */
 router.post('/start', async (req, res) => {
   try {
@@ -60,10 +53,8 @@ router.post('/start', async (req, res) => {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    // Generate conversation ID
     const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Initialize conversation
     const conversation = {
       id: conversationId,
       userId,
@@ -74,17 +65,14 @@ router.post('/start', async (req, res) => {
         experience: [],
         skills: []
       },
-      stage: 'personal_info', // personal_info, education, experience, skills, complete
+      stage: 'personal_info',
       startedAt: new Date().toISOString()
     };
 
-    // Store conversation
     conversations.set(conversationId, conversation);
 
-    // Get first message from AI
     const welcomeMessage = "Hi! I'm your AI resume assistant. Let's build your professional resume together. What's your full name?";
 
-    // Add to conversation history
     conversation.messages.push({
       role: 'assistant',
       content: welcomeMessage,
@@ -107,7 +95,6 @@ router.post('/start', async (req, res) => {
 
 /**
  * POST /api/ai-resume/chat
- * Continue the conversation
  */
 router.post('/chat', async (req, res) => {
   try {
@@ -117,26 +104,22 @@ router.post('/chat', async (req, res) => {
       return res.status(400).json({ error: 'conversationId, message, and userId are required' });
     }
 
-    // Get conversation
     const conversation = conversations.get(conversationId);
 
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    // Verify user owns this conversation
     if (conversation.userId !== userId) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    // Add user message to history
     conversation.messages.push({
       role: 'user',
       content: message,
       timestamp: new Date().toISOString()
     });
 
-    // Prepare messages for ChatGPT
     const messages = [
       {
         role: 'system',
@@ -148,62 +131,45 @@ router.post('/chat', async (req, res) => {
       }))
     ];
 
-    // Call ChatGPT
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', // More cost-effective than gpt-4
+      model: 'gpt-4o-mini',
       messages: messages,
       temperature: 0.7,
-      max_tokens: 200, // Keep responses short
+      max_tokens: 200,
       presence_penalty: 0.6,
       frequency_penalty: 0.3
     });
 
     const aiResponse = completion.choices[0].message.content;
 
-    // Add AI response to history
     conversation.messages.push({
       role: 'assistant',
       content: aiResponse,
       timestamp: new Date().toISOString()
     });
 
-    // Extract structured data from conversation
     const extractedData = await extractResumeData(conversation.messages);
-
-    // Merge extracted data with existing data
     conversation.resumeData = mergeResumeData(conversation.resumeData, extractedData);
-
-    // Update conversation stage
     conversation.stage = determineStage(conversation.resumeData);
 
-    // Calculate progress
     const progress = calculateProgress(conversation.resumeData);
-    const isComplete = progress >= 1.0 || conversation.stage === 'complete';
+    const isComplete = progress >= 1.0;
 
-    // If complete, save to Supabase and send final message
     let resumeId = null;
     let pdfUrl = null;
     let fileName = null;
     
     if (isComplete && !conversation.savedToDb) {
-      try {
-        const result = await saveResumeToSupabase(userId, conversation.resumeData);
-        resumeId = result.resumeId;
-        pdfUrl = result.pdfUrl;
-        fileName = result.fileName;
-        
-        conversation.savedToDb = true;
-        conversation.resumeId = resumeId;
-        conversation.pdfUrl = pdfUrl;
-        
-        console.log('✅ Resume completed and saved:', { resumeId, pdfUrl, fileName });
-      } catch (saveError) {
-        console.error('Error saving resume:', saveError);
-        // Continue anyway, just log the error
-      }
+      const result = await saveResumeToSupabase(userId, conversation.resumeData);
+      resumeId = result.resumeId;
+      pdfUrl = result.pdfUrl;
+      fileName = result.fileName;
+      
+      conversation.savedToDb = true;
+      conversation.resumeId = resumeId;
+      conversation.pdfUrl = pdfUrl;
     }
 
-    // Update conversation in storage
     conversations.set(conversationId, conversation);
 
     res.json({
@@ -224,7 +190,7 @@ router.post('/chat', async (req, res) => {
 });
 
 /**
- * Extract structured resume data from conversation using ChatGPT
+ * Extract structured resume data
  */
 async function extractResumeData(messages) {
   try {
@@ -237,51 +203,25 @@ async function extractResumeData(messages) {
       messages: [
         {
           role: 'system',
-          content: `Extract resume information from the conversation and return ONLY valid JSON with this exact structure:
+          content: `Extract resume information and return ONLY valid JSON with this structure:
 {
-  "personalInfo": {
-    "name": "",
-    "email": "",
-    "phone": "",
-    "location": ""
-  },
-  "education": [
-    {
-      "school": "",
-      "degree": "",
-      "field": "",
-      "graduationYear": ""
-    }
-  ],
-  "experience": [
-    {
-      "company": "",
-      "position": "",
-      "duration": "",
-      "responsibilities": []
-    }
-  ],
+  "personalInfo": {"name": "", "email": "", "phone": "", "location": ""},
+  "education": [{"school": "", "degree": "", "field": "", "graduationYear": ""}],
+  "experience": [{"company": "", "position": "", "duration": "", "responsibilities": []}],
   "skills": []
 }
-
-Rules:
-- Only include fields that were explicitly mentioned
-- Leave empty strings for missing data
-- Return valid JSON only, no additional text
-- If a field wasn't discussed, use empty string or empty array
-- For skills, extract individual skills as separate items`
+Only include fields that were mentioned. Return valid JSON only.`
         },
         {
           role: 'user',
-          content: `Extract resume data from this conversation:\n\n${conversationText}`
+          content: `Extract resume data:\n\n${conversationText}`
         }
       ],
-      temperature: 0.2, // Low temperature for consistent extraction
+      temperature: 0.2,
       max_tokens: 500
     });
 
     const jsonString = extraction.choices[0].message.content.trim();
-    // Remove markdown code blocks if present
     const cleanJson = jsonString.replace(/```json\n?|\n?```/g, '');
     return JSON.parse(cleanJson);
 
@@ -296,24 +236,15 @@ Rules:
   }
 }
 
-/**
- * Merge extracted data with existing data
- */
 function mergeResumeData(existing, extracted) {
   return {
-    personalInfo: {
-      ...existing.personalInfo,
-      ...extracted.personalInfo
-    },
+    personalInfo: { ...existing.personalInfo, ...extracted.personalInfo },
     education: extracted.education.length > 0 ? extracted.education : existing.education,
     experience: extracted.experience.length > 0 ? extracted.experience : existing.experience,
     skills: extracted.skills.length > 0 ? extracted.skills : existing.skills
   };
 }
 
-/**
- * Determine current stage based on collected data
- */
 function determineStage(resumeData) {
   const hasPersonalInfo = resumeData.personalInfo.name && resumeData.personalInfo.email;
   const hasEducation = resumeData.education.length > 0;
@@ -327,46 +258,41 @@ function determineStage(resumeData) {
   return 'complete';
 }
 
-/**
- * Calculate completion progress (0.0 to 1.0)
- */
 function calculateProgress(resumeData) {
   let progress = 0;
-
-  // Personal info (25%) - Required fields
-  if (resumeData.personalInfo.name) progress += 0.15; // Name is critical
-  if (resumeData.personalInfo.email) progress += 0.10; // Email is critical
-
-  // Education (25%) - At least one entry
+  if (resumeData.personalInfo.name) progress += 0.10;
+  if (resumeData.personalInfo.email) progress += 0.10;
+  if (resumeData.personalInfo.phone) progress += 0.05;
+  if (resumeData.personalInfo.location) progress += 0.05;
+  
   if (resumeData.education.length > 0) {
     const edu = resumeData.education[0];
     if (edu.school) progress += 0.10;
-    if (edu.degree) progress += 0.10;
+    if (edu.degree) progress += 0.05;
     if (edu.field) progress += 0.05;
+    if (edu.graduationYear) progress += 0.05;
   }
-
-  // Experience (35%) - At least one entry
+  
   if (resumeData.experience.length > 0) {
     const exp = resumeData.experience[0];
-    if (exp.company) progress += 0.15;
-    if (exp.position) progress += 0.15;
+    if (exp.company) progress += 0.10;
+    if (exp.position) progress += 0.10;
+    if (exp.duration) progress += 0.05;
     if (exp.responsibilities && exp.responsibilities.length > 0) progress += 0.05;
   }
-
-  // Skills (15%) - At least a few skills
+  
   if (resumeData.skills.length >= 1) progress += 0.05;
-  if (resumeData.skills.length >= 3) progress += 0.10;
+  if (resumeData.skills.length >= 3) progress += 0.05;
+  if (resumeData.skills.length >= 5) progress += 0.05;
 
   return Math.min(progress, 1.0);
 }
 
 /**
- * Save resume to Supabase using existing resume table
- * Generates PDF and uploads to Supabase Storage
+ * Save resume to Supabase
  */
 async function saveResumeToSupabase(userId, resumeData) {
   try {
-    // Format the parsed_data JSONB field
     const parsedData = {
       personalInfo: resumeData.personalInfo,
       education: resumeData.education,
@@ -376,17 +302,16 @@ async function saveResumeToSupabase(userId, resumeData) {
       generatedAt: new Date().toISOString()
     };
 
-    // Generate timestamp for file naming
     const timestamp = Date.now();
     const sanitizedName = (resumeData.personalInfo.name || 'user')
       .replace(/[^a-zA-Z0-9]/g, '-')
       .toLowerCase();
 
     // Generate PDF
-    const { generateResumePDF } = require('../utils/pdf-generator');
+    const { generateResumePDF } = await import('../utils/pdf-generator.js');
     const pdfBuffer = await generateResumePDF(resumeData);
 
-    // Upload PDF to Supabase Storage
+    // Upload PDF
     const pdfFileName = `${sanitizedName}-${timestamp}.pdf`;
     const pdfPath = `resumes/${userId}/${pdfFileName}`;
 
@@ -403,12 +328,9 @@ async function saveResumeToSupabase(userId, resumeData) {
       throw uploadError;
     }
 
-    // Get public URL for the PDF
     const { data: { publicUrl } } = supabase.storage
       .from('resumes')
       .getPublicUrl(pdfPath);
-
-    console.log('PDF uploaded successfully:', publicUrl);
 
     // Insert resume record
     const { data, error } = await supabase
@@ -431,12 +353,9 @@ async function saveResumeToSupabase(userId, resumeData) {
 
     if (error) {
       console.error('Supabase insert error:', error);
-      // Try to delete uploaded PDF if insert fails
       await supabase.storage.from('resumes').remove([pdfPath]);
       throw error;
     }
-
-    console.log('Resume saved to database:', data.id);
 
     return {
       resumeId: data.id,
@@ -450,145 +369,55 @@ async function saveResumeToSupabase(userId, resumeData) {
   }
 }
 
-/**
- * Generate plain text version of resume for raw_text field
- */
 function generateResumeText(resumeData) {
   let text = '';
 
-  // Personal Info
-  if (resumeData.personalInfo.name) {
-    text += `${resumeData.personalInfo.name}\n`;
-  }
-  if (resumeData.personalInfo.email) {
-    text += `${resumeData.personalInfo.email}\n`;
-  }
-  if (resumeData.personalInfo.phone) {
-    text += `${resumeData.personalInfo.phone}\n`;
-  }
-  if (resumeData.personalInfo.location) {
-    text += `${resumeData.personalInfo.location}\n`;
-  }
+  if (resumeData.personalInfo.name) text += `${resumeData.personalInfo.name}\n`;
+  if (resumeData.personalInfo.email) text += `${resumeData.personalInfo.email}\n`;
+  if (resumeData.personalInfo.phone) text += `${resumeData.personalInfo.phone}\n`;
+  if (resumeData.personalInfo.location) text += `${resumeData.personalInfo.location}\n`;
   text += '\n';
 
-  // Education
   if (resumeData.education.length > 0) {
-    text += 'EDUCATION\n';
-    text += '---------\n';
+    text += 'EDUCATION\n---------\n';
     resumeData.education.forEach(edu => {
-      text += `${edu.degree} in ${edu.field}\n`;
-      text += `${edu.school}`;
-      if (edu.graduationYear) {
-        text += ` - ${edu.graduationYear}`;
-      }
+      text += `${edu.degree} in ${edu.field}\n${edu.school}`;
+      if (edu.graduationYear) text += ` - ${edu.graduationYear}`;
       text += '\n\n';
     });
   }
 
-  // Experience
   if (resumeData.experience.length > 0) {
-    text += 'EXPERIENCE\n';
-    text += '----------\n';
+    text += 'EXPERIENCE\n----------\n';
     resumeData.experience.forEach(exp => {
       text += `${exp.position} at ${exp.company}\n`;
-      if (exp.duration) {
-        text += `${exp.duration}\n`;
-      }
+      if (exp.duration) text += `${exp.duration}\n`;
       if (exp.responsibilities && exp.responsibilities.length > 0) {
-        exp.responsibilities.forEach(resp => {
-          text += `• ${resp}\n`;
-        });
+        exp.responsibilities.forEach(resp => text += `• ${resp}\n`);
       }
       text += '\n';
     });
   }
 
-  // Skills
   if (resumeData.skills.length > 0) {
-    text += 'SKILLS\n';
-    text += '------\n';
-    text += resumeData.skills.join(', ');
-    text += '\n';
+    text += 'SKILLS\n------\n';
+    text += resumeData.skills.join(', ') + '\n';
   }
 
   return text;
 }
 
-/**
- * GET /api/ai-resume/conversation/:conversationId
- * Get conversation details
- */
-router.get('/conversation/:conversationId', async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const { userId } = req.query;
-
-    const conversation = conversations.get(conversationId);
-
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-
-    if (conversation.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
-
-    res.json({
-      conversationId: conversation.id,
-      messages: conversation.messages,
-      resumeData: conversation.resumeData,
-      progress: calculateProgress(conversation.resumeData),
-      isComplete: conversation.stage === 'complete',
-      resumeId: conversation.resumeId
-    });
-
-  } catch (error) {
-    console.error('Error getting conversation:', error);
-    res.status(500).json({ error: 'Failed to get conversation' });
-  }
-});
-
-/**
- * DELETE /api/ai-resume/conversation/:conversationId
- * Delete conversation (cleanup)
- */
-router.delete('/conversation/:conversationId', async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const { userId } = req.query;
-
-    const conversation = conversations.get(conversationId);
-
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-
-    if (conversation.userId !== userId) {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
-
-    conversations.delete(conversationId);
-
-    res.json({ success: true });
-
-  } catch (error) {
-    console.error('Error deleting conversation:', error);
-    res.status(500).json({ error: 'Failed to delete conversation' });
-  }
-});
-
-// Cleanup old conversations (run periodically)
+// Cleanup old conversations
 setInterval(() => {
   const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+  const maxAge = 24 * 60 * 60 * 1000;
 
   for (const [id, conversation] of conversations.entries()) {
     const age = now - new Date(conversation.startedAt).getTime();
     if (age > maxAge) {
       conversations.delete(id);
-      console.log(`Cleaned up conversation: ${id}`);
     }
   }
-}, 60 * 60 * 1000); // Run every hour
+}, 60 * 60 * 1000);
 
-module.exports = router;
+export default router;
