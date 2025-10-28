@@ -153,21 +153,29 @@ router.post('/chat', async (req, res) => {
     conversation.stage = determineStage(conversation.resumeData);
 
     const progress = calculateProgress(conversation.resumeData);
-    const isComplete = progress >= 1.0;
+    const isComplete = progress >= 1.0 || conversation.stage === 'complete';
 
+    // ⭐ IMPROVED: Better completion handling with error catching
     let resumeId = null;
     let pdfUrl = null;
     let fileName = null;
     
     if (isComplete && !conversation.savedToDb) {
-      const result = await saveResumeToSupabase(userId, conversation.resumeData);
-      resumeId = result.resumeId;
-      pdfUrl = result.pdfUrl;
-      fileName = result.fileName;
-      
-      conversation.savedToDb = true;
-      conversation.resumeId = resumeId;
-      conversation.pdfUrl = pdfUrl;
+      try {
+        const result = await saveResumeToSupabase(userId, conversation.resumeData);
+        resumeId = result.resumeId;
+        pdfUrl = result.pdfUrl;
+        fileName = result.fileName;
+        
+        conversation.savedToDb = true;
+        conversation.resumeId = resumeId;
+        conversation.pdfUrl = pdfUrl;
+        
+        console.log('✅ Resume completed and saved:', { resumeId, pdfUrl, fileName });
+      } catch (saveError) {
+        console.error('❌ Error saving resume:', saveError);
+        // Continue anyway - user still gets the response
+      }
     }
 
     conversations.set(conversationId, conversation);
@@ -258,32 +266,33 @@ function determineStage(resumeData) {
   return 'complete';
 }
 
+// ⭐ FIXED: Progress calculation now reaches 100%
 function calculateProgress(resumeData) {
   let progress = 0;
-  if (resumeData.personalInfo.name) progress += 0.10;
-  if (resumeData.personalInfo.email) progress += 0.10;
-  if (resumeData.personalInfo.phone) progress += 0.05;
-  if (resumeData.personalInfo.location) progress += 0.05;
-  
+
+  // Personal info (25%) - Required fields
+  if (resumeData.personalInfo.name) progress += 0.15; // Name is critical
+  if (resumeData.personalInfo.email) progress += 0.10; // Email is critical
+
+  // Education (25%) - At least one entry
   if (resumeData.education.length > 0) {
     const edu = resumeData.education[0];
     if (edu.school) progress += 0.10;
-    if (edu.degree) progress += 0.05;
+    if (edu.degree) progress += 0.10;
     if (edu.field) progress += 0.05;
-    if (edu.graduationYear) progress += 0.05;
   }
-  
+
+  // Experience (35%) - At least one entry
   if (resumeData.experience.length > 0) {
     const exp = resumeData.experience[0];
-    if (exp.company) progress += 0.10;
-    if (exp.position) progress += 0.10;
-    if (exp.duration) progress += 0.05;
+    if (exp.company) progress += 0.15;
+    if (exp.position) progress += 0.15;
     if (exp.responsibilities && exp.responsibilities.length > 0) progress += 0.05;
   }
-  
+
+  // Skills (15%) - At least a few skills
   if (resumeData.skills.length >= 1) progress += 0.05;
-  if (resumeData.skills.length >= 3) progress += 0.05;
-  if (resumeData.skills.length >= 5) progress += 0.05;
+  if (resumeData.skills.length >= 3) progress += 0.10;
 
   return Math.min(progress, 1.0);
 }
@@ -332,6 +341,8 @@ async function saveResumeToSupabase(userId, resumeData) {
       .from('resumes')
       .getPublicUrl(pdfPath);
 
+    console.log('PDF uploaded successfully:', publicUrl);
+
     // Insert resume record
     const { data, error } = await supabase
       .from('resume')
@@ -356,6 +367,8 @@ async function saveResumeToSupabase(userId, resumeData) {
       await supabase.storage.from('resumes').remove([pdfPath]);
       throw error;
     }
+
+    console.log('Resume saved to database:', data.id);
 
     return {
       resumeId: data.id,
@@ -407,17 +420,18 @@ function generateResumeText(resumeData) {
   return text;
 }
 
-// Cleanup old conversations
+// Cleanup old conversations (every hour)
 setInterval(() => {
   const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000;
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
 
   for (const [id, conversation] of conversations.entries()) {
     const age = now - new Date(conversation.startedAt).getTime();
     if (age > maxAge) {
       conversations.delete(id);
+      console.log(`Cleaned up old conversation: ${id}`);
     }
   }
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000); // Run every hour
 
 export default router;
