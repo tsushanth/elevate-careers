@@ -140,7 +140,7 @@ router.post('/chat', async (req, res) => {
       frequency_penalty: 0.3
     });
 
-    const aiResponse = completion.choices[0].message.content;
+    let aiResponse = completion.choices[0].message.content;
 
     conversation.messages.push({
       role: 'assistant',
@@ -152,16 +152,36 @@ router.post('/chat', async (req, res) => {
     conversation.resumeData = mergeResumeData(conversation.resumeData, extractedData);
     conversation.stage = determineStage(conversation.resumeData);
 
-    const progress = calculateProgress(conversation.resumeData);
-    const isComplete = progress >= 1.0 || conversation.stage === 'complete';
+    let progress = calculateProgress(conversation.resumeData);
+    let isComplete = progress >= 1.0 || conversation.stage === 'complete';
 
-    // ⭐ IMPROVED: Better completion handling with error catching
+    // ✅ IMPROVED: Force progress to 100% when complete
+    if (isComplete) {
+      progress = 1.0;
+    }
+
+    // ✅ IMPROVED: Add completion message when resume is first completed
+    if (isComplete && !conversation.completionMessageSent) {
+      const completionMessage = "🎉 Fantastic! Your resume is now complete! I'm generating your professional PDF right now. This will just take a moment...";
+      
+      conversation.messages.push({
+        role: 'assistant',
+        content: completionMessage,
+        timestamp: new Date().toISOString()
+      });
+      
+      conversation.completionMessageSent = true;
+      aiResponse = completionMessage; // Use this as the response
+    }
+
+    // ✅ IMPROVED: Better completion handling with immediate PDF generation
     let resumeId = null;
     let pdfUrl = null;
     let fileName = null;
     
     if (isComplete && !conversation.savedToDb) {
       try {
+        console.log('📄 Starting PDF generation and database save...');
         const result = await saveResumeToSupabase(userId, conversation.resumeData);
         resumeId = result.resumeId;
         pdfUrl = result.pdfUrl;
@@ -170,12 +190,20 @@ router.post('/chat', async (req, res) => {
         conversation.savedToDb = true;
         conversation.resumeId = resumeId;
         conversation.pdfUrl = pdfUrl;
+        conversation.fileName = fileName;
         
         console.log('✅ Resume completed and saved:', { resumeId, pdfUrl, fileName });
       } catch (saveError) {
         console.error('❌ Error saving resume:', saveError);
         // Continue anyway - user still gets the response
       }
+    }
+
+    // ✅ Return saved resume data if already generated
+    if (conversation.savedToDb && !resumeId) {
+      resumeId = conversation.resumeId;
+      pdfUrl = conversation.pdfUrl;
+      fileName = conversation.fileName;
     }
 
     conversations.set(conversationId, conversation);
