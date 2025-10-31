@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login Screen -->
+        <div id="login-screen" class="screen">
+            <div class="login-container">
+                <h1>Job Tracker</h1>
+                <div id="login-form">
+                    <h2>Login</h2>
+                    <input type="email" id="login-email" placeholder="Email" />
+                    <input type="password" id="login-password" placeholder="Password" />
+                    <button id="login-btn">Login</button>
+                    <p>Don't have an account? <a href="#" id="show-register">Register</a></p>
+                </div>
+                <div id="register-form" style="display: none;">
+                    <h2>Register</h2>
+                    <input type="email" id="register-email" placeholder="Email" />
+                    <input type="password" id="register-password" placeholder="Password (min 8 chars)" />
+                    <button id="register-btn">Register</button>
+                    <p>Already have an account? <a href="#" id="show-login">Login</a></p>
+                </div>
+                <div id="auth-error" class="error" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Main App Screen -->
+        <div id="main-screen" class="screen" style="display: none;">
+            <div class="header">
+                <h1>Job Tracker</h1>
+                <div class="header-actions">
+                    <span id="user-email"></span>
+                    <button id="logout-btn" class="btn-secondary">Logout</button>
+                </div>
+            </div>
+
+            <div class="main-content">
+                <nav class="sidebar">
+                    <button class="nav-item active" data-view="jobs">Jobs</button>
+                    <button class="nav-item" data-view="searches">Searches</button>
+                    <button class="nav-item" data-view="settings">Settings</button>
+                </nav>
+
+                <div class="content">
+                    <!-- Jobs View -->
+                    <div id="jobs-view" class="view active">
+                        <div class="view-header">
+                            <h2>Jobs</h2>
+                            <div class="filters">
+                                <select id="status-filter">
+                                    <option value="">All Status</option>
+                                    <option value="new">New</option>
+                                    <option value="seen">Seen</option>
+                                    <option value="applied">Applied</option>
+                                    <option value="rejected">Rejected</option>
+                                </select>
+                                <button id="refresh-jobs" class="btn-secondary">Refresh</button>
+                            </div>
+                        </div>
+                        <div id="jobs-list" class="jobs-list">
+                            <div class="loading">Loading jobs...</div>
+                        </div>
+                    </div>
+
+                    <!-- Searches View -->
+                    <div id="searches-view" class="view">
+                        <div class="view-header">
+                            <h2>Job Searches</h2>
+                            <button id="add-search-btn" class="btn-primary">Add Search</button>
+                        </div>
+                        <div id="searches-list" class="searches-list">
+                            <div class="loading">Loading searches...</div>
+                        </div>
+
+                        <!-- Add Search Modal -->
+                        <div id="add-search-modal" class="modal" style="display: none;">
+                            <div class="modal-content">
+                                <h3>Add Job Search</h3>
+                                <label>Job Board:</label>
+                                <select id="search-board">
+                                    <option value="linkedin">LinkedIn</option>
+                                </select>
+                                <label>Search URL:</label>
+                                <input type="url" id="search-url" placeholder="https://linkedin.com/jobs/search?..." />
+                                <label>Check Interval (minutes, min 30):</label>
+                                <input type="number" id="search-interval" value="30" min="30" />
+                                <div class="modal-actions">
+                                    <button id="save-search-btn" class="btn-primary">Save</button>
+                                    <button id="cancel-search-btn" class="btn-secondary">Cancel</button>
+                                </div>
+                                <div id="search-error" class="error" style="display: none;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings View -->
+                    <div id="settings-view" class="view">
+                        <h2>Settings</h2>
+                        <div class="settings-section">
+                            <h3>Scraper Status</h3>
+                            <div id="scraper-status">
+                                <p>Status: <span id="scraper-running">Checking...</span></p>
+                                <p>Last Run: <span id="scraper-last-run">-</span></p>
+                                <p>Next Run: <span id="scraper-next-run">-</span></p>
+                                <button id="run-scraper-now" class="btn-primary">Run Now</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
