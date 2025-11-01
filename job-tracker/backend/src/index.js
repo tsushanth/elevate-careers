@@ -5,6 +5,7 @@ import authRoutes from './routes/auth.js';
 import searchesRoutes from './routes/searches.js';
 import jobsRoutes from './routes/jobs.js';
 import pluginsRoutes from './routes/plugins.js';
+import subscriptionRoutes from './routes/subscription.js';
 import { initializeFirebase } from './services/notifications.js';
 import db from './db/index.js';
 
@@ -33,6 +34,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/searches', searchesRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/plugins', pluginsRoutes);
+app.use('/api/subscription', subscriptionRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

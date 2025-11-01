@@ -143,8 +143,9 @@ class ScraperService {
     try {
       const page = await this.getPage(search.board);
       
-      // Small delay to ensure page is fully initialized
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Longer delay to ensure page is fully initialized
+      console.log('Waiting for page to be fully ready...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
       
       console.log('Page ready, running plugin scraper...');
       
@@ -182,7 +183,7 @@ class ScraperService {
         console.log('No jobs found in this scrape');
       }
       
-      // Keep page open for next scrape - just navigate to blank page
+      // Keep page open for next scrape
       console.log('Scrape complete, keeping browser open');
       
     } catch (error) {
@@ -222,11 +223,25 @@ class ScraperService {
     
     // Set user agent
     const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-    console.log('Setting user agent:', userAgent);
+    console.log('Setting user agent...');
     await page.setUserAgent(userAgent);
     
     // Set viewport
+    console.log('Setting viewport...');
     await page.setViewport({ width: 1920, height: 1080 });
+    
+    // Wait for page to be fully ready
+    console.log('Waiting for page to initialize...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Verify page is ready
+    try {
+      await page.title();
+      console.log('Page verified ready');
+    } catch (error) {
+      console.error('Page verification failed:', error);
+      throw new Error('Page not ready');
+    }
     
     // Store for reuse
     this.pages.set(board, page);

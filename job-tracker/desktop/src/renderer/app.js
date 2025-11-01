@@ -1,4 +1,4 @@
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, shell } = require('electron');
 
 // State
 let currentUser = null;
@@ -38,6 +38,17 @@ function setupEventListeners() {
     // Jobs
     document.getElementById('refresh-jobs').addEventListener('click', loadJobs);
     document.getElementById('status-filter').addEventListener('change', loadJobs);
+    
+    // Job links - use event delegation to open in external browser
+    document.getElementById('jobs-list').addEventListener('click', (e) => {
+        const jobLink = e.target.closest('.job-link');
+        if (jobLink) {
+            const url = jobLink.dataset.url;
+            if (url) {
+                shell.openExternal(url);
+            }
+        }
+    });
 
     // Searches
     document.getElementById('add-search-btn').addEventListener('click', showAddSearchModal);
@@ -183,7 +194,7 @@ async function loadJobs() {
         jobsList.innerHTML = result.jobs.map(job => `
             <div class="job-item">
                 <div class="job-info">
-                    <div class="job-title" onclick="window.open('${job.url}', '_blank')">
+                    <div class="job-title job-link" data-url="${job.url}">
                         ${escapeHtml(job.title)}
                     </div>
                     <div class="job-company">${escapeHtml(job.company || 'Unknown Company')}</div>

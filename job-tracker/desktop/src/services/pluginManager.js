@@ -23,7 +23,7 @@ class PluginManager {
   }
 
   async checkForUpdates() {
-    /*try {
+    try {
       const manifest = await this.apiService.getPluginManifest();
       
       if (!manifest.success) {
@@ -41,7 +41,7 @@ class PluginManager {
       }
     } catch (error) {
       console.error('Error checking for plugin updates:', error);
-    }*/
+    }
   }
 
   async downloadPlugin(pluginName) {
