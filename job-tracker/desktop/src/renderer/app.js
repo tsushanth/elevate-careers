@@ -335,6 +335,141 @@ async function handleRunScraperNow() {
     setTimeout(loadScraperStatus, 1000);
 }
 
+// Subscription Management
+async function checkSubscription() {
+  try {
+    const response = await ipcRenderer.invoke('subscription:getStatus');
+    
+    if (!response || !response.success) {
+      console.error('Failed to get subscription status');
+      return;
+    }
+    
+    const sub = response.subscription;
+    const banner = document.getElementById('subscription-banner');
+    const message = document.getElementById('trial-message');
+    const statusEl = document.getElementById('subscription-status');
+    const manageBtn = document.getElementById('manage-subscription-btn');
+    
+    // Update settings page
+    if (sub.isTrial) {
+      statusEl.textContent = `🎉 Free Trial Active - ${sub.trialDaysLeft} days remaining`;
+      manageBtn.style.display = 'none';
+    } else if (sub.isActive) {
+      statusEl.textContent = `✅ Subscription Active`;
+      manageBtn.style.display = 'inline-block';
+    } else {
+      statusEl.textContent = `❌ Subscription Inactive - Please upgrade`;
+      manageBtn.style.display = 'none';
+    }
+    
+    // Update banner
+    banner.classList.remove('warning', 'expired');
+    
+    if (sub.isTrial) {
+      banner.style.display = 'block';
+      message.textContent = `🎉 Free trial: ${sub.trialDaysLeft} days remaining`;
+      
+      if (sub.trialDaysLeft <= 3) {
+        banner.classList.add('warning');
+        message.textContent = `⚠️ Trial ending soon: ${sub.trialDaysLeft} days left`;
+      }
+    } else if (!sub.isActive) {
+      banner.style.display = 'block';
+      banner.classList.add('expired');
+      message.textContent = '❌ Trial expired - Upgrade to continue using Job Tracker';
+      
+      // Show upgrade reminder in settings
+      statusEl.innerHTML = `❌ Trial expired - <a href="#" id="upgrade-link">Upgrade Now</a>`;
+      document.getElementById('upgrade-link')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleUpgrade();
+      });
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Subscription check error:', error);
+  }
+}
+
+async function handleUpgrade() {
+  try {
+    // Get plans
+    const plansResponse = await ipcRenderer.invoke('subscription:getPlans');
+    
+    if (!plansResponse || !plansResponse.success || !plansResponse.plans || plansResponse.plans.length === 0) {
+      alert('Unable to load subscription plans. Please try again later.');
+      return;
+    }
+    
+    // Use the first plan (or you could show a selection)
+    const plan = plansResponse.plans[0];
+    
+    console.log('Creating checkout for plan:', plan.stripe_price_id);
+    
+    const response = await ipcRenderer.invoke('subscription:createCheckout', plan.stripe_price_id);
+    
+    if (response.success) {
+      console.log('Checkout session created, opening Stripe in browser...');
+      // Browser will open automatically via IPC handler
+    } else {
+      const errorMsg = response.error || 'Unknown error';
+      console.error('Checkout error:', errorMsg);
+      
+      if (errorMsg.includes('not configured')) {
+        alert('Payment system is not yet configured. Please contact support or check back later.');
+      } else {
+        alert('Failed to create checkout session: ' + errorMsg);
+      }
+    }
+  } catch (error) {
+    console.error('Upgrade error:', error);
+    alert('Error creating checkout session. Please try again or contact support.');
+  }
+}
+
+async function handleManageSubscription() {
+  try {
+    const response = await ipcRenderer.invoke('subscription:createPortal');
+    
+    if (response.success) {
+      console.log('Opening billing portal in browser...');
+      // Browser will open automatically via IPC handler
+    } else {
+      alert('Failed to open billing portal: ' + (response.error || 'Unknown error'));
+    }
+  } catch (error) {
+    console.error('Portal error:', error);
+    alert('Error opening billing portal. Please try again.');
+  }
+}
+
+// Setup subscription event listeners
+function setupSubscriptionListeners() {
+  const upgradeBtn = document.getElementById('upgrade-btn');
+  const manageBtn = document.getElementById('manage-subscription-btn');
+  
+  if (upgradeBtn) {
+    upgradeBtn.addEventListener('click', handleUpgrade);
+  }
+  
+  if (manageBtn) {
+    manageBtn.addEventListener('click', handleManageSubscription);
+  }
+  
+  // Check subscription on app load and every hour
+  checkSubscription();
+  setInterval(checkSubscription, 3600000); // 1 hour
+}
+
+// Update setupEventListeners to include subscription
+const originalSetupEventListeners = setupEventListeners;
+setupEventListeners = function() {
+  originalSetupEventListeners();
+  setupSubscriptionListeners();
+};
+
 // Utilities
 function escapeHtml(text) {
     const div = document.createElement('div');

@@ -1,7 +1,9 @@
-const express = require('express');
+import express from 'express';
+import stripeService from '../services/stripe.js';
+import { authenticateToken } from '../middleware/auth.js';
+import db from '../db/index.js';
+
 const router = express.Router();
-const stripeService = require('../services/stripe');
-const { authenticateToken } = require('../middleware/auth');
 
 // Get subscription status
 router.get('/status', authenticateToken, async (req, res) => {
@@ -23,6 +25,14 @@ router.post('/create-checkout', authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Price ID required' });
     }
 
+    // Check if Stripe is enabled
+    if (!stripeService.enabled) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Stripe payments are not configured. Please contact support.' 
+      });
+    }
+
     const session = await stripeService.createCheckoutSession(
       req.user.userId,
       req.user.email,
@@ -34,7 +44,13 @@ router.post('/create-checkout', authenticateToken, async (req, res) => {
     res.json({ success: true, sessionId: session.id, url: session.url });
   } catch (error) {
     console.error('Create checkout error:', error);
-    res.status(500).json({ success: false, error: 'Failed to create checkout session' });
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to create checkout session',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -42,7 +58,7 @@ router.post('/create-checkout', authenticateToken, async (req, res) => {
 router.post('/create-portal', authenticateToken, async (req, res) => {
   try {
     // Get customer ID
-    const result = await stripeService.pool.query(
+    const result = await db.query(
       'SELECT stripe_customer_id FROM user_subscriptions WHERE user_id = $1',
       [req.user.userId]
     );
@@ -66,8 +82,7 @@ router.post('/create-portal', authenticateToken, async (req, res) => {
 // Get subscription plans
 router.get('/plans', async (req, res) => {
   try {
-    const { pool } = require('../services/db');
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT * FROM subscription_plans WHERE active = true ORDER BY amount ASC'
     );
     res.json({ success: true, plans: result.rows });
@@ -97,4 +112,4 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 });
 
-module.exports = router;
+export default router;

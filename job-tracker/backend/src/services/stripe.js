@@ -1,13 +1,76 @@
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { pool } = require('./db');
+import Stripe from 'stripe';
+import db from '../db/index.js';
+
+// Initialize Stripe only if key is provided
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+const stripe = stripeKey && stripeKey !== 'sk_test_your_stripe_secret_key' 
+  ? new Stripe(stripeKey) 
+  : null;
 
 class StripeService {
   constructor() {
     this.stripe = stripe;
+    this.enabled = !!stripe;
+    
+    if (!this.enabled) {
+      console.log('ℹ️  Stripe not configured - payment features disabled');
+    }
+  }
+
+  _checkEnabled() {
+    if (!this.enabled) {
+      throw new Error('Stripe is not configured. Add STRIPE_SECRET_KEY to environment variables.');
+    }
+  }
+
+  // Get subscription status
+  async getSubscriptionStatus(userId) {
+    try {
+      // If Stripe not configured, return trial status
+      if (!this.enabled) {
+        return {
+          isActive: true,
+          isTrial: true,
+          trialDaysLeft: 15,
+          status: 'trialing',
+          stripeEnabled: false
+        };
+      }
+
+      const result = await db.query(
+        'SELECT * FROM check_user_subscription($1)',
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        // First time user - start trial
+        return {
+          isActive: true,
+          isTrial: true,
+          trialDaysLeft: 15,
+          status: 'trialing',
+          stripeEnabled: true
+        };
+      }
+
+      const row = result.rows[0];
+      return {
+        isActive: row.is_active,
+        isTrial: row.is_trial,
+        trialDaysLeft: row.trial_days_left,
+        status: row.status,
+        stripeEnabled: true
+      };
+    } catch (error) {
+      console.error('Failed to get subscription status:', error);
+      throw error;
+    }
   }
 
   // Create Stripe customer for user
   async createCustomer(userId, email) {
+    this._checkEnabled();
+    
     try {
       const customer = await this.stripe.customers.create({
         email,
@@ -15,10 +78,10 @@ class StripeService {
       });
 
       // Save customer ID
-      await pool.query(
+      await db.query(
         `INSERT INTO user_subscriptions (user_id, stripe_customer_id, status)
          VALUES ($1, $2, 'trialing')
-         ON CONFLICT (stripe_customer_id) DO NOTHING`,
+         ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = $2`,
         [userId, customer.id]
       );
 
@@ -31,10 +94,12 @@ class StripeService {
 
   // Create checkout session for subscription
   async createCheckoutSession(userId, email, priceId, successUrl, cancelUrl) {
+    this._checkEnabled();
+    
     try {
       // Get or create customer
       let customer;
-      const existingCustomer = await pool.query(
+      const existingCustomer = await db.query(
         'SELECT stripe_customer_id FROM user_subscriptions WHERE user_id = $1',
         [userId]
       );
@@ -73,6 +138,8 @@ class StripeService {
 
   // Create customer portal session
   async createPortalSession(customerId, returnUrl) {
+    this._checkEnabled();
+    
     try {
       const session = await this.stripe.billingPortal.sessions.create({
         customer: customerId,
@@ -82,37 +149,6 @@ class StripeService {
       return session;
     } catch (error) {
       console.error('Failed to create portal session:', error);
-      throw error;
-    }
-  }
-
-  // Get subscription status
-  async getSubscriptionStatus(userId) {
-    try {
-      const result = await pool.query(
-        'SELECT * FROM check_user_subscription($1)',
-        [userId]
-      );
-
-      if (result.rows.length === 0) {
-        // First time user - start trial
-        return {
-          isActive: true,
-          isTrial: true,
-          trialDaysLeft: 15,
-          status: 'trialing'
-        };
-      }
-
-      const row = result.rows[0];
-      return {
-        isActive: row.is_active,
-        isTrial: row.is_trial,
-        trialDaysLeft: row.trial_days_left,
-        status: row.status
-      };
-    } catch (error) {
-      console.error('Failed to get subscription status:', error);
       throw error;
     }
   }
@@ -152,12 +188,8 @@ class StripeService {
   }
 
   async handleCheckoutComplete(session) {
-    const customerId = session.customer;
     const subscriptionId = session.subscription;
-
-    // Get subscription details
     const subscription = await this.stripe.subscriptions.retrieve(subscriptionId);
-    
     await this.updateSubscription(subscription);
   }
 
@@ -168,8 +200,7 @@ class StripeService {
   async updateSubscription(subscription) {
     const customerId = subscription.customer;
     
-    // Get user ID from customer
-    const userResult = await pool.query(
+    const userResult = await db.query(
       'SELECT user_id FROM user_subscriptions WHERE stripe_customer_id = $1',
       [customerId]
     );
@@ -181,8 +212,7 @@ class StripeService {
 
     const userId = userResult.rows[0].user_id;
 
-    // Update subscription
-    await pool.query(
+    await db.query(
       `UPDATE user_subscriptions SET
         stripe_subscription_id = $1,
         status = $2,
@@ -207,7 +237,7 @@ class StripeService {
   }
 
   async handleSubscriptionDeleted(subscription) {
-    await pool.query(
+    await db.query(
       `UPDATE user_subscriptions SET
         status = 'canceled',
         canceled_at = CURRENT_TIMESTAMP,
@@ -220,8 +250,7 @@ class StripeService {
   async handlePaymentSuccess(invoice) {
     const customerId = invoice.customer;
     
-    // Get user ID
-    const userResult = await pool.query(
+    const userResult = await db.query(
       'SELECT user_id FROM user_subscriptions WHERE stripe_customer_id = $1',
       [customerId]
     );
@@ -230,8 +259,7 @@ class StripeService {
 
     const userId = userResult.rows[0].user_id;
 
-    // Record payment
-    await pool.query(
+    await db.query(
       `INSERT INTO payment_history 
        (user_id, stripe_payment_id, amount, currency, status, description)
        VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -249,8 +277,7 @@ class StripeService {
   async handlePaymentFailed(invoice) {
     const customerId = invoice.customer;
     
-    // Get user ID
-    const userResult = await pool.query(
+    const userResult = await db.query(
       'SELECT user_id FROM user_subscriptions WHERE stripe_customer_id = $1',
       [customerId]
     );
@@ -259,8 +286,7 @@ class StripeService {
 
     const userId = userResult.rows[0].user_id;
 
-    // Update subscription status
-    await pool.query(
+    await db.query(
       `UPDATE user_subscriptions SET
         status = 'past_due',
         updated_at = CURRENT_TIMESTAMP
@@ -268,8 +294,7 @@ class StripeService {
       [userId]
     );
 
-    // Record failed payment
-    await pool.query(
+    await db.query(
       `INSERT INTO payment_history 
        (user_id, stripe_payment_id, amount, currency, status, description)
        VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -285,4 +310,4 @@ class StripeService {
   }
 }
 
-module.exports = new StripeService();
+export default new StripeService();
