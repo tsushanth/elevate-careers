@@ -55,6 +55,24 @@ class ApiService {
     return response.data;
   }
 
+  // Subscription
+  async getSubscriptionStatus() {
+    const response = await this.client.get('/subscription/status');
+    return response.data;
+  }
+  
+  async createCheckoutSession(priceId) {
+    const response = await this.client.post('/subscription/create-checkout', {
+      priceId
+    });
+    return response.data;
+  }
+  
+  async createPortalSession() {
+    const response = await this.client.post('/subscription/create-portal');
+    return response.data;
+  }
+
   // Jobs
   async getJobs(params = {}) {
     const response = await this.client.get('/jobs', { params });
