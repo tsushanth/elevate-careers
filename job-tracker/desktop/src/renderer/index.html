@@ -40,6 +40,14 @@
                 </div>
             </div>
 
+            <!-- Subscription Banner -->
+            <div id="subscription-banner" class="subscription-banner" style="display: none;">
+                <div class="banner-content">
+                    <span id="trial-message"></span>
+                    <button id="upgrade-btn" class="btn-primary btn-small">Upgrade Now</button>
+                </div>
+            </div>
+
             <div class="main-content">
                 <nav class="sidebar">
                     <button class="nav-item active" data-view="jobs">Jobs</button>
@@ -102,6 +110,17 @@
                     <!-- Settings View -->
                     <div id="settings-view" class="view">
                         <h2>Settings</h2>
+                        
+                        <div class="settings-section">
+                            <h3>Subscription</h3>
+                            <div id="subscription-info">
+                                <p id="subscription-status">Loading...</p>
+                            </div>
+                            <button id="manage-subscription-btn" class="btn-secondary" style="display: none;">
+                                Manage Subscription
+                            </button>
+                        </div>
+
                         <div class="settings-section">
                             <h3>Scraper Status</h3>
                             <div id="scraper-status">

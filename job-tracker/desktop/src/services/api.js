@@ -1,9 +1,12 @@
 const axios = require('axios');
+const config = require('../config');
 
 class ApiService {
   constructor(store) {
     this.store = store;
-    this.baseURL = process.env.API_URL || 'https://job-tracker-api-3t2vweivqa-uc.a.run.app/api';
+    this.baseURL = config.API_URL;
+    
+    console.log('API Service initialized with URL:', this.baseURL);
     
     this.client = axios.create({
       baseURL: this.baseURL,
@@ -55,24 +58,6 @@ class ApiService {
     return response.data;
   }
 
-  // Subscription
-  async getSubscriptionStatus() {
-    const response = await this.client.get('/subscription/status');
-    return response.data;
-  }
-  
-  async createCheckoutSession(priceId) {
-    const response = await this.client.post('/subscription/create-checkout', {
-      priceId
-    });
-    return response.data;
-  }
-  
-  async createPortalSession() {
-    const response = await this.client.post('/subscription/create-portal');
-    return response.data;
-  }
-
   // Jobs
   async getJobs(params = {}) {
     const response = await this.client.get('/jobs', { params });
@@ -91,13 +76,74 @@ class ApiService {
 
   // Plugins
   async getPluginManifest() {
-    const response = await this.client.get('/plugins/manifest');
-    return response.data;
+    try {
+      const response = await this.client.get('/plugins/manifest');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get plugin manifest:', error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      throw error;
+    }
   }
 
   async downloadPlugin(pluginName) {
-    const response = await this.client.get(`/plugins/${pluginName}/download`);
-    return response.data;
+    try {
+      console.log(`Requesting plugin from API: ${pluginName}`);
+      const response = await this.client.get(`/plugins/${pluginName}/download`);
+      console.log(`Plugin ${pluginName} downloaded successfully`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to download plugin ${pluginName}:`, error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      throw error;
+    }
+  }
+
+  // Subscription
+  async getSubscriptionStatus() {
+    try {
+      const response = await this.client.get('/subscription/status');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get subscription status:', error.message);
+      throw error;
+    }
+  }
+
+  async getSubscriptionPlans() {
+    try {
+      const response = await this.client.get('/subscription/plans');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get subscription plans:', error.message);
+      throw error;
+    }
+  }
+
+  async createCheckoutSession(priceId) {
+    try {
+      const response = await this.client.post('/subscription/create-checkout', { priceId });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create checkout session:', error.message);
+      throw error;
+    }
+  }
+
+  async createPortalSession() {
+    try {
+      const response = await this.client.post('/subscription/create-portal');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create portal session:', error.message);
+      throw error;
+    }
   }
 }
 

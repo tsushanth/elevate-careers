@@ -117,16 +117,56 @@ echo "🚀 Deploying to Cloud Run..."
 echo "This will take a few minutes..."
 echo ""
 
+# First deploy without env vars file
 gcloud run deploy $SERVICE_NAME \
     --source . \
     --platform managed \
     --region $REGION \
     --allow-unauthenticated \
-    --env-vars-file .env.production \
     --memory 512Mi \
     --min-instances 0 \
     --max-instances 10 \
     --timeout 300
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ Deployment failed!${NC}"
+    echo "Check the error messages above"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ Deployment successful!${NC}"
+echo ""
+
+# Update environment variables from .env.production
+echo "📝 Setting environment variables..."
+echo ""
+
+# Read JWT_SECRET from .env.production
+JWT_SECRET=$(grep "^JWT_SECRET=" .env.production | cut -d'=' -f2-)
+DATABASE_URL=$(grep "^DATABASE_URL=" .env.production | cut -d'=' -f2-)
+SUPABASE_URL=$(grep "^SUPABASE_URL=" .env.production | cut -d'=' -f2-)
+SUPABASE_ANON_KEY=$(grep "^SUPABASE_ANON_KEY=" .env.production | cut -d'=' -f2-)
+SUPABASE_SERVICE_KEY=$(grep "^SUPABASE_SERVICE_KEY=" .env.production | cut -d'=' -f2-)
+NODE_ENV=$(grep "^NODE_ENV=" .env.production | cut -d'=' -f2-)
+
+# Optional Stripe keys
+STRIPE_SECRET_KEY=$(grep "^STRIPE_SECRET_KEY=" .env.production | cut -d'=' -f2-)
+STRIPE_PUBLISHABLE_KEY=$(grep "^STRIPE_PUBLISHABLE_KEY=" .env.production | cut -d'=' -f2-)
+STRIPE_WEBHOOK_SECRET=$(grep "^STRIPE_WEBHOOK_SECRET=" .env.production | cut -d'=' -f2-)
+STRIPE_PRICE_ID=$(grep "^STRIPE_PRICE_ID=" .env.production | cut -d'=' -f2-)
+
+# Update required env vars
+gcloud run services update $SERVICE_NAME \
+    --region $REGION \
+    --update-env-vars "JWT_SECRET=$JWT_SECRET,DATABASE_URL=$DATABASE_URL,SUPABASE_URL=$SUPABASE_URL,SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY,SUPABASE_SERVICE_KEY=$SUPABASE_SERVICE_KEY,NODE_ENV=$NODE_ENV"
+
+# Update Stripe keys if they exist
+if [ ! -z "$STRIPE_SECRET_KEY" ] && [ "$STRIPE_SECRET_KEY" != "sk_test_your_stripe_secret_key" ]; then
+    echo "Setting Stripe environment variables..."
+    gcloud run services update $SERVICE_NAME \
+        --region $REGION \
+        --update-env-vars "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY,STRIPE_PUBLISHABLE_KEY=$STRIPE_PUBLISHABLE_KEY,STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET,STRIPE_PRICE_ID=$STRIPE_PRICE_ID"
+fi
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Deployment failed!${NC}"

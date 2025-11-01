@@ -32,51 +32,6 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-
-  // Check subscription status after login
-ipcMain.handle('subscription:getStatus', async () => {
-    try {
-      const apiService = new ApiService(store);
-      const response = await apiService.getSubscriptionStatus();
-      return response;
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  ipcMain.handle('subscription:createCheckout', async (event, priceId) => {
-    try {
-      const apiService = new ApiService(store);
-      const response = await apiService.createCheckoutSession(priceId);
-      
-      // Open Stripe Checkout in browser
-      if (response.success && response.url) {
-        const { shell } = require('electron');
-        shell.openExternal(response.url);
-      }
-      
-      return response;
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  ipcMain.handle('subscription:createPortal', async () => {
-    try {
-      const apiService = new ApiService(store);
-      const response = await apiService.createPortalSession();
-      
-      // Open Stripe Portal in browser
-      if (response.success && response.url) {
-        const { shell } = require('electron');
-        shell.openExternal(response.url);
-      }
-      
-      return response;
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
 }
 
 // App lifecycle
@@ -277,6 +232,65 @@ ipcMain.handle('scraper:runNow', async () => {
   } catch (error) {
     console.error('Manual scrape error:', error);
     console.error('Error stack:', error.stack);
+    return { success: false, error: error.message };
+  }
+});
+
+// Subscription handlers
+ipcMain.handle('subscription:getStatus', async () => {
+  try {
+    const apiService = new ApiService(store);
+    const response = await apiService.getSubscriptionStatus();
+    return response;
+  } catch (error) {
+    console.error('Get subscription status error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('subscription:getPlans', async () => {
+  try {
+    const apiService = new ApiService(store);
+    const response = await apiService.getSubscriptionPlans();
+    return response;
+  } catch (error) {
+    console.error('Get subscription plans error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('subscription:createCheckout', async (event, priceId) => {
+  try {
+    const apiService = new ApiService(store);
+    const response = await apiService.createCheckoutSession(priceId);
+    
+    // Open Stripe Checkout in external browser
+    if (response.success && response.url) {
+      const { shell } = require('electron');
+      shell.openExternal(response.url);
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('Create checkout error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('subscription:createPortal', async () => {
+  try {
+    const apiService = new ApiService(store);
+    const response = await apiService.createPortalSession();
+    
+    // Open Stripe Portal in external browser
+    if (response.success && response.url) {
+      const { shell } = require('electron');
+      shell.openExternal(response.url);
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('Create portal error:', error);
     return { success: false, error: error.message };
   }
 });
