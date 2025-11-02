@@ -1,11 +1,14 @@
 const fs = require('fs').promises;
 const path = require('path');
+const ParserGenerator = require('./parserGenerator.js'); // NEW: Import parser generator
 
 class PluginManager {
   constructor(userDataPath, apiService) {
     this.pluginDir = path.join(userDataPath, 'plugins');
     this.apiService = apiService;
     this.plugins = new Map();
+    // NEW: Initialize parser generator for self-healing
+    this.parserGenerator = new ParserGenerator(process.env.ANTHROPIC_API_KEY);
   }
 
   async initialize() {
@@ -87,6 +90,63 @@ class PluginManager {
     }
   }
 
+  /**
+   * NEW: Generate a parser for an unknown board using LLM
+   * This is the self-healing mechanism
+   */
+  async generateParserForUnknownBoard(page, url, boardName) {
+    console.log(`\n╔════════════════════════════════════════╗`);
+    console.log(`║  SELF-HEALING PARSER GENERATION       ║`);
+    console.log(`╚════════════════════════════════════════╝`);
+    console.log(`Board: ${boardName}`);
+    console.log(`URL: ${url}`);
+    
+    try {
+      // Use LLM to generate parser
+      const parserInfo = await this.parserGenerator.generateParser(page, url, boardName);
+      
+      // Save the generated parser
+      const pluginDir = await this.parserGenerator.saveParser(parserInfo, this.pluginDir);
+      
+      // Load the newly generated plugin
+      const scraperPath = path.join(pluginDir, 'scraper.js');
+      delete require.cache[require.resolve(scraperPath)];
+      const plugin = require(scraperPath);
+      this.plugins.set(boardName, plugin);
+      
+      console.log(`✓ Self-healing parser generated and loaded successfully!`);
+      console.log(`  Plugin: ${boardName}`);
+      console.log(`  Location: ${pluginDir}`);
+      
+      return plugin;
+    } catch (error) {
+      console.error(`✗ Failed to generate self-healing parser:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * NEW: Get or create plugin - tries to load existing, generates if not found
+   */
+  async getOrCreatePlugin(boardName, url, page) {
+    // Try to get existing plugin
+    if (this.plugins.has(boardName)) {
+      return this.plugins.get(boardName);
+    }
+
+    // Try to load from disk
+    try {
+      await this.loadPlugin(boardName);
+      return this.plugins.get(boardName);
+    } catch (error) {
+      console.log(`Plugin ${boardName} not found locally, will generate...`);
+    }
+
+    // Generate new parser using self-healing
+    console.log(`🔧 Initiating self-healing parser generation for ${boardName}...`);
+    return await this.generateParserForUnknownBoard(page, url, boardName);
+  }
+
   async getLocalPluginInfo(pluginName) {
     try {
       const pluginPath = path.join(this.pluginDir, `${pluginName}.js`);
@@ -116,6 +176,40 @@ class PluginManager {
 
   getAllPlugins() {
     return Array.from(this.plugins.keys());
+  }
+
+  /**
+   * NEW: Test a plugin and regenerate if it fails
+   */
+  async testAndRepairPlugin(pluginName, page, url) {
+    console.log(`Testing plugin: ${pluginName}`);
+    
+    const plugin = this.getPlugin(pluginName);
+    if (!plugin) {
+      console.log(`Plugin ${pluginName} not found, generating...`);
+      return await this.generateParserForUnknownBoard(page, url, pluginName);
+    }
+
+    try {
+      // Test the plugin
+      const jobs = await plugin.scrape(page, url);
+      
+      if (!Array.isArray(jobs) || jobs.length === 0) {
+        throw new Error('Plugin returned invalid or empty results');
+      }
+
+      console.log(`✓ Plugin test successful: ${jobs.length} jobs found`);
+      return plugin;
+    } catch (error) {
+      console.error(`✗ Plugin test failed: ${error.message}`);
+      console.log(`Regenerating plugin with self-healing...`);
+      
+      // Remove broken plugin
+      this.plugins.delete(pluginName);
+      
+      // Generate new one
+      return await this.generateParserForUnknownBoard(page, url, pluginName);
+    }
   }
 }
 

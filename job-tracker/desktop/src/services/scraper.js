@@ -9,7 +9,8 @@ class ScraperService {
     this.store = store;
     this.isRunning = false;
     this.browser = null;
-    this.pages = new Map(); // board -> page
+    // FIX: Changed from board -> page to searchId -> page for unique pages per search
+    this.pages = new Map(); // searchId -> page
     this.lastRun = null;
     this.nextRun = null;
     this.intervalId = null;
@@ -141,7 +142,8 @@ class ScraperService {
     console.log(`Scraping: ${search.board} - ${search.queryUrl}`);
 
     try {
-      const page = await this.getPage(search.board);
+      // FIX: Use search.id instead of search.board to get unique page per search
+      const page = await this.getPage(search.id, search.board);
       
       // Longer delay to ensure page is fully initialized
       console.log('Waiting for page to be fully ready...');
@@ -172,7 +174,7 @@ class ScraperService {
           if (Notification.isSupported()) {
             new Notification({
               title: 'New Jobs Found!',
-              body: `Found ${response.new} new job${response.new > 1 ? 's' : ''} on ${search.board}`,
+              body: `Found ${response.new} new job${response.new > 1 ? 's' : ''} on ${search.board} (Search #${search.id})`,
               silent: false
             }).show();
           }
@@ -192,24 +194,25 @@ class ScraperService {
     }
   }
 
-  async getPage(board) {
-    console.log(`Getting page for board: ${board}`);
+  // FIX: Updated to accept searchId as primary key instead of board
+  async getPage(searchId, board) {
+    console.log(`Getting page for search: ${searchId} (board: ${board})`);
     
-    // Check if we have a valid existing page
-    if (this.pages.has(board)) {
-      const existingPage = this.pages.get(board);
+    // Check if we have a valid existing page for this specific search
+    if (this.pages.has(searchId)) {
+      const existingPage = this.pages.get(searchId);
       try {
         // Test if page is still valid
         await existingPage.title();
-        console.log('Reusing existing valid page');
+        console.log('Reusing existing valid page for this search');
         return existingPage;
       } catch (error) {
         console.log('Existing page invalid, creating new one');
-        this.pages.delete(board);
+        this.pages.delete(searchId);
       }
     }
 
-    console.log('Creating new page...');
+    console.log('Creating new page for this search...');
     
     // Initialize browser if needed
     if (!this.browser) {
@@ -243,10 +246,10 @@ class ScraperService {
       throw new Error('Page not ready');
     }
     
-    // Store for reuse
-    this.pages.set(board, page);
+    // Store with searchId as key for unique pages per search
+    this.pages.set(searchId, page);
     
-    console.log('Page ready!');
+    console.log(`Page ready and stored for search ${searchId}!`);
     return page;
   }
 

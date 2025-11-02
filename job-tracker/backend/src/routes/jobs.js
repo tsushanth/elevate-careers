@@ -135,7 +135,7 @@ router.post('/batch', async (req, res) => {
 // Get jobs with filtering and pagination
 router.get('/', async (req, res) => {
   try {
-    const { status, page = 1, limit = 50, search } = req.query;
+    const { status, page = 1, limit = 50, search, searchId } = req.query;
 
     const offset = (page - 1) * limit;
     const conditions = ['user_id = $1'];
@@ -146,6 +146,13 @@ router.get('/', async (req, res) => {
       paramCount++;
       conditions.push(`status = $${paramCount}`);
       values.push(status);
+    }
+
+    // NEW: Filter by specific search
+    if (searchId) {
+      paramCount++;
+      conditions.push(`search_id = $${paramCount}`);
+      values.push(searchId);
     }
 
     if (search) {
@@ -164,9 +171,9 @@ router.get('/', async (req, res) => {
 
     const total = parseInt(countResult.rows[0].count);
 
-    // Get jobs
+    // Get jobs - NEW: Include search_id in results
     const jobsResult = await db.query(
-      `SELECT id, external_id, board_name, title, company, location, url, posted_date, status, first_seen_at, last_seen_at
+      `SELECT id, external_id, board_name, title, company, location, url, posted_date, status, first_seen_at, last_seen_at, search_id
        FROM jobs 
        WHERE ${whereClause}
        ORDER BY first_seen_at DESC
@@ -185,7 +192,8 @@ router.get('/', async (req, res) => {
       postedDate: row.posted_date,
       status: row.status,
       firstSeenAt: row.first_seen_at,
-      lastSeenAt: row.last_seen_at
+      lastSeenAt: row.last_seen_at,
+      searchId: row.search_id // NEW: Include search ID
     }));
 
     res.json({
