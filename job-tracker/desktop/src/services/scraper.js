@@ -261,6 +261,18 @@ class ScraperService {
     
     const userDataDir = path.join(app.getPath('userData'), 'browser-data');
     
+    // Clean up stale lock files that cause "SingletonLock: File exists" error
+    try {
+      const fs = require('fs');
+      const lockPath = path.join(userDataDir, 'SingletonLock');
+      if (fs.existsSync(lockPath)) {
+        console.log('Removing stale SingletonLock file...');
+        fs.unlinkSync(lockPath);
+      }
+    } catch (error) {
+      console.log('Note: Could not remove lock file (this is usually ok):', error.message);
+    }
+    
     // Detect Chrome/Chromium installation
     let executablePath;
     
