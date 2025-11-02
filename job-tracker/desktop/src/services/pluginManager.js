@@ -1,6 +1,6 @@
 const fs = require('fs').promises;
 const path = require('path');
-const ParserGenerator = require('./parserGenerator.js'); // NEW: Import parser generator
+const ParserGenerator = require('./parserGenerator'); // NEW: Import parser generator
 
 class PluginManager {
   constructor(userDataPath, apiService) {
