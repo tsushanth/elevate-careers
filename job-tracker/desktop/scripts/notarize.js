@@ -33,7 +33,7 @@ exports.default = async function notarizing(context) {
 
   try {
     await notarize({
-      appBundleId: 'com.yourcompany.jobtracker', // Change this to your bundle ID
+      appBundleId: 'com.kreativekoala.jobtracker', // Change this to your bundle ID
       appPath: appPath,
       appleId: process.env.APPLE_ID,
       appleIdPassword: process.env.APPLE_ID_PASSWORD,

@@ -10,6 +10,22 @@
         "migrate": "node src/db/migrate.js",
         "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
     },
+    "build": {
+        "appId": "com.kreativekoala.jobtracker",
+        "productName": "Job Tracker",
+        "mac": {
+            "category": "public.app-category.productivity",
+            "hardenedRuntime": true,
+            "gatekeeperAssess": false,
+            "entitlements": "build/entitlements.mac.plist",
+            "entitlementsInherit": "build/entitlements.mac.plist",
+            "identity": "Developer ID Application: kreativekoala LLC",
+            "notarize": {
+                "teamId": "7RS696YC75"
+            }
+        },
+        "afterSign": "scripts/notarize.js"
+    },
     "dependencies": {
         "bcrypt": "^5.1.1",
         "cors": "^2.8.5",
@@ -22,6 +38,7 @@
         "uuid": "^9.0.1"
     },
     "devDependencies": {
+        "@electron/notarize": "^3.1.1",
         "jest": "^29.7.0",
         "nodemon": "^3.0.2"
     }

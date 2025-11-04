@@ -4,80 +4,88 @@
     "description": "Desktop application for tracking job applications",
     "main": "src/main.js",
     "scripts": {
-      "start": "electron .",
-      "dev": "electron . --dev",
-      "build": "electron-builder",
-      "build:mac": "electron-builder --mac",
-      "build:win": "electron-builder --win",
-      "build:linux": "electron-builder --linux",
-      "build:all": "electron-builder --mac --win --linux",
-      "dist": "electron-builder --publish never"
+        "start": "electron .",
+        "dev": "electron . --dev",
+        "build": "electron-builder",
+        "build:mac": "electron-builder --mac",
+        "build:win": "electron-builder --win",
+        "build:linux": "electron-builder --linux",
+        "build:all": "electron-builder --mac --win --linux",
+        "dist": "electron-builder --publish never"
     },
     "build": {
-      "appId": "com.jobtracker.app",
-    "productName": "Job Tracker",
-    "copyright": "Copyright © 2025",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "src/**/*",
-      "package.json"
-    ],
-    "mac": {
-      "category": "public.app-category.business",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "icon": "build/icon.icns",
-      "darkModeSupport": true
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+        "appId": "com.jobtracker.app",
+        "productName": "Job Tracker",
+        "copyright": "Copyright © 2025",
+        "directories": {
+            "output": "dist"
         },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.ico"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Office",
-      "icon": "build/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Job Tracker"
-    }
+        "files": [
+            "src/**/*",
+            "package.json"
+        ],
+        "mac": {
+            "category": "public.app-category.productivity",
+            "target": [
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "x64",
+                        "arm64"
+                    ]
+                }
+            ],
+            "hardenedRuntime": true,
+            "gatekeeperAssess": false,
+            "entitlements": "build/entitlements.mac.plist",
+            "entitlementsInherit": "build/entitlements.mac.plist",
+            "notarize": {
+                "teamId": "7RS696YC75"
+            },
+            "darkModeSupport": true
+        },
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "portable",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "build/icon.ico"
+        },
+        "linux": {
+            "target": [
+                "AppImage",
+                "deb"
+            ],
+            "category": "Office",
+            "icon": "build/icon.png"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "Job Tracker"
+        },
+        "afterSign": "scripts/notarize.js"
     },
     "dependencies": {
-      "axios": "^1.6.2",
-      "electron-store": "^8.1.0",
-      "puppeteer-core": "^21.6.1"
+        "axios": "^1.6.2",
+        "electron-store": "^8.1.0",
+        "puppeteer-core": "^21.6.1"
     },
     "devDependencies": {
-      "electron": "^28.0.0",
-      "electron-builder": "^24.9.1"
+        "@electron/notarize": "^3.1.1",
+        "electron": "^28.0.0",
+        "electron-builder": "^24.9.1"
     }
-  }
+}
