@@ -131,7 +131,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    Link(destination: URL(string: "https://kreativekoala.com/privacy")!) {
+                    Link(destination: URL(string: "https://kreativekoala.llc/privacy")!) {
                         HStack {
                             Text("Privacy Policy")
                             Spacer()
@@ -141,7 +141,7 @@ struct SettingsView: View {
                         }
                     }
                     
-                    Link(destination: URL(string: "https://kreativekoala.com/terms")!) {
+                    Link(destination: URL(string: "https://kreativekoala.llc/terms")!) {
                         HStack {
                             Text("Terms of Service")
                             Spacer()
