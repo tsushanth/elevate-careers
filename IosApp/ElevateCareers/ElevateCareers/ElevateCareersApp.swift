@@ -17,7 +17,10 @@ struct ElevateCareersApp: App {
     init() {
         // Configure Firebase
         FirebaseApp.configure()
-        
+
+        // Register Apple Search Ads attribution token (one-shot, background)
+        AttributionService.shared.trackAttribution()
+
         // Check if user has seen welcome screen before
         let seen = UserDefaults.standard.bool(forKey: "hasSeenWelcome")
         _hasSeenWelcome = State(initialValue: seen)

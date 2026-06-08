@@ -38,10 +38,12 @@
 		88F2156A2EAD53A4003346E1 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 88F215692EAD53A4003346E1 /* Realtime */; };
 		88F2156C2EAD53A4003346E1 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 88F2156B2EAD53A4003346E1 /* Storage */; };
 		88F2156E2EAD53A4003346E1 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 88F2156D2EAD53A4003346E1 /* Supabase */; };
+		88AD00012EAD000000ADSE01 /* AdServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 88AD00002EAD000000ADSE00 /* AdServices.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		88B87A9B2EABE2B4002D6D06 /* ElevateCareers.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ElevateCareers.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		88AD00002EAD000000ADSE00 /* AdServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AdServices.framework; path = System/Library/Frameworks/AdServices.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -70,6 +72,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				88AD00012EAD000000ADSE01 /* AdServices.framework in Frameworks */,
 				88B87C332EAC2B9A002D6D06 /* FirebaseFirestoreCombine-Community in Frameworks */,
 				88F2156E2EAD53A4003346E1 /* Supabase in Frameworks */,
 				88B87C352EAC2B9A002D6D06 /* FirebaseFunctions in Frameworks */,
@@ -112,7 +115,16 @@
 			children = (
 				88B87A9D2EABE2B4002D6D06 /* ElevateCareers */,
 				88B87A9C2EABE2B4002D6D06 /* Products */,
+				88AD00022EAD000000ADSE02 /* Frameworks */,
 			);
+			sourceTree = "<group>";
+		};
+		88AD00022EAD000000ADSE02 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				88AD00002EAD000000ADSE00 /* AdServices.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		88B87A9C2EABE2B4002D6D06 /* Products */ = {
