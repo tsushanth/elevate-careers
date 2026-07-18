@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Elevate — Profile</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.5 system-ui, sans-serif; background: #f8fafc; color: #0f172a; min-height: 100vh; }
+  header { background: #0f172a; color: #fff; padding: 16px 32px; display: flex; align-items: center; gap: 12px; }
+  header span { font-size: 22px; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .page { max-width: 780px; margin: 32px auto; padding: 0 24px 80px; }
+  .section { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+  .section h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #64748b; margin-bottom: 18px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .full { grid-column: 1 / -1; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  label { font-size: 12px; font-weight: 500; color: #475569; }
+  input, select, textarea { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font: 13px/1.4 system-ui, sans-serif; color: #0f172a; width: 100%; outline: none; transition: border-color .15s; }
+  input:focus, select:focus, textarea:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+  textarea { resize: vertical; }
+  .actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .save-btn { background: #0f172a; color: #fff; border: none; border-radius: 9px; padding: 10px 22px; font: 600 13px system-ui; cursor: pointer; }
+  .save-btn:hover { background: #1e293b; }
+  .toast { font-size: 13px; color: #22c55e; opacity: 0; transition: opacity .3s; }
+  .toast.show { opacity: 1; }
+  .hint { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+  .auth-bar { background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:16px 24px; margin-bottom:20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .auth-bar input { border:1px solid #e2e8f0; border-radius:8px; padding:7px 10px; font:13px/1.4 system-ui; flex:1; min-width:130px; outline:none; }
+  .auth-bar input:focus { border-color:#6366f1; }
+  .abtn { padding:7px 14px; font:600 13px system-ui; border-radius:8px; border:none; cursor:pointer; }
+  .abtn.primary { background:#0f172a; color:#fff; }
+  .abtn.secondary { background:#f1f5f9; color:#0f172a; }
+  #auth-status { font-size:13px; }
+  /* Onboarding gate shown when signed out */
+  #onboarding { background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%); color:#fff; border-radius:14px; padding:28px 28px 24px; margin-bottom:20px; }
+  #onboarding h2 { font-size:18px; font-weight:700; margin-bottom:6px; }
+  #onboarding p { font-size:13px; color:#94a3b8; margin-bottom:20px; }
+  .steps { display:flex; gap:10px; margin-bottom:22px; flex-wrap:wrap; }
+  .step { background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:12px 14px; flex:1; min-width:120px; }
+  .step-num { font-size:11px; font-weight:700; color:#6366f1; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+  .step-txt { font-size:12px; color:#e2e8f0; line-height:1.4; }
+  .ob-fields { display:flex; gap:8px; flex-wrap:wrap; }
+  .ob-fields input { flex:1; min-width:140px; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.08); color:#fff; border-radius:8px; padding:8px 11px; font:13px system-ui; outline:none; }
+  .ob-fields input::placeholder { color:#64748b; }
+  .ob-fields input:focus { border-color:#6366f1; }
+  .ob-msg { font-size:12px; margin-top:8px; color:#94a3b8; min-height:18px; }
+  .ob-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #profile-sections { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <span>⚡</span>
+  <h1>Elevate Autofill — Profile</h1>
+</header>
+
+<div class="page">
+
+  <!-- Onboarding gate — shown only when signed out -->
+  <div id="onboarding" style="display:none">
+    <h2>Welcome to Elevate ⚡</h2>
+    <p>Sign in or create a free account to autofill job applications with AI.</p>
+    <div class="steps">
+      <div class="step"><div class="step-num">Step 1</div><div class="step-txt">Create account or sign in below</div></div>
+      <div class="step"><div class="step-num">Step 2</div><div class="step-txt">Fill in your profile &amp; resume text</div></div>
+      <div class="step"><div class="step-num">Step 3</div><div class="step-txt">Visit any job page — Elevate auto-fills for you</div></div>
+    </div>
+    <div class="ob-fields">
+      <input type="email" id="ob-email" placeholder="your@email.com" autocomplete="email"/>
+      <input type="password" id="ob-pass" placeholder="Password (8+ chars)" autocomplete="current-password"/>
+    </div>
+    <div class="ob-msg" id="ob-msg"></div>
+    <div class="ob-row" style="margin-top:10px;">
+      <button class="abtn primary" id="ob-signin">Sign in</button>
+      <button class="abtn secondary" id="ob-signup">Create free account</button>
+    </div>
+  </div>
+
+  <!-- Signed-in status bar -->
+  <div class="auth-bar" id="auth-bar" style="display:none">
+    <span id="auth-status" style="color:#22c55e;font-weight:600">Checking…</span>
+  </div>
+
+  <div id="profile-sections">
+  <div class="section">
+    <h2>Personal</h2>
+    <div class="grid">
+      <div class="field"><label>First name</label><input id="firstName" placeholder="Sushanth"/></div>
+      <div class="field"><label>Last name</label><input id="lastName" placeholder="Tiruvaipati"/></div>
+      <div class="field"><label>Email</label><input id="email" type="email" placeholder="you@example.com"/></div>
+      <div class="field"><label>Phone</label><input id="phone" placeholder="+1 415-000-0000"/></div>
+      <div class="field"><label>City</label><input id="city" placeholder="San Jose"/></div>
+      <div class="field"><label>State</label><input id="state" placeholder="California"/></div>
+      <div class="field"><label>Country</label><input id="country" placeholder="United States"/></div>
+      <div class="field"><label>Postal / ZIP</label><input id="postalCode" placeholder="95101"/></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Online presence</h2>
+    <div class="grid">
+      <div class="field"><label>LinkedIn URL</label><input id="linkedin" placeholder="https://linkedin.com/in/yourhandle"/></div>
+      <div class="field"><label>GitHub URL</label><input id="github" placeholder="https://github.com/yourhandle"/></div>
+      <div class="field full"><label>Portfolio / website</label><input id="portfolio" placeholder="https://yoursite.com"/></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Education</h2>
+    <div class="grid">
+      <div class="field">
+        <label>Highest degree</label>
+        <select id="educationLevel">
+          <option value="">— select —</option>
+          <option value="High School Diploma">High School Diploma / GED</option>
+          <option value="Associate's Degree">Associate's Degree</option>
+          <option value="Bachelor's Degree">Bachelor's Degree</option>
+          <option value="Master's Degree">Master's Degree</option>
+          <option value="MBA">MBA</option>
+          <option value="Doctorate">Doctorate / PhD</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="field"><label>School / University</label><input id="schoolName" placeholder="Carnegie Mellon University"/></div>
+      <div class="field"><label>Field of study / Major</label><input id="fieldOfStudy" placeholder="Information Networking"/></div>
+      <div class="field"><label>Graduation year</label><input id="graduationYear" placeholder="2011"/></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Work authorization</h2>
+    <div class="grid">
+      <div class="field">
+        <label>Authorized to work in the US?</label>
+        <select id="workAuth">
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Require visa sponsorship?</label>
+        <select id="sponsorship">
+          <option value="No">No</option>
+          <option value="Yes">Yes</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Salary expectation</label>
+        <input id="salary" placeholder="150000"/>
+        <p class="hint">Number only, in USD. Used for salary fields.</p>
+      </div>
+      <div class="field">
+        <label>How did you hear about us? (default)</label>
+        <input id="heardAbout" placeholder="LinkedIn"/>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Background (used for AI answers)</h2>
+    <div class="field">
+      <label>Professional summary</label>
+      <textarea id="background" rows="5" placeholder="Brief bio Claude uses to answer open-ended questions…"></textarea>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Resume text (used for AI answers)</h2>
+    <div class="field">
+      <textarea id="resume" rows="12" placeholder="Plain text resume…"></textarea>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="save-btn" id="save">Save profile</button>
+    <span class="toast" id="toast">✓ Saved</span>
+  </div>
+
+  </div><!-- end profile-sections -->
+
+</div>
+<script src="options.js" type="module"></script>
+</body>
+</html>
