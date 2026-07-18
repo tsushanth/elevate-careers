@@ -1,0 +1,13 @@
+app = 'elevate-careers-cron'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'cron/Dockerfile'
+
+[env]
+  # INGEST_SECRET is set via flyctl secrets
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
