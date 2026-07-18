@@ -191,7 +191,20 @@ app.get('/jobs/personalized', async (req, res) => {
     const { data: { user }, error: authErr } = await sb.auth.getUser(token);
     if (authErr || !user) return res.status(401).json({ error: 'Invalid session' });
 
-    const { limit = 50, offset = 0 } = req.query;
+    const { limit = 50, offset = 0, show_applied = 'false' } = req.query;
+    const hideApplied = show_applied !== 'true';
+
+    // Fetch applied job URLs for this user to exclude them
+    const { data: appliedRows } = await sb.from('job_applications')
+      .select('job_url')
+      .eq('user_id', user.id);
+    const appliedUrls = (appliedRows || []).map(r => r.job_url).filter(Boolean);
+    const appliedCount = appliedUrls.length;
+
+    // Build exclusion clause
+    const excludeClause = hideApplied && appliedUrls.length > 0
+      ? `AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${i + 4}`).join(',')})`
+      : '';
 
     // Read precomputed signals — fast single row lookup
     const { data: signals } = await sb.from('user_signals')
@@ -203,10 +216,10 @@ app.get('/jobs/personalized', async (req, res) => {
     let jobs = [];
 
     if (keywords.length > 0) {
-      // Sanitize keywords for tsquery (only alphanumeric, join with OR)
       const safeKeywords = keywords.filter(k => /^[a-z0-9]+$/i.test(k));
       if (safeKeywords.length > 0) {
         const tsQuery = safeKeywords.join(' | ');
+        const extraParams = hideApplied ? appliedUrls : [];
         const result = await db.query(`
           SELECT
             j.*,
@@ -219,16 +232,21 @@ app.get('/jobs/personalized', async (req, res) => {
           JOIN company c ON j.company_id = c.id
           LEFT JOIN job_location jl ON j.id = jl.job_id
           WHERE j.tsv @@ to_tsquery('english', $1)
+          ${excludeClause}
           GROUP BY j.id, c.name, c.domain
           ORDER BY relevance DESC, j.posted_at DESC NULLS LAST
           LIMIT $2 OFFSET $3
-        `, [tsQuery, limit, offset]);
+        `, [tsQuery, limit, offset, ...extraParams]);
         jobs = result.rows;
       }
     }
 
     // Fall back to recent jobs if no signals yet or too few results
     if (jobs.length < 10) {
+      const extraParams = hideApplied ? appliedUrls : [];
+      const fallbackExclude = hideApplied && appliedUrls.length > 0
+        ? `AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${i + 3}`).join(',')})`
+        : '';
       const result = await db.query(`
         SELECT j.*, c.name as company_name, c.domain as company_domain,
           array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
@@ -236,14 +254,15 @@ app.get('/jobs/personalized', async (req, res) => {
         FROM job j
         JOIN company c ON j.company_id = c.id
         LEFT JOIN job_location jl ON j.id = jl.job_id
+        WHERE 1=1 ${fallbackExclude}
         GROUP BY j.id, c.name, c.domain
         ORDER BY j.posted_at DESC NULLS LAST
         LIMIT $1 OFFSET $2
-      `, [limit, offset]);
+      `, [limit, offset, ...extraParams]);
       jobs = result.rows;
     }
 
-    res.json({ jobs, count: jobs.length, keywords, offset: parseInt(offset), limit: parseInt(limit) });
+    res.json({ jobs, count: jobs.length, keywords, appliedCount, offset: parseInt(offset), limit: parseInt(limit) });
   } catch (e) {
     logger.error({ error: e }, 'Personalized jobs error');
     res.status(500).json({ error: 'Failed to fetch personalized jobs' });
