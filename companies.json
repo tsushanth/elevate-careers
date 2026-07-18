@@ -4,7 +4,18 @@
     "stripe",
     "airbnb",
     "notion",
-    "figma"
+    "figma",
+    "twilio",
+    "cloudflare",
+    "datadog",
+    "mongodb",
+    "databricks",
+    "lyft",
+    "coinbase",
+    "discord",
+    "vercel",
+    "dropbox",
+    "airtable"
   ],
   "lever": [
     "netflix",

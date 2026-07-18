@@ -1,0 +1,23 @@
+app = 'elevate-careers-worker'
+primary_region = 'iad'
+
+[build]
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '8080'
+  SERVICE_MODE = 'worker'
+
+[http_service]
+  internal_port = 8080
+  force_https = false
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 512
