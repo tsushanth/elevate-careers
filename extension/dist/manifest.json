@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "SimplyApply — AI Job Autofill",
+  "version": "1.0.0",
+  "description": "Autofill job applications in one click. Works on Greenhouse, Lever, Ashby, and more. Save your profile once, apply everywhere.",
+  "permissions": ["storage", "scripting", "activeTab", "tabs", "cookies"],
+  "host_permissions": [
+    "https://*.greenhouse.io/*",
+    "https://*.lever.co/*",
+    "https://*.ashbyhq.com/*",
+    "https://*.smartrecruiters.com/*",
+    "https://*.workday.com/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.bamboohr.com/*",
+    "https://*.jobvite.com/*",
+    "https://*.workable.com/*",
+    "https://*.recruitee.com/*",
+    "https://*.icims.com/*",
+    "https://*.taleo.net/*",
+    "https://*.successfactors.com/*",
+    "https://elevate-careers-api.fly.dev/*",
+    "https://simplyappl.ai/*",
+    "https://owvvrljdfnhntwedepkl.supabase.co/*"
+  ],
+  "background": { "service_worker": "sw.js", "type": "module" },
+  "options_page": "options.html",
+  "action": { "default_title": "Inject Autofill" },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/resume.pdf", "assets/cover_letter.pdf"],
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.workday.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.workable.com/*",
+        "https://*.recruitee.com/*",
+        "https://*.icims.com/*",
+        "https://*.taleo.net/*",
+        "https://*.successfactors.com/*"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.workday.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.workable.com/*",
+        "https://*.recruitee.com/*",
+        "https://*.icims.com/*",
+        "https://*.taleo.net/*",
+        "https://*.successfactors.com/*"
+      ],
+      "js": ["mount.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
