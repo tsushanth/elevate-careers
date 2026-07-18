@@ -40,18 +40,26 @@ app.get('/health', async (req, res) => {
 import aiResumeRoutes from '../routes/ai-resume.js';
 app.use('/api/ai-resume', aiResumeRoutes);
 
-// Sync ingestion — no queue, runs adapter inline, returns results directly
+// Sync ingestion — responds immediately, processes in background
 app.post('/ingest/sync', async (req, res) => {
   try {
     const { provider, org, secret } = req.body;
     if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
     if (!provider || !org) return res.status(400).json({ error: 'provider and org required' });
-    const getAdapter = (await import('../adapters/index.js')).default;
-    const normalizer = (await import('../services/normalizer.js')).default;
-    const adapter = getAdapter(provider);
-    const rawJobs = await adapter.fetchJobs(org);
-    const results = await normalizer.processJobs(rawJobs, provider, org);
-    res.json({ ok: true, org, provider, fetched: rawJobs.length, ...results });
+    res.json({ ok: true, org, provider, status: 'processing' });
+    // Process after response to avoid Fly's 30s request timeout
+    setImmediate(async () => {
+      try {
+        const getAdapter = (await import('../adapters/index.js')).default;
+        const normalizer = (await import('../services/normalizer.js')).default;
+        const adapter = getAdapter(provider);
+        const rawJobs = await adapter.fetchJobs(org);
+        const results = await normalizer.processJobs(rawJobs, provider, org);
+        logger.info({ org, provider, fetched: rawJobs.length, ...results }, 'Sync ingest complete');
+      } catch (e) {
+        logger.error({ error: e, org, provider }, 'Sync ingest background error');
+      }
+    });
   } catch (e) {
     logger.error({ error: e }, 'Sync ingest error');
     res.status(500).json({ error: e.message });
