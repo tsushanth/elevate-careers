@@ -1,20 +1,42 @@
 // routes/ai-resume.js - ES Module version for existing project
 import express from 'express';
-import { OpenAI } from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { recomputeSignals } from '../services/signals.js';
 
 const router = express.Router();
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Auth middleware — validates Supabase JWT
+async function requireAuth(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Not signed in' });
+  try {
+    const sb = getSupabase();
+    const { data: { user }, error } = await sb.auth.getUser(token);
+    if (error || !user) return res.status(401).json({ error: 'Invalid session — sign in again' });
+    req.user = user;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Auth check failed' });
+  }
+}
 
-// Initialize Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+// Lazy-initialized clients
+let _anthropic = null;
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
+
+let _supabase = null;
+function getSupabase() {
+  if (!_supabase) {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
+      throw new Error('Supabase not configured');
+    _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  }
+  return _supabase;
+}
 
 // In-memory conversation storage (use Redis in production)
 const conversations = new Map();
@@ -70,7 +92,7 @@ Current conversation stage: [Will be injected dynamically]`;
 /**
  * POST /api/ai-resume/start
  */
-router.post('/start', async (req, res) => {
+router.post('/start', requireAuth, async (req, res) => {
   try {
     const { userId } = req.body;
 
@@ -121,7 +143,7 @@ router.post('/start', async (req, res) => {
 /**
  * POST /api/ai-resume/chat
  */
-router.post('/chat', async (req, res) => {
+router.post('/chat', requireAuth, async (req, res) => {
   try {
     const { conversationId, message, userId } = req.body;
 
@@ -145,27 +167,19 @@ router.post('/chat', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    const messages = [
-      {
-        role: 'system',
-        content: SYSTEM_PROMPT + `\nCurrent stage: ${conversation.stage}\nCurrent data collected: ${JSON.stringify(conversation.resumeData)}`
-      },
-      ...conversation.messages.map(m => ({
-        role: m.role,
-        content: m.content
-      }))
-    ];
+    const chatMessages = conversation.messages.map(m => ({
+      role: m.role,
+      content: m.content
+    }));
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: messages,
-      temperature: 0.7,
-      max_tokens: 200,
-      presence_penalty: 0.6,
-      frequency_penalty: 0.3
+    const completion = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      system: SYSTEM_PROMPT + `\nCurrent stage: ${conversation.stage}\nCurrent data collected: ${JSON.stringify(conversation.resumeData)}`,
+      messages: chatMessages,
     });
 
-    let aiResponse = completion.choices[0].message.content;
+    let aiResponse = completion.content[0].text;
 
     conversation.messages.push({
       role: 'assistant',
@@ -259,30 +273,16 @@ async function extractResumeData(messages) {
       .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
       .join('\n');
 
-    const extraction = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `Extract resume information and return ONLY valid JSON with this structure:
-{
-  "personalInfo": {"name": "", "email": "", "phone": "", "location": ""},
-  "education": [{"school": "", "degree": "", "field": "", "graduationYear": ""}],
-  "experience": [{"company": "", "position": "", "duration": "", "responsibilities": []}],
-  "skills": []
-}
-Only include fields that were mentioned. Return valid JSON only.`
-        },
-        {
-          role: 'user',
-          content: `Extract resume data:\n\n${conversationText}`
-        }
-      ],
-      temperature: 0.2,
-      max_tokens: 500
+    const extraction = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      system: `Extract resume information and return ONLY valid JSON with this structure:
+{"personalInfo":{"name":"","email":"","phone":"","location":""},"education":[{"school":"","degree":"","field":"","graduationYear":""}],"experience":[{"company":"","position":"","duration":"","responsibilities":[]}],"skills":[]}
+Only include fields that were mentioned. Return valid JSON only, no markdown.`,
+      messages: [{ role: 'user', content: `Extract resume data:\n\n${conversationText}` }],
     });
 
-    const jsonString = extraction.choices[0].message.content.trim();
+    const jsonString = extraction.content[0].text.trim();
     const cleanJson = jsonString.replace(/```json\n?|\n?```/g, '');
     return JSON.parse(cleanJson);
 
@@ -409,23 +409,14 @@ Return enhanced JSON in this exact structure:
   "skills": []
 }`;
 
-    const enhancement = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a professional resume writer. Enhance resume content to be more professional and impactful. Return only valid JSON.'
-        },
-        {
-          role: 'user',
-          content: enhancementPrompt
-        }
-      ],
-      temperature: 0.3, // Lower temperature for consistency
-      max_tokens: 2000
+    const enhancement = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      system: 'You are a professional resume writer. Enhance resume content to be more professional and impactful. Return only valid JSON, no markdown.',
+      messages: [{ role: 'user', content: enhancementPrompt }],
     });
 
-    const enhancedJson = enhancement.choices[0].message.content.trim();
+    const enhancedJson = enhancement.content[0].text.trim();
     const cleanJson = enhancedJson.replace(/```json\n?|\n?```/g, '');
     const enhancedData = JSON.parse(cleanJson);
 
@@ -469,7 +460,7 @@ async function saveResumeToSupabase(userId, resumeData) {
     const pdfFileName = `${sanitizedName}-${timestamp}.pdf`;
     const pdfPath = `resumes/${userId}/${pdfFileName}`;
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await getSupabase().storage
       .from('resumes')
       .upload(pdfPath, pdfBuffer, {
         contentType: 'application/pdf',
@@ -482,7 +473,7 @@ async function saveResumeToSupabase(userId, resumeData) {
       throw uploadError;
     }
 
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = getSupabase().storage
       .from('resumes')
       .getPublicUrl(pdfPath);
 
@@ -509,7 +500,7 @@ async function saveResumeToSupabase(userId, resumeData) {
 
     if (error) {
       console.error('Supabase insert error:', error);
-      await supabase.storage.from('resumes').remove([pdfPath]);
+      await getSupabase().storage.from('resumes').remove([pdfPath]);
       throw error;
     }
 
@@ -564,6 +555,155 @@ function generateResumeText(resumeData) {
 
   return text;
 }
+
+// ── Autofill API endpoints (called by Chrome extension) ──────────────────────
+
+// POST /api/ai-resume/copilot/answer
+// Answers an open-ended job application question using the user's profile
+router.post('/copilot/answer', requireAuth, async (req, res) => {
+  try {
+    const { question, jobDescription, profile } = req.body;
+    if (!question) return res.status(400).json({ error: 'question required' });
+
+    const completion = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system: `You are a professional job application assistant. Answer the given job application question concisely and professionally in first person, using the candidate's profile. Write 2-4 sentences max. Do not include any preamble like "Here is my answer:" — just the answer itself.`,
+      messages: [{
+        role: 'user',
+        content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 800)}\n\nQuestion: ${question}`,
+      }],
+    });
+    res.json({ answer: completion.content[0].text.trim() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/ai-resume/resume/tailor
+// Returns a base64-encoded tailored PDF resume for a specific job
+router.post('/resume/tailor', requireAuth, async (req, res) => {
+  try {
+    const { jobDescription, jobTitle, profile } = req.body;
+    if (!profile) return res.status(400).json({ error: 'profile required' });
+
+    const { generateResumePDF } = await import('../utils/pdf-generator.js');
+
+    // Build resume data from extension profile
+    const resumeData = {
+      personalInfo: {
+        name: `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
+        email: profile.email || '',
+        phone: profile.phone || '',
+        location: [profile.city, profile.state].filter(Boolean).join(', '),
+      },
+      education: [{
+        school: profile.schoolName,
+        degree: profile.educationLevel,
+        field: profile.fieldOfStudy,
+        graduationYear: profile.graduationYear,
+      }],
+      experience: profile.resume ? [{
+        position: 'See resume',
+        company: '',
+        responsibilities: [profile.resume.slice(0, 600)],
+      }] : [],
+      skills: (profile.background || '').split(/[,\.]\s+/).slice(0, 12).filter(s => s.length > 2),
+    };
+
+    const pdfBuffer = await generateResumePDF(resumeData);
+    const pdf = pdfBuffer.toString('base64');
+    const safeTitle = (jobTitle || 'resume').replace(/[^a-z0-9]/gi, '_').slice(0, 40);
+    const filename = `${(profile.firstName || 'Resume')}_${safeTitle}.pdf`;
+
+    res.json({ pdf, filename });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Profile sync from extension ──────────────────────────────────────────────
+// Called when user saves their profile in the extension options page
+router.post('/profile/sync', requireAuth, async (req, res) => {
+  try {
+    const { profile } = req.body;
+    if (!profile) return res.status(400).json({ error: 'profile required' });
+    const sb = getSupabase();
+    await sb.from('user_profile').upsert({
+      user_id: req.user.id,
+      autofill_data: profile,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+    // Recompute signals with fresh profile data
+    recomputeSignals(req.user.id).catch(() => {});
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Job application tracker ───────────────────────────────────────────────────
+router.post('/applications/track', requireAuth, async (req, res) => {
+  try {
+    const { jobUrl, jobTitle, company, fieldCount, aiUsed, filled, skipped, errors } = req.body;
+    if (!jobUrl) return res.status(400).json({ error: 'jobUrl required' });
+
+    const sb = getSupabase();
+    const { data, error } = await sb.from('job_applications').insert({
+      user_id:        req.user.id,
+      job_url:        jobUrl,
+      job_title:      jobTitle || null,
+      company:        company  || null,
+      field_count:    fieldCount || 0,
+      ai_used:        !!aiUsed,
+      fields_filled:  filled  || 0,
+      fields_skipped: skipped || 0,
+      fields_errored: errors  || 0,
+    }).select('id').single();
+
+    if (error) throw error;
+    // Recompute signals async — don't block the response
+    recomputeSignals(req.user.id).catch(() => {});
+    res.json({ ok: true, id: data.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List applications for the signed-in user
+router.get('/applications', requireAuth, async (req, res) => {
+  try {
+    const sb = getSupabase();
+    const { data, error } = await sb.from('job_applications')
+      .select('id, job_url, job_title, company, fields_filled, fields_skipped, fields_errored, ai_used, submitted, submitted_at, filled_at')
+      .eq('user_id', req.user.id)
+      .order('filled_at', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    res.json({ applications: data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Self-report: did the application actually submit?
+router.patch('/applications/:id/report', requireAuth, async (req, res) => {
+  try {
+    const { submitted } = req.body;
+    if (typeof submitted !== 'boolean') return res.status(400).json({ error: 'submitted must be boolean' });
+
+    const sb = getSupabase();
+    const { error } = await sb.from('job_applications')
+      .update({ submitted, submitted_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .eq('user_id', req.user.id);
+
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Cleanup old conversations (every hour)
 setInterval(() => {
