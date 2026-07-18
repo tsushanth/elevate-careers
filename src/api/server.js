@@ -7,6 +7,15 @@ import config from '../config/index.js';
 import { logger } from '../utils/logger.js';
 import { db } from '../db/index.js';
 import { enqueueJob } from '../services/queue.js';
+import { createClient } from '@supabase/supabase-js';
+
+import { recomputeSignals } from '../services/signals.js';
+
+let _supabase = null;
+function getSupabase() {
+  if (!_supabase) _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  return _supabase;
+}
 
 const app = express();
 
@@ -30,6 +39,24 @@ app.get('/health', async (req, res) => {
 
 import aiResumeRoutes from '../routes/ai-resume.js';
 app.use('/api/ai-resume', aiResumeRoutes);
+
+// Sync ingestion — no queue, runs adapter inline, returns results directly
+app.post('/ingest/sync', async (req, res) => {
+  try {
+    const { provider, org, secret } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!provider || !org) return res.status(400).json({ error: 'provider and org required' });
+    const getAdapter = (await import('../adapters/index.js')).default;
+    const normalizer = (await import('../services/normalizer.js')).default;
+    const adapter = getAdapter(provider);
+    const rawJobs = await adapter.fetchJobs(org);
+    const results = await normalizer.processJobs(rawJobs, provider, org);
+    res.json({ ok: true, org, provider, fetched: rawJobs.length, ...results });
+  } catch (e) {
+    logger.error({ error: e }, 'Sync ingest error');
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Ingestion API
 app.post('/ingest/org', async (req, res) => {
@@ -147,6 +174,74 @@ app.post('/ingest/discover', async (req, res) => {
 });
 
 // Jobs API
+app.get('/jobs/personalized', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Not signed in' });
+
+    const sb = getSupabase();
+    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
+    if (authErr || !user) return res.status(401).json({ error: 'Invalid session' });
+
+    const { limit = 50, offset = 0 } = req.query;
+
+    // Read precomputed signals — fast single row lookup
+    const { data: signals } = await sb.from('user_signals')
+      .select('keywords, preferred_titles')
+      .eq('user_id', user.id)
+      .single();
+
+    const keywords = signals?.keywords || [];
+    let jobs = [];
+
+    if (keywords.length > 0) {
+      // Sanitize keywords for tsquery (only alphanumeric, join with OR)
+      const safeKeywords = keywords.filter(k => /^[a-z0-9]+$/i.test(k));
+      if (safeKeywords.length > 0) {
+        const tsQuery = safeKeywords.join(' | ');
+        const result = await db.query(`
+          SELECT
+            j.*,
+            c.name as company_name,
+            c.domain as company_domain,
+            array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
+            array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries,
+            ts_rank(j.tsv, to_tsquery('english', $1)) as relevance
+          FROM job j
+          JOIN company c ON j.company_id = c.id
+          LEFT JOIN job_location jl ON j.id = jl.job_id
+          WHERE j.tsv @@ to_tsquery('english', $1)
+          GROUP BY j.id, c.name, c.domain
+          ORDER BY relevance DESC, j.posted_at DESC NULLS LAST
+          LIMIT $2 OFFSET $3
+        `, [tsQuery, limit, offset]);
+        jobs = result.rows;
+      }
+    }
+
+    // Fall back to recent jobs if no signals yet or too few results
+    if (jobs.length < 10) {
+      const result = await db.query(`
+        SELECT j.*, c.name as company_name, c.domain as company_domain,
+          array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
+          array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
+        FROM job j
+        JOIN company c ON j.company_id = c.id
+        LEFT JOIN job_location jl ON j.id = jl.job_id
+        GROUP BY j.id, c.name, c.domain
+        ORDER BY j.posted_at DESC NULLS LAST
+        LIMIT $1 OFFSET $2
+      `, [limit, offset]);
+      jobs = result.rows;
+    }
+
+    res.json({ jobs, count: jobs.length, keywords, offset: parseInt(offset), limit: parseInt(limit) });
+  } catch (e) {
+    logger.error({ error: e }, 'Personalized jobs error');
+    res.status(500).json({ error: 'Failed to fetch personalized jobs' });
+  }
+});
+
 app.get('/jobs', async (req, res) => {
   try {
     const {
