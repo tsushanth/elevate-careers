@@ -23,6 +23,8 @@ function App() {
   const [applications, setApplications] = useState([]);
   const [appsLoading, setAppsLoading] = useState(false);
   const [page, setPage] = useState(0);
+  const [showApplied, setShowApplied] = useState(false);
+  const [appliedCount, setAppliedCount] = useState(0);
   const PAGE_SIZE = 50;
 
   useEffect(() => {
@@ -54,6 +56,7 @@ function App() {
 
       // Use personalized feed when signed in and no explicit keyword search
       const usePersonalized = session && !filters.keyword && !filters.location && !filters.remote;
+      if (usePersonalized) params.set('show_applied', showApplied ? 'true' : 'false');
       const url = usePersonalized
         ? `${API_URL}/jobs/personalized?${params}`
         : `${API_URL}/jobs?${params}`;
@@ -65,6 +68,7 @@ function App() {
       const data = await response.json();
       setJobs(data.jobs || []);
       setTotalCount(data.count || 0);
+      if (data.appliedCount !== undefined) setAppliedCount(data.appliedCount);
       if (data.jobs && data.jobs.length > 0) {
         setSelectedJob(data.jobs[0]);
       }
@@ -74,6 +78,9 @@ function App() {
       setLoading(false);
     }
   };
+
+  // Re-fetch when showApplied toggle changes
+  useEffect(() => { if (session) { setPage(0); fetchJobs(0); } }, [showApplied]); // eslint-disable-line
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -253,7 +260,23 @@ function App() {
         <div className="job-list">
           <div className="job-list-header">
             <h2>{session && !filters.keyword && !filters.location && !filters.remote ? 'Recommended for you' : 'Top job picks for you'}</h2>
-            <p className="results-count">{totalCount} results</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <p className="results-count">{totalCount} results</p>
+              {session && appliedCount > 0 && (
+                <button
+                  onClick={() => setShowApplied(v => !v)}
+                  style={{
+                    background: showApplied ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${showApplied ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                    color: showApplied ? '#22c55e' : '#94a3b8',
+                    borderRadius: 6, padding: '4px 12px', fontSize: 12,
+                    fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {showApplied ? `✓ Showing applied (${appliedCount})` : `Hide applied (${appliedCount})`}
+                </button>
+              )}
+            </div>
           </div>
 
           {loading ? (
