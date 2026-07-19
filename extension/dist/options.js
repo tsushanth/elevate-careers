@@ -110,9 +110,23 @@ async function renderAuth() {
 
     const bar = document.getElementById('auth-bar');
     bar.style.display = 'flex';
+
+    // Show rating CTA in auth bar once user has 3+ fills and hasn't rated
+    const { autofill_count = 0, rated } = await chrome.storage.local.get(['autofill_count', 'rated']);
+    const ratingHtml = (!rated && autofill_count >= 3)
+      ? `<a href="https://chromewebstore.google.com/detail/ocdeebjeffdjmfgmclnlphkhfdcdpdkf/reviews" target="_blank"
+           id="rate-link" style="color:#6366f1;font-size:12px;font-weight:600;text-decoration:none;margin-left:12px;">⭐ Rate SimplyApply</a>`
+      : '';
+
     bar.innerHTML = `
       <span id="auth-status" style="color:#22c55e;font-weight:600">✓ ${email}</span>
+      ${ratingHtml}
       <button class="abtn secondary" id="signout-btn" style="margin-left:auto">Sign out</button>`;
+
+    if (!rated && autofill_count >= 3) {
+      document.getElementById('rate-link').onclick = () => chrome.storage.local.set({ rated: true });
+    }
+
     document.getElementById('signout-btn').onclick = async () => {
       await sw('SIGN_OUT');
       renderAuth();

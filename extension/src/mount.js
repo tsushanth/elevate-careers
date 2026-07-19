@@ -934,6 +934,29 @@ async function run(dryRun) {
 
         shadow.getElementById('rpt-yes').onclick = () => done(true);
         shadow.getElementById('rpt-no').onclick  = () => done(false);
+
+        // Rating prompt — show once after 3rd successful fill
+        chrome.storage.local.get(['autofill_count', 'rated'], ({ autofill_count = 0, rated }) => {
+          const newCount = autofill_count + 1;
+          chrome.storage.local.set({ autofill_count: newCount });
+          if (!rated && newCount === 3) {
+            const ratingBar = document.createElement('div');
+            ratingBar.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;margin-top:6px;padding:8px 10px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);border-radius:8px;font-size:12px;';
+            ratingBar.innerHTML = `
+              <span style="flex:1;color:#c7d2fe">⭐ Enjoying SimplyApply? A quick review helps a lot!</span>
+              <a href="https://chromewebstore.google.com/detail/ocdeebjeffdjmfgmclnlphkhfdcdpdkf/reviews" target="_blank"
+                style="background:#6366f1;color:#fff;padding:4px 12px;border-radius:6px;font-weight:600;text-decoration:none;white-space:nowrap;font-size:11px;">
+                Rate it ⭐
+              </a>
+              <button id="rate-dismiss" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:14px;padding:0 2px;">×</button>`;
+            footer.appendChild(ratingBar);
+            shadow.getElementById('rate-dismiss').onclick = () => {
+              chrome.storage.local.set({ rated: true });
+              ratingBar.remove();
+            };
+            ratingBar.querySelector('a').onclick = () => chrome.storage.local.set({ rated: true });
+          }
+        });
       }).catch(() => {});
     }
   }
