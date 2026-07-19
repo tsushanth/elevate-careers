@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="description" content="LinkedIn OAuth callback for ElevateCareers mobile app">
+    <meta name="author" content="ElevateCareers">
+    
+    <!-- Add Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" 
+          content="default-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0077B5">
+    <title>LinkedIn Authentication - Elevate Careers</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0077B5 0%, #00A0DC 100%);
+            color: white;
+            padding: 20px;
+        }
+        
+        .container {
+            text-align: center;
+            max-width: 400px;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: scaleIn 0.5s ease-out;
+        }
+        
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        p {
+            font-size: 16px;
+            opacity: 0.9;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        
+        .button {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 32px;
+            background: white;
+            color: #0077B5;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            font-size: 16px;
+            transition: all 0.2s ease;
+        }
+        
+        .button:hover {
+            background: #f0f0f0;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        
+        .button:active {
+            transform: translateY(0);
+        }
+        
+        .error-container {
+            background: rgba(255, 107, 107, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 16px;
+        }
+        
+        .success-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 16px;
+        }
+        
+        .code-info {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-top: 16px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="content">
+        <div class="icon">⏳</div>
+        <h1>Processing...</h1>
+        <p>Please wait while we complete the authentication.</p>
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        console.log('LinkedIn callback page loaded');
+        console.log('Current URL:', window.location.href);
+        
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const state = urlParams.get('state');
+        const error = urlParams.get('error');
+        const errorDescription = urlParams.get('error_description');
+        
+        const content = document.getElementById('content');
+        
+        console.log('OAuth params:', { code: code ? 'present' : 'missing', state, error });
+        
+        if (error) {
+            // Show error
+            console.error('LinkedIn OAuth error:', error, errorDescription);
+            content.className = 'container error-container';
+            content.innerHTML = `
+                <div class="icon">❌</div>
+                <h1>Authentication Failed</h1>
+                <p>${errorDescription || error}</p>
+                <p style="font-size: 14px; opacity: 0.7; margin-top: 16px;">
+                    This window will close automatically in 3 seconds...
+                </p>
+                <button class="button" onclick="closeWindow()">Close Now</button>
+            `;
+            
+            // Auto-close after 3 seconds
+            setTimeout(closeWindow, 3000);
+            
+        } else if (code && state) {
+            // Success!
+            console.log('✅ OAuth successful - code received');
+            content.className = 'container success-container';
+            content.innerHTML = `
+                <div class="icon">✅</div>
+                <h1>LinkedIn Connected!</h1>
+                <p>Your profile has been successfully linked.</p>
+                <p>Returning to Elevate Careers...</p>
+                <div class="spinner"></div>
+                <div class="code-info">Code: ${code.substring(0, 10)}...</div>
+            `;
+            
+            // Redirect to custom URL scheme that the app can capture
+            console.log('Redirecting to app with custom URL scheme...');
+            
+            // Build the custom URL scheme redirect
+            const appRedirectUrl = `elevatecareers://linkedin-callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+            console.log('App redirect URL:', appRedirectUrl);
+            
+            // Attempt redirect after short delay (so user sees success message)
+            setTimeout(() => {
+                console.log('Attempting redirect...');
+                window.location.href = appRedirectUrl;
+                
+                // If redirect doesn't work, show manual close after 2 seconds
+                setTimeout(() => {
+                    content.innerHTML = `
+                        <div class="icon">✅</div>
+                        <h1>Almost Done!</h1>
+                        <p>Please return to the Elevate Careers app.</p>
+                        <button class="button" onclick="window.location.href='${appRedirectUrl}'">Open App</button>
+                        <p style="font-size: 14px; opacity: 0.7; margin-top: 16px;">
+                            If the app doesn't open, tap the button above.
+                        </p>
+                    `;
+                }, 2000);
+            }, 800);
+            
+        } else {
+            // No code or error - invalid request
+            console.warn('Invalid OAuth callback - no code or error present');
+            content.className = 'container error-container';
+            content.innerHTML = `
+                <div class="icon">⚠️</div>
+                <h1>Invalid Request</h1>
+                <p>No authorization code or error information received from LinkedIn.</p>
+                <button class="button" onclick="closeWindow()">Close Window</button>
+            `;
+        }
+        
+        function closeWindow() {
+            console.log('Closing window...');
+            try {
+                // Try different methods
+                window.close();
+                
+                // For some browsers
+                if (window.opener) {
+                    window.opener.focus();
+                    window.close();
+                }
+                
+                // For Safari
+                setTimeout(() => {
+                    window.close();
+                }, 100);
+                
+                return true;
+            } catch (e) {
+                console.warn('Could not close window:', e);
+                return false;
+            }
+        }
+        
+        // Prevent accidental navigation away
+        if (code && state) {
+            window.onbeforeunload = null;
+        }
+    </script>
+</body>
+</html>
