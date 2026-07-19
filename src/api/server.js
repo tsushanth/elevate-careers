@@ -19,10 +19,23 @@ function getSupabase() {
 
 const app = express();
 
-// Middleware
-app.use(helmet());
+// CORS must run before helmet so preflight OPTIONS are answered before
+// helmet's restrictive headers (cross-origin-resource-policy: same-origin)
+// can block cross-origin requests from job board domains.
+const corsOptions = {
+  origin: true,          // reflect requesting origin
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // explicit preflight handler
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow extension fetches
+  crossOriginOpenerPolicy: false,
+}));
 app.use(compression());
-app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(pinoHttp({ logger }));
 
