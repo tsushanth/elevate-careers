@@ -28,6 +28,14 @@ function getAnthropic() {
   return _anthropic;
 }
 
+// Increment ai_calls counter for a user (fire-and-forget)
+async function incrementAiUsage(userId) {
+  try {
+    const sb = getSupabase();
+    await sb.rpc('increment_ai_calls', { uid: userId });
+  } catch (_) {}
+}
+
 let _supabase = null;
 function getSupabase() {
   if (!_supabase) {
@@ -574,6 +582,7 @@ router.post('/copilot/answer', requireAuth, async (req, res) => {
         content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 800)}\n\nQuestion: ${question}`,
       }],
     });
+    incrementAiUsage(req.user.id);
     res.json({ answer: completion.content[0].text.trim() });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -616,6 +625,7 @@ router.post('/resume/tailor', requireAuth, async (req, res) => {
     const safeTitle = (jobTitle || 'resume').replace(/[^a-z0-9]/gi, '_').slice(0, 40);
     const filename = `${(profile.firstName || 'Resume')}_${safeTitle}.pdf`;
 
+    incrementAiUsage(req.user.id);
     res.json({ pdf, filename });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -718,5 +728,23 @@ setInterval(() => {
     }
   }
 }, 60 * 60 * 1000); // Run every hour
+
+// GET /api/ai-resume/usage — returns ai_calls count and free tier limit
+const FREE_AI_LIMIT = 25;
+router.get('/usage', requireAuth, async (req, res) => {
+  try {
+    const sb = getSupabase();
+    const { data } = await sb.from('user_usage').select('ai_calls, last_ai_call').eq('user_id', req.user.id).single();
+    const used = data?.ai_calls || 0;
+    res.json({
+      ai_calls_used: used,
+      ai_calls_limit: FREE_AI_LIMIT,
+      ai_calls_remaining: Math.max(0, FREE_AI_LIMIT - used),
+      is_over_limit: used >= FREE_AI_LIMIT,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 export default router;
