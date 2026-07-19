@@ -24,22 +24,46 @@ async function getStoredSession() {
 }
 
 // Resolve the best available auth token
+// Decode JWT expiry without a library — reads the exp claim directly
+function jwtExp(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp || 0;
+  } catch (_) { return 0; }
+}
+
 async function resolveToken() {
   // 1. Try cookie from simplyappl.ai (user is signed in on the site)
   const cookieSession = await getSessionFromCookie();
   if (cookieSession?.access_token) {
     await chrome.storage.local.set({ session: cookieSession });
-    return cookieSession.access_token;
+    const exp = jwtExp(cookieSession.access_token);
+    if (!exp || Date.now() / 1000 < exp - 60) return cookieSession.access_token;
+    // Cookie token is expired — fall through to try refresh with its refresh_token
+    if (cookieSession.refresh_token) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+          body: JSON.stringify({ refresh_token: cookieSession.refresh_token }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          await chrome.storage.local.set({ session: data });
+          return data.access_token;
+        }
+      } catch (_) {}
+    }
   }
 
   // 2. Try cached session in storage
   const stored = await getStoredSession();
   if (stored?.access_token) {
-    // Check if expired
-    const exp = stored.expires_at;
+    // Use JWT exp directly — don't rely on expires_at being present
+    const exp = jwtExp(stored.access_token);
     if (!exp || Date.now() / 1000 < exp - 60) return stored.access_token;
 
-    // Try to refresh
+    // Token expired — try to refresh
     try {
       const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST',
@@ -52,6 +76,8 @@ async function resolveToken() {
         return data.access_token;
       }
     } catch (_) {}
+    // Refresh failed — clear stale session so user is prompted to sign in
+    await chrome.storage.local.remove('session');
   }
 
   // 3. No session — return null (extension will prompt sign-in)
