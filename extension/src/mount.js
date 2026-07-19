@@ -29,8 +29,8 @@ const JOB_HOSTS = [
 // Check both hostname and path since some entries contain path prefixes (e.g. stripe.com/jobs)
 const _loc = location.hostname + location.pathname;
 if (!JOB_HOSTS.some(h => _loc.includes(h))) { /* not a job site */ }
-else if (window.__elevateRunning) { /* already injected in this frame */ }
-else { window.__elevateRunning = true; main(); }
+else if (window.__simplyApplyRunning) { /* already injected in this frame */ }
+else { window.__simplyApplyRunning = true; main(); }
 
 function main() {
 

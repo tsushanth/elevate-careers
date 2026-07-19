@@ -1,4 +1,4 @@
-const PROXY_URL = 'https://elevate-autofill-api.fly.dev';
+const PROXY_URL = 'https://elevate-careers-api.fly.dev';
 const LEGACY_TOKEN = 'b047bb371129f92a7bd762b62a6a6572843f01ec1dda08a200527487b3356c04';
 const SUPABASE_URL = 'https://owvvrljdfnhntwedepkl.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93dnZybGpkZm5obnR3ZWRlcGtsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMDA1NTEsImV4cCI6MjA4Njc3NjU1MX0.WjjwtJn03_5Ayd2Ed9WlQ-lIWiZiTrlfnCl-7nYCoGk';
@@ -174,7 +174,7 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
 chrome.action.onClicked.addListener((tab) => {
   chrome.scripting.executeScript({
     target: { tabId: tab.id, allFrames: true },
-    func: () => { window.__elevateRunning = false; },
+    func: () => { window.__simplyApplyRunning = false; },
   }).finally(() => {
     chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ['mount.js'] }).catch(() => {});
   });
