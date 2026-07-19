@@ -76,7 +76,7 @@ async function signUp(email, password) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, data: { signup_via: 'extension' } }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error_description || data.msg || 'Sign up failed');
