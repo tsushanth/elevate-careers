@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Tracker - Never Miss a Job Opportunity Again</title>
+    <meta name="description" content="Automated job tracking for LinkedIn, Indeed, and more. Get notified instantly when new jobs match your criteria. 15-day free trial.">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+        
+        .hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 100px 20px;
+            text-align: center;
+        }
+        
+        .hero h1 {
+            font-size: 52px;
+            margin-bottom: 20px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        
+        .hero .subtitle {
+            font-size: 24px;
+            margin-bottom: 40px;
+            opacity: 0.95;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        .cta-primary {
+            display: inline-block;
+            background: white;
+            color: #667eea;
+            padding: 18px 40px;
+            font-size: 20px;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 8px;
+            margin: 10px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .cta-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        .cta-secondary {
+            display: inline-block;
+            background: transparent;
+            color: white;
+            padding: 18px 40px;
+            font-size: 20px;
+            font-weight: 600;
+            text-decoration: none;
+            border: 2px solid white;
+            border-radius: 8px;
+            margin: 10px;
+            transition: all 0.3s;
+        }
+        
+        .cta-secondary:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .trial-info {
+            margin-top: 30px;
+            font-size: 18px;
+            opacity: 0.95;
+        }
+        
+        .trial-info strong {
+            font-weight: 700;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 80px 20px;
+        }
+        
+        .social-proof {
+            background: #f8f9fa;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        
+        .social-proof p {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 60px;
+            flex-wrap: wrap;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 48px;
+            font-weight: 700;
+            color: #667eea;
+            display: block;
+        }
+        
+        .stat-label {
+            font-size: 16px;
+            color: #666;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-top: 60px;
+        }
+        
+        .feature {
+            text-align: center;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            transition: transform 0.3s;
+        }
+        
+        .feature:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .feature-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        
+        .feature h3 {
+            font-size: 24px;
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        
+        .feature p {
+            font-size: 16px;
+            color: #666;
+        }
+        
+        .downloads {
+            background: #ffffff;
+            padding: 80px 20px;
+            text-align: center;
+        }
+        
+        .downloads h2 {
+            font-size: 42px;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .downloads .subtitle {
+            font-size: 18px;
+            color: #666;
+            max-width: 600px;
+            margin: 0 auto 50px;
+        }
+        
+        .download-buttons {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 40px;
+        }
+        
+        .download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            background: white;
+            color: #333;
+            padding: 20px 30px;
+            text-decoration: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+            border: 2px solid #f0f0f0;
+        }
+        
+        .download-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+            border-color: #667eea;
+        }
+        
+        .download-btn .icon {
+            font-size: 28px;
+        }
+        
+        /* macOS Security Notice */
+        .macos-notice {
+            max-width: 800px;
+            margin: 50px auto 0;
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: left;
+        }
+        
+        .macos-notice h3 {
+            color: #856404;
+            margin-bottom: 15px;
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .macos-notice p {
+            color: #856404;
+            margin-bottom: 20px;
+            line-height: 1.8;
+        }
+        
+        .macos-steps {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .macos-steps h4 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .macos-steps ol {
+            margin-left: 20px;
+            color: #333;
+        }
+        
+        .macos-steps li {
+            margin: 10px 0;
+            padding-left: 5px;
+        }
+        
+        .macos-steps strong {
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .kbd {
+            display: inline-block;
+            background: #e9ecef;
+            border: 1px solid #adb5bd;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        details {
+            margin-top: 20px;
+            cursor: pointer;
+        }
+        
+        summary {
+            color: #667eea;
+            font-weight: 600;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            user-select: none;
+        }
+        
+        summary:hover {
+            background: #f8f9fa;
+        }
+        
+        details[open] summary {
+            margin-bottom: 15px;
+        }
+        
+        .pricing {
+            padding: 80px 20px;
+            text-align: center;
+            background: #f8f9fa;
+        }
+        
+        .pricing h2 {
+            font-size: 42px;
+            margin-bottom: 20px;
+        }
+        
+        .pricing-card {
+            max-width: 500px;
+            margin: 40px auto;
+            background: white;
+            border-radius: 16px;
+            padding: 50px 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        .price {
+            font-size: 64px;
+            font-weight: 700;
+            color: #667eea;
+            margin: 20px 0;
+        }
+        
+        .price-period {
+            font-size: 24px;
+            font-weight: normal;
+            color: #666;
+        }
+        
+        .price-subtitle {
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .price-features {
+            text-align: left;
+            margin: 30px 0;
+        }
+        
+        .price-features h3 {
+            margin-bottom: 20px;
+            color: #667eea;
+            font-size: 20px;
+        }
+        
+        .price-features ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .price-features li {
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 16px;
+        }
+        
+        .price-features li:last-child {
+            border-bottom: none;
+        }
+        
+        .guarantee {
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            padding: 20px;
+            margin-top: 30px;
+            border-radius: 8px;
+            text-align: left;
+        }
+        
+        .guarantee strong {
+            color: #0066cc;
+        }
+        
+        .how-it-works {
+            padding: 80px 20px;
+            background: white;
+        }
+        
+        .how-it-works h2 {
+            font-size: 42px;
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .step {
+            text-align: center;
+            position: relative;
+        }
+        
+        .step-number {
+            display: inline-block;
+            width: 60px;
+            height: 60px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            font-size: 28px;
+            font-weight: 700;
+            line-height: 60px;
+            margin-bottom: 20px;
+        }
+        
+        .step h3 {
+            font-size: 22px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .step p {
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .faq {
+            background: #f8f9fa;
+            padding: 80px 20px;
+        }
+        
+        .faq h2 {
+            font-size: 42px;
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        
+        .faq-list {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .faq-item {
+            background: white;
+            margin-bottom: 20px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .faq-item summary {
+            padding: 25px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            cursor: pointer;
+            background: white;
+        }
+        
+        .faq-item summary:hover {
+            background: #f8f9fa;
+        }
+        
+        .faq-item p {
+            padding: 0 25px 25px;
+            color: #666;
+            line-height: 1.8;
+        }
+        
+        footer {
+            background: #2c3e50;
+            color: white;
+            padding: 60px 20px 40px;
+        }
+        
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+        
+        .footer-section h3 {
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+        
+        .footer-section p,
+        .footer-section a {
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .footer-section a:hover {
+            color: white;
+        }
+        
+        .footer-bottom {
+            text-align: center;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.6);
+        }
+        
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 36px;
+            }
+            
+            .hero .subtitle {
+                font-size: 18px;
+            }
+            
+            .download-buttons {
+                flex-direction: column;
+            }
+            
+            .download-btn {
+                width: 100%;
+                max-width: 400px;
+            }
+            
+            .stats {
+                gap: 30px;
+            }
+            
+            .cta-primary,
+            .cta-secondary {
+                display: block;
+                margin: 10px auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1>Stop Manually Checking<br>Job Boards Every Day</h1>
+        <p class="subtitle">Automated job tracking that monitors LinkedIn, Indeed, and more. Get instant notifications when opportunities match your criteria.</p>
+        <div>
+            <a href="#downloads" class="cta-primary">Start Free Trial</a>
+            <a href="#how-it-works" class="cta-secondary">See How It Works</a>
+        </div>
+        <p class="trial-info"><strong>✨ 15-day free trial</strong> • No credit card required • Cancel anytime</p>
+    </section>
+
+    <!-- Social Proof -->
+    <section class="social-proof">
+        <p>Trusted by job seekers worldwide</p>
+        <div class="stats">
+            <div class="stat">
+                <span class="stat-number">10K+</span>
+                <span class="stat-label">Jobs Tracked</span>
+            </div>
+            <div class="stat">
+                <span class="stat-number">500+</span>
+                <span class="stat-label">Active Users</span>
+            </div>
+            <div class="stat">
+                <span class="stat-number">30min</span>
+                <span class="stat-label">Check Frequency</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="container">
+        <h2 style="font-size: 42px; text-align: center; margin-bottom: 20px;">Everything You Need to Land Your Dream Job</h2>
+        <p style="text-align: center; font-size: 18px; color: #666; max-width: 700px; margin: 0 auto 60px;">
+            Job Tracker runs silently in the background, constantly searching for new opportunities while you focus on preparing applications.
+        </p>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">🤖</div>
+                <h3>Automatic Monitoring</h3>
+                <p>Checks multiple job boards every 30 minutes. New postings appear instantly in your dashboard.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">🔍</div>
+                <h3>Smart Filtering</h3>
+                <p>Set up custom searches with keywords, locations, and experience levels. Filter for remote-only positions.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">📊</div>
+                <h3>Application Tracking</h3>
+                <p>Mark jobs as New, Seen, Applied, or Rejected. Never apply to the same job twice.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">🔔</div>
+                <h3>Instant Notifications</h3>
+                <p>Desktop notifications when new jobs match your criteria. Be first to apply, not last.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">🌐</div>
+                <h3>Multiple Job Boards</h3>
+                <p>Currently supports LinkedIn with more boards coming soon. One app for all your job searches.</p>
+            </div>
+            
+            <div class="feature">
+                <div class="feature-icon">🔒</div>
+                <h3>Privacy First</h3>
+                <p>All data stored locally on your computer. No cloud storage, no data sharing.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works" id="how-it-works">
+        <div class="container">
+            <h2>How It Works</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Download & Install</h3>
+                    <p>Get the app for your platform. Takes less than 2 minutes to set up.</p>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Add Your Searches</h3>
+                    <p>Enter LinkedIn job search URLs with your desired keywords and filters.</p>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Let It Run</h3>
+                    <p>The app automatically checks for new jobs every 30 minutes in the background.</p>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h3>Get Notified</h3>
+                    <p>Receive instant desktop notifications when new opportunities are found.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Downloads Section -->
+    <section class="downloads" id="downloads">
+        <div class="container">
+            <h2>Download Job Tracker</h2>
+            <p class="subtitle">
+                Available for macOS, Windows, and Linux. Start your 15-day free trial today.
+            </p>
+            
+            <div class="download-buttons">
+                <a href="https://github.com/tsushanth/elevate-careers/releases/download/v1.0.0/Job.Tracker-1.0.0.dmg" class="download-btn">
+                    <span class="icon">🍎</span>
+                    <div style="text-align: left;">
+                        <div>macOS (Intel)</div>
+                        <div style="font-size: 14px; font-weight: normal; color: #666;">macOS 10.15+</div>
+                    </div>
+                </a>
+                
+                <a href="https://github.com/tsushanth/elevate-careers/releases/download/v1.0.0/Job.Tracker-1.0.0-arm64.dmg" class="download-btn">
+                    <span class="icon">🍎</span>
+                    <div style="text-align: left;">
+                        <div>macOS (Apple Silicon)</div>
+                        <div style="font-size: 14px; font-weight: normal; color: #666;">M1/M2/M3 Macs</div>
+                    </div>
+                </a>
+                
+                <a href="https://github.com/tsushanth/elevate-careers/releases/download/v1.0.0/Job.Tracker.Setup.1.0.0.exe" class="download-btn">
+                    <span class="icon">🪟</span>
+                    <div style="text-align: left;">
+                        <div>Windows</div>
+                        <div style="font-size: 14px; font-weight: normal; color: #666;">Windows 10/11</div>
+                    </div>
+                </a>
+                
+                <a href="https://github.com/tsushanth/elevate-careers/releases/download/v1.0.0/Job.Tracker-1.0.0-arm64.AppImage" class="download-btn">
+                    <span class="icon">🐧</span>
+                    <div style="text-align: left;">
+                        <div>Linux</div>
+                        <div style="font-size: 14px; font-weight: normal; color: #666;">AppImage</div>
+                    </div>
+                </a>
+            </div>
+            
+            <!-- macOS Security Notice -->
+            <div class="macos-notice">
+                <h3>🍎 macOS Users: First-Time Setup</h3>
+                <p>When you first open Job Tracker, macOS may show a security warning. This is normal for apps distributed outside the Mac App Store.</p>
+                
+                <div class="macos-steps">
+                    <h4>Quick Fix (30 seconds):</h4>
+                    <ol>
+                        <li>Download and locate <strong>Job Tracker.app</strong></li>
+                        <li><strong>Right-click</strong> (or <span class="kbd">Control</span> + click) on the app</li>
+                        <li>Select <strong>"Open"</strong> from the menu</li>
+                        <li>Click <strong>"Open"</strong> again in the confirmation dialog</li>
+                    </ol>
+                    <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                        This is a one-time step. The app will open normally after that.
+                    </p>
+                </div>
+                
+                <details>
+                    <summary>Alternative: Using System Settings</summary>
+                    <div style="padding: 15px; color: #333;">
+                        <ol>
+                            <li>Try to open Job Tracker (double-click)</li>
+                            <li>When blocked, go to <strong>System Settings</strong> → <strong>Privacy & Security</strong></li>
+                            <li>Scroll to "Security" and click <strong>"Open Anyway"</strong></li>
+                            <li>Enter your password and click "Open"</li>
+                        </ol>
+                    </div>
+                </details>
+                
+                <details>
+                    <summary>Why do I see this warning?</summary>
+                    <div style="padding: 15px; color: #333;">
+                        <p>Job Tracker is currently in beta and doesn't yet have Apple's notarization (requires $99/year Developer account). This is a standard macOS security feature for unsigned apps.</p>
+                        <p style="margin-top: 10px;"><strong>Is it safe?</strong> Absolutely! You can verify the source code on our <a href="https://github.com/tsushanth/elevate-careers" target="_blank" style="color: #667eea;">GitHub repository</a>.</p>
+                        <p style="margin-top: 10px; font-size: 14px; color: #666;">We're working on obtaining full Apple code signing for future releases.</p>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="pricing">
+        <div class="container">
+            <h2>Simple, Honest Pricing</h2>
+            <p style="font-size: 18px; color: #666; margin-bottom: 20px;">No hidden fees. Cancel anytime.</p>
+            
+            <div class="pricing-card">
+                <div class="price">
+                    $9.99
+                    <span class="price-period">/month</span>
+                </div>
+                <p class="price-subtitle">Try free for 15 days. No credit card required.</p>
+                
+                <div class="price-features">
+                    <h3>Everything Included:</h3>
+                    <ul>
+                        <li>✅ Unlimited job searches</li>
+                        <li>✅ Auto-check every 30 minutes</li>
+                        <li>✅ Desktop notifications</li>
+                        <li>✅ Application tracking</li>
+                        <li>✅ All platforms (Mac, Windows, Linux)</li>
+                        <li>✅ Email support</li>
+                        <li>✅ Free updates forever</li>
+                    </ul>
+                </div>
+                
+                <a href="#downloads" class="cta-primary" style="width: 100%; text-align: center; margin-top: 20px;">Start Free Trial</a>
+                
+                <div class="guarantee">
+                    <strong>30-Day Money-Back Guarantee</strong><br>
+                    Not satisfied? Get a full refund within 30 days, no questions asked.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq">
+        <div class="container">
+            <h2>Frequently Asked Questions</h2>
+            
+            <div class="faq-list">
+                <details class="faq-item">
+                    <summary>How does the free trial work?</summary>
+                    <p>You get full access to all features for 15 days. No credit card required to start. After the trial, you can choose to subscribe or the app will stop working.</p>
+                </details>
+                
+                <details class="faq-item">
+                    <summary>Which job boards do you support?</summary>
+                    <p>Currently, we support LinkedIn with full automation. Support for Indeed, Glassdoor, and other major job boards is coming soon. Want a specific board? Let us know!</p>
+                </details>
+                
+                <details class="faq-item">
+                    <summary>Is my data secure?</summary>
+                    <p>Yes! All your data is stored locally on your computer. We don't upload or share any of your job search data to any cloud servers. Your privacy is our top priority.</p>
+                </details>
+                
+                <details class="faq-item">
+                    <summary>Does this work on Apple Silicon Macs (M1/M2/M3)?</summary>
+                    <p>Yes! We provide native builds for both Intel and Apple Silicon Macs. Download the appropriate version for your Mac.</p>
+                </details>
+                
+                <details class="faq-item">
+                    <summary>Can I use this on multiple computers?</summary>
+                    <p>Your subscription covers use on up to 3 devices. Perfect if you want to run it on both your work and home computer.</p>
+                </details>
+                
+                <details class="faq-item">
+                    <summary>What if a job board changes their website?</summary>
+                    <p>We monitor job board changes and update our scrapers automatically. Updates are pushed to your app seamlessly in the background.</p>
+                </details>
+                
+                <details class="faq-item">
+                    <summary>Can I export my tracked jobs?</summary>
+                    <p>Yes! You can export your job list to CSV format at any time. Perfect for keeping records or analyzing your job search.</p>
+                </details>
+                
+                <details class="faq-item">
+                    <summary>How do I cancel my subscription?</summary>
+                    <p>You can cancel anytime from the app settings. Your subscription will remain active until the end of your billing period, then automatically stop renewing.</p>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 80px 20px; text-align: center;">
+        <div class="container">
+            <h2 style="font-size: 42px; margin-bottom: 20px; color: white;">Ready to Streamline Your Job Search?</h2>
+            <p style="font-size: 20px; margin-bottom: 40px; opacity: 0.95;">Join hundreds of job seekers who are finding opportunities faster with Job Tracker.</p>
+            <a href="#downloads" class="cta-primary" style="font-size: 22px; padding: 20px 50px;">Start Your Free Trial</a>
+            <p style="margin-top: 30px; font-size: 16px; opacity: 0.9;">No credit card required • 15-day free trial • Cancel anytime</p>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h3>Job Tracker</h3>
+                <p>Automated job search monitoring for the modern job seeker.</p>
+            </div>
+            
+            <div class="footer-section">
+                <h3>Product</h3>
+                <a href="#downloads">Download</a>
+                <a href="#how-it-works">How It Works</a>
+                <a href="#pricing">Pricing</a>
+                <a href="https://github.com/tsushanth/elevate-careers">Source Code</a>
+            </div>
+            
+            <div class="footer-section">
+                <h3>Support</h3>
+                <a href="mailto:support@elevatecareers.us">Email Support</a>
+                <a href="https://github.com/tsushanth/elevate-careers/issues">Report a Bug</a>
+                <a href="#faq">FAQ</a>
+            </div>
+            
+            <div class="footer-section">
+                <h3>Legal</h3>
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="/refund">Refund Policy</a>
+            </div>
+        </div>
+        
+        <div class="footer-bottom">
+            <p>&copy; 2025 Elevate Careers. All rights reserved.</p>
+            <p style="margin-top: 10px;">Made with ❤️ for job seekers everywhere</p>
+        </div>
+    </footer>
+</body>
+</html>

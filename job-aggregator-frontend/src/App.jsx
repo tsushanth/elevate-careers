@@ -5,6 +5,7 @@ import AuthModal from './AuthModal';
 import './App.css';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
+const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf';
 
 function App() {
   const [jobs, setJobs] = useState([]);
@@ -167,6 +168,42 @@ function App() {
         </div>
       </header>
 
+      {/* Extension install banner — signed-in users only */}
+      {session && (
+        <div style={{
+          background: 'linear-gradient(90deg, rgba(37,99,235,0.18) 0%, rgba(16,185,129,0.12) 100%)',
+          borderBottom: '1px solid rgba(37,99,235,0.25)',
+          padding: '10px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          fontSize: 14,
+        }}>
+          <span style={{ color: '#93c5fd' }}>
+            ⚡ Autofill any job application in one click with the SimplyApply Chrome extension
+          </span>
+          <a
+            href={EXTENSION_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              background: '#2563eb',
+              color: '#fff',
+              padding: '5px 16px',
+              borderRadius: 6,
+              fontWeight: 600,
+              fontSize: 13,
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            Add to Chrome — Free
+          </a>
+        </div>
+      )}
+
       {/* Applications Tab */}
       {activeTab === 'applications' && (
         <div className="applications-view">
@@ -179,7 +216,16 @@ function App() {
           ) : appsLoading ? (
             <div className="loading">Loading…</div>
           ) : applications.length === 0 ? (
-            <div className="no-results"><p>No applications yet. Use the Elevate extension to autofill job forms and they'll appear here.</p></div>
+            <div className="no-results">
+              <p>No applications yet.</p>
+              <p style={{ marginTop: 8, color: '#64748b', fontSize: 14 }}>
+                Install the{' '}
+                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>
+                  SimplyApply Chrome extension
+                </a>
+                {' '}to autofill job applications — they'll appear here automatically.
+              </p>
+            </div>
           ) : (
             <table className="apps-table">
               <thead>
@@ -253,6 +299,29 @@ function App() {
           </label>
         </div>
       </div>
+
+      {/* Extension CTA — not signed in */}
+      {!session && (
+        <div style={{
+          textAlign: 'center',
+          padding: '14px 24px',
+          background: 'rgba(37,99,235,0.08)',
+          borderBottom: '1px solid rgba(37,99,235,0.15)',
+          fontSize: 14,
+          color: '#94a3b8',
+        }}>
+          Find a job you like?{' '}
+          <a
+            href={EXTENSION_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#60a5fa', fontWeight: 600 }}
+          >
+            Install the SimplyApply extension
+          </a>
+          {' '}to autofill the application in one click.
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="main-content">

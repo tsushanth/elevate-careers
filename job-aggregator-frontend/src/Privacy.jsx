@@ -6,7 +6,7 @@ export default function Privacy() {
 
       <section style={{ marginBottom: 36 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, color: '#f8fafc', marginBottom: 12 }}>What SimplyApply Does</h2>
-        <p>SimplyApply is a Chrome extension that autofills job application forms using your saved profile. The companion website at simplyappl.ai lets you browse job listings and track your applications.</p>
+        <p>SimplyApply is a <a href="https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>Chrome extension</a> that autofills job application forms using your saved profile. The companion website at simplyappl.ai lets you browse job listings and track your applications.</p>
       </section>
 
       <section style={{ marginBottom: 36 }}>
