@@ -61,9 +61,9 @@
   ];
   var _loc = location.hostname + location.pathname;
   if (!JOB_HOSTS.some((h) => _loc.includes(h))) {
-  } else if (window.__elevateRunning) {
+  } else if (window.__simplyApplyRunning) {
   } else {
-    window.__elevateRunning = true;
+    window.__simplyApplyRunning = true;
     main();
   }
   function main() {
