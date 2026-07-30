@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink } from 'lucide-react';
 import { supabase } from './supabase';
@@ -48,6 +48,7 @@ function App() {
   const [showApplied, setShowApplied] = useState(false);
   const [appliedCount, setAppliedCount] = useState(0);
   const [dismissMenuJobId, setDismissMenuJobId] = useState(null);
+  const fetchSeq = useRef(0);
   const PAGE_SIZE = 50;
 
   useEffect(() => {
@@ -78,6 +79,11 @@ function App() {
   }, [filters, session]);
 
   const fetchJobs = async (pageNum = page) => {
+    // Guard against out-of-order responses: if session/filters change quickly
+    // (e.g. session hydrating from null -> real on page load), an earlier
+    // request can resolve after a later one and clobber it with stale/smaller
+    // results. Only the response from the most-recently-issued call wins.
+    const mySeq = ++fetchSeq.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -102,6 +108,7 @@ function App() {
 
       const response = await fetch(url, { headers });
       const data = await response.json();
+      if (mySeq !== fetchSeq.current) return; // a newer request superseded this one
       setJobs(data.jobs || []);
       setTotalCount(data.count || 0);
       if (data.appliedCount !== undefined) setAppliedCount(data.appliedCount);
@@ -111,7 +118,7 @@ function App() {
     } catch (error) {
       console.error('Error fetching jobs:', error);
     } finally {
-      setLoading(false);
+      if (mySeq === fetchSeq.current) setLoading(false);
     }
   };
 
@@ -374,10 +381,7 @@ function App() {
                     <CompanyLogo name={job.company_name} domain={job.company_domain} className="company-logo" />
                     <div className="job-card-title">
                       <h3>{job.title}</h3>
-                      <p className="company-name"
-                        onClick={e => { e.stopPropagation(); navigate(`/companies/${slugify(job.company_name)}`); }}
-                        style={{ cursor: 'pointer', color: '#6366f1' }}
-                      >{job.company_name}</p>
+                      <p className="company-name">{job.company_name}</p>
                     </div>
                     <div style={{ position: 'relative' }}>
                       <button
