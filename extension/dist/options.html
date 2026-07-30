@@ -18,6 +18,11 @@
   label { font-size: 12px; font-weight: 500; color: #475569; }
   input, select, textarea { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; font: 13px/1.4 system-ui, sans-serif; color: #0f172a; width: 100%; outline: none; transition: border-color .15s; }
   input:focus, select:focus, textarea:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+  .upload-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .upload-btn { display:inline-block; padding:7px 14px; font:600 12px system-ui; border:1px solid #e2e8f0; border-radius:8px; background:#fafafa; cursor:pointer; color:#0f172a; }
+  .upload-btn:hover { background:#f1f5f9; }
+  .upload-label { font-size:12px; color:#94a3b8; }
+  input[type="file"] { display:none; }
   textarea { resize: vertical; }
   .actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
   .save-btn { background: #0f172a; color: #fff; border: none; border-radius: 9px; padding: 10px 22px; font: 600 13px system-ui; cursor: pointer; }
@@ -86,14 +91,14 @@
   <div class="section">
     <h2>Personal</h2>
     <div class="grid">
-      <div class="field"><label>First name</label><input id="firstName" placeholder="Sushanth"/></div>
-      <div class="field"><label>Last name</label><input id="lastName" placeholder="Tiruvaipati"/></div>
+      <div class="field"><label>First name</label><input id="firstName" placeholder="Jane"/></div>
+      <div class="field"><label>Last name</label><input id="lastName" placeholder="Smith"/></div>
       <div class="field"><label>Email</label><input id="email" type="email" placeholder="you@example.com"/></div>
       <div class="field"><label>Phone</label><input id="phone" placeholder="+1 415-000-0000"/></div>
-      <div class="field"><label>City</label><input id="city" placeholder="San Jose"/></div>
+      <div class="field"><label>City</label><input id="city" placeholder="San Francisco"/></div>
       <div class="field"><label>State</label><input id="state" placeholder="California"/></div>
       <div class="field"><label>Country</label><input id="country" placeholder="United States"/></div>
-      <div class="field"><label>Postal / ZIP</label><input id="postalCode" placeholder="95101"/></div>
+      <div class="field"><label>Postal / ZIP</label><input id="postalCode" placeholder="94105"/></div>
     </div>
   </div>
 
@@ -102,7 +107,7 @@
     <div class="grid">
       <div class="field"><label>LinkedIn URL</label><input id="linkedin" placeholder="https://linkedin.com/in/yourhandle"/></div>
       <div class="field"><label>GitHub URL</label><input id="github" placeholder="https://github.com/yourhandle"/></div>
-      <div class="field full"><label>Portfolio / website</label><input id="portfolio" placeholder="https://yoursite.com"/></div>
+      <div class="field full"><label>Portfolio / website</label><input id="portfolio" placeholder="https://yourportfolio.com"/></div>
     </div>
   </div>
 
@@ -122,9 +127,9 @@
           <option value="Other">Other</option>
         </select>
       </div>
-      <div class="field"><label>School / University</label><input id="schoolName" placeholder="Carnegie Mellon University"/></div>
-      <div class="field"><label>Field of study / Major</label><input id="fieldOfStudy" placeholder="Information Networking"/></div>
-      <div class="field"><label>Graduation year</label><input id="graduationYear" placeholder="2011"/></div>
+      <div class="field"><label>School / University</label><input id="schoolName" placeholder="University of California, Berkeley"/></div>
+      <div class="field"><label>Field of study / Major</label><input id="fieldOfStudy" placeholder="Computer Science"/></div>
+      <div class="field"><label>Graduation year</label><input id="graduationYear" placeholder="2018"/></div>
     </div>
   </div>
 
@@ -168,7 +173,29 @@
   <div class="section">
     <h2>Resume text (used for AI answers)</h2>
     <div class="field">
-      <textarea id="resume" rows="12" placeholder="Plain text resume…"></textarea>
+      <textarea id="resume" rows="12" placeholder="Paste your plain-text resume here. SimplyApply uses this to AI-tailor your resume PDF for each job."></textarea>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Documents</h2>
+    <div class="grid">
+      <div class="field">
+        <label>Resume PDF</label>
+        <div class="upload-row">
+          <label class="upload-btn" for="resume-pdf-input">Upload PDF</label>
+          <input type="file" id="resume-pdf-input" accept="application/pdf"/>
+          <span class="upload-label" id="resume-pdf-label">Used as fallback if AI tailoring isn't available</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Cover letter PDF</label>
+        <div class="upload-row">
+          <label class="upload-btn" for="cover-letter-pdf-input">Upload PDF</label>
+          <input type="file" id="cover-letter-pdf-input" accept="application/pdf"/>
+          <span class="upload-label" id="cover-letter-pdf-label">Attached automatically to cover letter fields</span>
+        </div>
+      </div>
     </div>
   </div>
 

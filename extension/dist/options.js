@@ -10,39 +10,14 @@ const FIELDS = [
 const DEFAULT = {
   firstName: 'Sushanth', lastName: 'Tiruvaipati',
   email: 't.sushanth@gmail.com', phone: '+1 425-628-4887',
-  city: 'San Jose', state: 'California', country: 'United States', postalCode: '95101',
-  linkedin: 'https://www.linkedin.com/in/tsushanth',
-  github: 'https://github.com/tsushanth',
-  portfolio: 'https://kreativekoala.llc',
-  educationLevel: "Master's Degree",
-  schoolName: 'Carnegie Mellon University',
-  fieldOfStudy: 'Information Networking',
-  graduationYear: '2011',
+  city: 'Milpitas', state: 'California', country: 'United States', postalCode: '95035',
+  linkedin: 'https://www.linkedin.com/in/tsushanth/', github: 'https://github.com/tsushanth', portfolio: '',
+  educationLevel: "Bachelor's Degree",
+  schoolName: '', fieldOfStudy: 'Computer Science', graduationYear: '',
   workAuth: 'Yes', sponsorship: 'No',
   salary: '150000', heardAbout: 'LinkedIn',
-  background: `Sushanth Tiruvaipati is a software engineer with 10+ years at Google and an indie developer who has shipped 70+ iOS/Android apps generating real revenue. At Google he worked across Ads, Cloud AI, Play, and YouTube on large-scale distributed systems. As a solo founder he built apps in AI transcription, podcast/radio, fitness, and developer tools — all shipped end-to-end. Strong in TypeScript, Swift, Kotlin, Python, Go, C++, and cloud infrastructure (GCP, Fly.io, Supabase, Kubernetes). Located in Bay Area, CA, open to relocation. Compensation floor $150k base.`,
-  resume: `SUSHANTH TIRUVAIPATI
-Bay Area, CA · t.sushanth@gmail.com · 425-628-4887 · linkedin.com/in/tsushanth
-
-EXPERIENCE
-Software Engineer · Google | Sep 2015 – Present
-- Large-scale distributed systems across Ads (conversion attribution), Cloud AI (Contact Center AI), Play (Search Ranking), YouTube (data pipelines)
-- Led team of 5 engineers; DMA/GDPR compliance; C++ · Python · Java · TensorFlow · Spanner · Go
-
-Founder & Sole Engineer · KreativeKoala Solutions LLC | 2021 – Present
-- Built and ship 70+ iOS/Android apps end-to-end with real revenue
-- Deep LLM integration (Anthropic, OpenAI); AI agent infra with Kubernetes + Ray
-
-Software Development Engineer · Microsoft | Nov 2012 – Feb 2015
-Software Development Engineer · Amazon | Oct 2011 – Oct 2012
-
-EDUCATION
-Carnegie Mellon University — M.S., Information Networking · 2011
-Indian Institute of Information Technology — B.Tech., IT · 2008
-
-SKILLS
-Python · Java · Swift · Kotlin · TypeScript · C/C++ · SQL · Go
-Kubernetes · Docker · GCP · AWS · TensorFlow · React · Node.js`,
+  background: '',
+  resume: '',
 };
 
 // ── SW bridge ─────────────────────────────────────────────────────────────────
@@ -58,9 +33,27 @@ function sw(type, payload) {
 }
 
 // ── Profile form ──────────────────────────────────────────────────────────────
-async function loadProfile() {
+async function loadProfile(token) {
   const stored = await chrome.storage.local.get('profile');
-  const profile = { ...DEFAULT, ...(stored.profile || {}) };
+  let serverProfile = null;
+
+  // Pull from server if we have a token and no local profile yet
+  if (token && !stored.profile) {
+    try {
+      const r = await fetch('https://elevate-careers-api.fly.dev/api/ai-resume/profile/sync', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const data = await r.json();
+        if (data.profile) {
+          serverProfile = data.profile;
+          await chrome.storage.local.set({ profile: serverProfile });
+        }
+      }
+    } catch (_) {}
+  }
+
+  const profile = { ...DEFAULT, ...(serverProfile || stored.profile || {}) };
   for (const key of FIELDS) {
     const el = document.getElementById(key);
     if (el) el.value = profile[key] ?? '';
@@ -94,6 +87,43 @@ async function saveProfile() {
 }
 
 document.getElementById('save').addEventListener('click', saveProfile);
+
+// ── PDF upload handlers ───────────────────────────────────────────────────────
+async function handlePdfUpload(inputId, storageKey, labelId) {
+  const input = document.getElementById(inputId);
+  const label = document.getElementById(labelId);
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      label.textContent = '⚠ Must be a PDF file';
+      label.style.color = '#ef4444';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      label.textContent = '⚠ File too large (max 5 MB)';
+      label.style.color = '#ef4444';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await chrome.storage.local.set({ [storageKey]: reader.result });
+      label.textContent = `✓ ${file.name}`;
+      label.style.color = '#22c55e';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Show current file name if already uploaded
+  const stored = await chrome.storage.local.get(storageKey);
+  if (stored[storageKey]) {
+    label.textContent = '✓ PDF uploaded';
+    label.style.color = '#22c55e';
+  }
+}
+
+handlePdfUpload('resume-pdf-input',       'resumePdfDataUrl',      'resume-pdf-label');
+handlePdfUpload('cover-letter-pdf-input', 'coverLetterPdfDataUrl', 'cover-letter-pdf-label');
 
 // ── Auth state machine ────────────────────────────────────────────────────────
 async function renderAuth() {
@@ -132,7 +162,7 @@ async function renderAuth() {
       renderAuth();
     };
 
-    await loadProfile();
+    await loadProfile(token);
   } else {
     // Signed out — show onboarding gate, hide profile
     document.getElementById('onboarding').style.display = 'block';

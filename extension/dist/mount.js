@@ -1,4 +1,93 @@
 (() => {
+  // src/rules.js
+  function findRule(rules, { domain, url, fieldType, label, el }) {
+    for (const rule of rules) {
+      if (matchesRule(rule.match, { domain, url, fieldType, label, el }))
+        return rule;
+    }
+    return null;
+  }
+  function matchesRule(match, { domain, url, fieldType, label, el }) {
+    if (!match || typeof match !== "object")
+      return false;
+    if (match.domain && !globMatch(match.domain, domain))
+      return false;
+    if (match.urlPattern && !url.includes(match.urlPattern))
+      return false;
+    if (match.fieldType && fieldType !== match.fieldType)
+      return false;
+    if (match.labelPattern && !label.toLowerCase().includes(match.labelPattern.toLowerCase()))
+      return false;
+    if (match.selector && el && !el.closest("body,form")?.querySelector(match.selector))
+      return false;
+    return true;
+  }
+  function globMatch(pattern, str) {
+    const re = new RegExp(
+      "^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$"
+    );
+    return re.test(str);
+  }
+  function mergeRules(staticRules, remoteRules) {
+    const map = new Map((staticRules || []).map((r) => [r.id, r]));
+    for (const rule of remoteRules || []) {
+      const existing = map.get(rule.id);
+      if (!existing || rule.version > existing.version) {
+        map.set(rule.id, rule);
+      }
+    }
+    return [...map.values()];
+  }
+
+  // src/static-rules.js
+  var static_rules_default = [
+    // ── Ashby ─────────────────────────────────────────────────────────────────
+    // Ashby uses React controlled inputs; nativeSet + fire('input') is ignored.
+    // execCommand('insertText') is treated as real user input by React.
+    {
+      id: "ashby-textarea-execcommand",
+      version: 1,
+      match: { domain: "*.ashbyhq.com", fieldType: "textarea" },
+      fix: { fillMethod: "execCommand" }
+    },
+    {
+      id: "ashby-text-execcommand",
+      version: 1,
+      match: { domain: "*.ashbyhq.com", fieldType: "text" },
+      fix: { fillMethod: "execCommand" }
+    }
+  ];
+
+  // src/reporter.js
+  var REPAIR_URL = "https://elevate-careers-api.fly.dev/api/repair/queue";
+  function reportFailure(field, failReason, fillTried = "unknown") {
+    if (!field.label || field.label === "(Unlabeled)")
+      return;
+    const domain = location.hostname;
+    const outerHTML = (() => {
+      try {
+        return (field.el?.outerHTML || "").slice(0, 3e3);
+      } catch {
+        return "";
+      }
+    })();
+    fetch(REPAIR_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        domain,
+        label: field.label,
+        fieldType: field.type,
+        outerHTML,
+        failReason,
+        fillTried
+      }),
+      keepalive: true
+      // survives page unload
+    }).catch(() => {
+    });
+  }
+
   // src/mount.js
   var API_BASE = "https://elevate-careers-api.fly.dev/api/ai-resume";
   var JOB_HOSTS = [
@@ -57,14 +146,24 @@
     "boards.greenhouse.io",
     "jobs.greenhouse.io",
     "careers.jobvite.com",
-    "hire.withgoogle.com"
+    "hire.withgoogle.com",
+    // Custom career sites detected by detect-ats.js and injected via scripting API
+    "kula.ai"
   ];
   var _loc = location.hostname + location.pathname;
-  if (!JOB_HOSTS.some((h) => _loc.includes(h))) {
+  if (!window.__simplyApplyForceInject && !JOB_HOSTS.some((h) => _loc.includes(h))) {
   } else if (window.__simplyApplyRunning) {
   } else {
     window.__simplyApplyRunning = true;
-    main();
+    const _runFn = main();
+    if (new URLSearchParams(location.search).get("sa_autofill") === "1" && !window.__saAutoTriggered) {
+      window.__saAutoTriggered = true;
+      Promise.resolve(_runFn).then((run) => {
+        if (typeof run === "function")
+          setTimeout(() => run(false).catch(() => {
+          }), 3500);
+      });
+    }
   }
   function main() {
     const RESUME_URL = chrome.runtime.getURL("assets/resume.pdf");
@@ -95,6 +194,42 @@
         throw new Error(`API ${res.status}`);
       return res.json();
     }
+    (async function pingExtensionInstall() {
+      try {
+        const { ext_ping_day } = await chrome.storage.local.get("ext_ping_day");
+        const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+        if (ext_ping_day === today)
+          return;
+        const token = await getToken();
+        if (!token)
+          return;
+        const ok = await fetch(`${API_BASE}/ping`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        }).then((r) => r.ok).catch(() => false);
+        if (ok)
+          await chrome.storage.local.set({ ext_ping_day: today });
+      } catch (_) {
+      }
+    })();
+    let _activeRules = static_rules_default;
+    async function loadActiveRules() {
+      try {
+        const { remoteRules } = await chrome.storage.local.get("remoteRules");
+        _activeRules = mergeRules(static_rules_default, remoteRules || []);
+      } catch (_) {
+        _activeRules = static_rules_default;
+      }
+    }
+    function getRuleFor(field) {
+      return findRule(_activeRules, {
+        domain: location.hostname,
+        url: location.href,
+        fieldType: field.type,
+        label: field.label || "",
+        el: field.el
+      });
+    }
     let answerCache = {};
     async function loadCache() {
       try {
@@ -123,9 +258,32 @@
       answerCache[key] = value;
       saveCache();
     }
+    let learnedAnswers = {};
+    async function loadLearnedAnswers() {
+      try {
+        const { learnedAnswers: la } = await chrome.storage.local.get("learnedAnswers");
+        if (la && typeof la === "object")
+          learnedAnswers = la;
+      } catch (_) {
+      }
+    }
+    function getLearnedAnswer(label) {
+      return learnedAnswers[cacheKey(label)];
+    }
+    function saveLearnedAnswer(label, value) {
+      const key = cacheKey(label);
+      if (learnedAnswers[key] === value)
+        return;
+      learnedAnswers[key] = value;
+      try {
+        chrome.storage.local.set({ learnedAnswers });
+      } catch (_) {
+      }
+      setCached(label, value);
+    }
     const LABEL_TAGS = /* @__PURE__ */ new Set(["LABEL", "LEGEND", "SPAN", "P", "DIV", "H1", "H2", "H3", "H4", "DT", "LI"]);
-    const SKIP_EEOC = /gender|lgbtq|race|ethnic|veteran|disability|pronouns|sexual|transgender/i;
-    const AGREE_RE = /i agree|i consent|i acknowledge|terms|privacy policy|by (checking|selecting|clicking)/i;
+    const SKIP_EEOC = /gender|lgbtq|race|ethnic|hispanic|latino|veteran|disability|pronouns|sexual|transgender/i;
+    const AGREE_RE = /i agree|i consent|i acknowledge|i certify|terms|privacy policy|by (checking|selecting|clicking)/i;
     function cleanText(t) {
       return (t || "").replace(/\s+/g, " ").replace(/^Q\.\s*/i, "").replace(/\s*Question\b.*$/i, "").replace(/\s*Required\b.*$/i, "").replace(/[*:]+$/, "").trim();
     }
@@ -182,7 +340,7 @@
     }
     const KEYWORD_RULES = [
       { re: /visa sponsorship|require.*sponsor|sponsor.*visa|h-?1b/i, key: "sponsorship" },
-      { re: /authorized to work|work auth|legally authorized|eligible to work/i, key: "workAuth" },
+      { re: /authori[sz]ed to work|work auth|legally authoris|eligible to work/i, key: "workAuth" },
       { re: /\bphone\b|\bmobile\b|telephone|cell number/i, key: "phone" },
       { re: /\bcountry\b/i, key: "country" },
       { re: /\bstate\b|\bprovince\b/i, key: "state" },
@@ -341,12 +499,14 @@
         return false;
       if (SKIP_EEOC.test(field.label))
         return false;
+      if (field.type === "combobox" || field.type === "datalist")
+        return false;
       if (field.el.tagName === "TEXTAREA")
         return true;
       if (field.type === "text" && field.label.length > 20 && /\?|why|tell|describe|explain|share|what/i.test(field.label))
         return true;
       if (field.label && field.label !== "(Unlabeled)" && !SKIP_EEOC.test(field.label)) {
-        if (field.type === "select-one" || field.type === "text")
+        if (field.type === "select-one")
           return true;
       }
       return false;
@@ -370,7 +530,15 @@
         }).map((el) => {
           const label = extractLabel(el);
           const key = matchKey(label) || matchKey(el.name || "") || matchKey(el.placeholder || "");
-          return { el, label: label || "(Unlabeled)", key, type: (el.type || el.tagName).toLowerCase() };
+          let type = (el.type || el.tagName).toLowerCase();
+          if (type === "text" || type === "search") {
+            if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") || el.getAttribute("aria-haspopup")) {
+              type = "combobox";
+            } else if (el.getAttribute("list")) {
+              type = "datalist";
+            }
+          }
+          return { el, label: label || "(Unlabeled)", key, type };
         });
         const nativeEls = new Set(fields.map((f) => f.el));
         for (const el of doc.querySelectorAll(CUSTOM_DD_SEL)) {
@@ -446,16 +614,16 @@
     }
     async function fillStructured(field, profile) {
       const { el, key, type } = field;
-      const value = profile[key] ?? (key === "currentCompany" ? "Google" : null);
+      const raw = profile[key] ?? (key === "currentCompany" ? "Google" : null);
+      const value = raw === "" || raw == null ? null : raw;
       if (value == null)
         throw new Error("no data for " + key);
       if (type === "select-one" || el.tagName === "SELECT") {
-        const v = String(value).toLowerCase();
-        const opts = [...el.options];
-        const pick = opts.find((o) => o.textContent.trim().toLowerCase() === v) || opts.find((o) => o.textContent.trim().toLowerCase().startsWith(v)) || opts.find((o) => o.textContent.trim().toLowerCase().includes(v)) || opts.find((o) => v.includes(o.textContent.trim().toLowerCase()) && o.textContent.trim().length > 1) || v === "yes" && opts.find((o) => /^yes|^true/i.test(o.textContent.trim())) || v === "no" && opts.find((o) => /^no|^false/i.test(o.textContent.trim()));
+        const opts = [...el.options].map((o) => ({ el: o, text: o.textContent.trim() })).filter((o) => o.text);
+        const pick = fuzzyPickOption(opts, value);
         if (!pick)
           throw new Error(`no option for "${value}"`);
-        nativeSelectSet(el, pick.value);
+        nativeSelectSet(el, pick.el.value);
         fire(el, "input");
         fire(el, "change");
         return;
@@ -480,56 +648,177 @@
       fire(el, "input");
       fire(el, "change");
     }
+    function fuzzyPickOption(opts, hint) {
+      const h = String(hint).toLowerCase().trim();
+      return opts.find((o) => o.text.toLowerCase() === h) || opts.find((o) => o.text.toLowerCase().startsWith(h)) || opts.find((o) => o.text.toLowerCase().includes(h)) || opts.find((o) => h.includes(o.text.toLowerCase()) && o.text.length > 1) || // "Yes" matches any option starting with "Yes" (e.g. "Yes, no restriction.")
+      /^yes/i.test(h) && opts.find((o) => /^yes\b/i.test(o.text)) || // "No" matches any option starting with "No" but prefers ones without sponsorship mention
+      /^no/i.test(h) && (opts.find((o) => /^no\b/i.test(o.text) && !/sponsor/i.test(o.text)) || opts.find((o) => /^no\b/i.test(o.text))) || null;
+    }
+    function visibleOptions() {
+      return [...document.querySelectorAll('[role="option"], [role="menuitem"], [role="listitem"]')].filter((o) => {
+        const r = o.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      }).map((o) => ({ text: o.textContent.trim(), el: o })).filter((o) => o.text);
+    }
+    async function fillCombobox(field, hint) {
+      const el = field.el;
+      if (field.type === "datalist") {
+        const listId = el.getAttribute("list");
+        const datalist = listId ? document.getElementById(listId) : null;
+        if (datalist) {
+          const opts2 = [...datalist.options].map((o) => ({ text: (o.label || o.value).trim(), val: o.value })).filter((o) => o.text);
+          const pick = fuzzyPickOption(opts2, hint);
+          if (pick) {
+            await typeIn(el, pick.val || pick.text);
+            return;
+          }
+        }
+        await typeIn(el, hint);
+        return;
+      }
+      const control = el.closest('[class*="control"]') || el.parentElement?.parentElement;
+      if (control && control !== el)
+        reactClick(control);
+      else
+        reactClick(el);
+      await sleep(400);
+      let opts = visibleOptions();
+      if (opts.length > 0) {
+        const pick = fuzzyPickOption(opts, hint);
+        if (pick) {
+          pick.el.click();
+          await sleep(100);
+          return;
+        }
+        el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await sleep(150);
+      }
+      if (control && control !== el)
+        reactClick(control);
+      else
+        reactClick(el);
+      await sleep(300);
+      await typeIn(el, hint);
+      await sleep(450);
+      opts = visibleOptions();
+      if (opts.length > 0) {
+        const pick = fuzzyPickOption(opts, hint) || opts[0];
+        pick.el.click();
+        await sleep(100);
+        return;
+      }
+    }
+    function reactClick(el) {
+      const opts = { bubbles: true, cancelable: true, view: window };
+      el.dispatchEvent(new MouseEvent("mousedown", { ...opts, button: 0, buttons: 1 }));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.dispatchEvent(new MouseEvent("click", opts));
+    }
+    async function probeDropdown(el) {
+      const control = el.closest('[class*="control"]') || el.parentElement?.parentElement;
+      if (control && control !== el)
+        reactClick(control);
+      else
+        reactClick(el);
+      await sleep(400);
+      return visibleOptions();
+    }
     async function fillOpenEndedWithCache(field, jobDesc, profile) {
+      const learned = getLearnedAnswer(field.label);
+      if (learned !== void 0)
+        return { answer: learned, fromCache: true };
       const cached = getCached(field.label);
       if (cached !== void 0)
         return { answer: cached, fromCache: true };
-      const { answer } = await apiCall("/copilot/answer", { question: field.label, jobDescription: jobDesc }, profile);
+      const { answer } = await apiCall("/copilot/answer", { question: field.label, jobDescription: jobDesc, learnedAnswers }, profile);
       setCached(field.label, answer);
       return { answer, fromCache: false };
     }
     async function fillSelect(field, jobDesc, profile) {
-      const cached = getCached(field.label);
-      if (cached !== void 0) {
-        const opts2 = [...field.el.options];
-        const pick2 = opts2.find((o) => o.textContent.trim().toLowerCase() === String(cached).toLowerCase()) || opts2.find((o) => o.value.toLowerCase() === String(cached).toLowerCase());
+      const allOpts = [...field.el.options].map((o) => ({ el: o, text: o.textContent.trim() })).filter((o) => o.text);
+      const preferred = getLearnedAnswer(field.label) ?? getCached(field.label);
+      if (preferred !== void 0) {
+        const pick2 = fuzzyPickOption(allOpts, preferred);
         if (pick2) {
-          nativeSelectSet(field.el, pick2.value);
+          nativeSelectSet(field.el, pick2.el.value);
           fire(field.el, "input");
           fire(field.el, "change");
           return { fromCache: true };
         }
       }
-      const opts = [...field.el.options].map((o) => o.textContent.trim()).filter(Boolean);
-      const question = `${field.label} (choose the best option from: ${opts.join(", ")})`;
-      const { answer } = await apiCall("/copilot/answer", { question, jobDescription: jobDesc }, profile);
-      const normalAnswer = answer.toLowerCase();
-      const pick = [...field.el.options].find(
-        (o) => o.textContent.trim().toLowerCase() === normalAnswer || normalAnswer.includes(o.textContent.trim().toLowerCase()) || o.textContent.trim().toLowerCase().includes(normalAnswer)
-      );
+      const optLabels = allOpts.map((o) => o.text).join(", ");
+      const question = `${field.label} (choose the best option from: ${optLabels})`;
+      const { answer } = await apiCall("/copilot/answer", { question, jobDescription: jobDesc, learnedAnswers }, profile);
+      const pick = fuzzyPickOption(allOpts, answer);
       if (!pick)
         throw new Error(`AI answer "${answer}" matched no option`);
-      nativeSelectSet(field.el, pick.value);
+      nativeSelectSet(field.el, pick.el.value);
       fire(field.el, "input");
       fire(field.el, "change");
-      setCached(field.label, pick.textContent.trim());
+      setCached(field.label, pick.text);
       return { fromCache: false };
     }
     async function fillCustomDropdown(el, value) {
-      el.click();
+      reactClick(el);
       await sleep(300);
       const v = String(value).toLowerCase();
-      function findOption(root) {
-        const candidates = [...root.querySelectorAll(
+      function collectOptions(root) {
+        return [...root.querySelectorAll(
           '[role="option"], [role="menuitem"], [role="listitem"], li[data-value], li[class*="option"], div[class*="option"]'
-        )];
-        return candidates.find((o) => o.textContent.trim().toLowerCase() === v) || candidates.find((o) => o.textContent.trim().toLowerCase().startsWith(v)) || candidates.find((o) => o.textContent.trim().toLowerCase().includes(v)) || candidates.find((o) => v.includes(o.textContent.trim().toLowerCase()) && o.textContent.trim().length > 1);
+        )].map((o) => ({ text: o.textContent.trim(), el: o })).filter((o) => o.text);
       }
-      let pick = findOption(el.parentElement || el) || findOption(document.body);
+      const opts = [...collectOptions(el.parentElement || el), ...collectOptions(document.body)];
+      const seen = /* @__PURE__ */ new Set();
+      const deduped = opts.filter((o) => {
+        if (seen.has(o.text))
+          return false;
+        seen.add(o.text);
+        return true;
+      });
+      const pick = fuzzyPickOption(deduped, value);
       if (!pick)
         throw new Error(`custom dropdown: no option for "${value}"`);
-      pick.click();
+      pick.el.click();
       await sleep(100);
+    }
+    async function applyRuleFix(rule, field, value) {
+      if (!value)
+        return false;
+      const fix = rule.fix;
+      const el = fix.selectorOverride && document.querySelector(fix.selectorOverride) || field.el;
+      if (fix.waitMs)
+        await sleep(fix.waitMs);
+      switch (fix.fillMethod) {
+        case "execCommand": {
+          el.focus();
+          el.select?.();
+          const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+          if (nativeSetter) {
+            if (el._valueTracker)
+              el._valueTracker.setValue("");
+            nativeSetter.call(el, String(value));
+          } else {
+            nativeSet(el, String(value));
+          }
+          fire(el, "input");
+          fire(el, "change");
+          el.blur();
+          break;
+        }
+        case "nativeSet":
+          nativeSet(el, String(value));
+          (fix.eventSequence || ["input", "change"]).forEach((e) => fire(el, e));
+          break;
+        case "reactClick":
+          await fillCombobox(field, value);
+          break;
+        case "skip":
+          return "skip";
+        default:
+          await typeIn(el, String(value));
+      }
+      return true;
     }
     function watchForUserEdits(fields) {
       for (const field of fields) {
@@ -541,10 +830,32 @@
           continue;
         const el = field.el;
         const handler = () => {
-          const val = el.type === "checkbox" || el.type === "radio" ? el.checked ? "Yes" : "No" : el.value?.trim();
-          if (val)
-            setCached(field.label, val);
+          let val;
+          if (el.type === "checkbox" || el.type === "radio") {
+            val = el.checked ? "Yes" : "No";
+          } else if (field.type === "combobox" || field.type === "datalist") {
+            const container = el.closest('[class*="container"]');
+            const singleVal = container?.querySelector('[class*="single-value"]')?.textContent?.trim();
+            const multiVals = container ? [...container.querySelectorAll('[class*="multi-value__label"]')].map((e) => e.textContent.trim()) : [];
+            val = multiVals.length ? multiVals.join(", ") : singleVal;
+          } else {
+            val = el.value?.trim();
+          }
+          if (val) {
+            saveLearnedAnswer(field.label, val);
+          }
         };
+        if (field.type === "combobox" || field.type === "datalist") {
+          const container = el.closest('[class*="container"]');
+          if (container) {
+            const obs = new MutationObserver(() => {
+              handler();
+            });
+            obs.observe(container, { childList: true, subtree: true });
+            setTimeout(() => obs.disconnect(), 5 * 60 * 1e3);
+            continue;
+          }
+        }
         el.addEventListener("change", handler, { once: true });
         el.addEventListener("blur", handler, { once: true });
       }
@@ -596,7 +907,7 @@
   .row { display:flex; align-items:flex-start; gap:8px; padding:5px 0; border-bottom:1px dashed #f1f5f9; }
   .row:last-child { border:none; }
   .dot { width:9px; height:9px; border-radius:50%; margin-top:4px; flex-shrink:0; background:#e2e8f0; }
-  .done { background:#22c55e; } .skip { background:#94a3b8; } .err { background:#ef4444; } .filling { background:#f59e0b; }
+  .done { background:#22c55e; } .skip { background:#94a3b8; } .err { background:#ef4444; } .filling { background:#f59e0b; } .review { background:#f59e0b; outline:2px solid #f59e0b; outline-offset:1px; }
   .lbl { font-size:12px; font-weight:500; }
   .sub { font-size:11px; color:#94a3b8; margin-top:1px; }
   #footer { display:flex; gap:6px; padding:8px 12px; border-top:1px solid #f1f5f9; flex-shrink:0; flex-wrap:wrap; }
@@ -670,6 +981,10 @@
         return "country code";
       if (field.type === "custom-select")
         return field.key ? `dropdown\xB7${field.key}` : "dropdown";
+      if (field.type === "combobox")
+        return field.key ? `combobox\xB7${field.key}` : "combobox";
+      if (field.type === "datalist")
+        return field.key ? `datalist\xB7${field.key}` : "datalist";
       if (isOpenEnded(field))
         return "\u{1F916} AI";
       if (field.key)
@@ -703,6 +1018,22 @@
     function setRow(field, state, msg) {
       field._dot.className = `dot ${state}`;
       field._sub.textContent = `${rowHint(field)} \xB7 ${msg}`;
+      if (state === "review") {
+        field._sub.innerHTML = `${rowHint(field)} \xB7 ${msg} <span style="color:#d97706;text-decoration:underline;cursor:pointer;" data-scroll-to>\u2191 fill it</span>`;
+        field._sub.querySelector("[data-scroll-to]").addEventListener("click", (e) => {
+          e.preventDefault();
+          field.el.scrollIntoView({ behavior: "smooth", block: "center" });
+          field.el.focus();
+          if (field.type === "combobox") {
+            const ctrl = field.el.closest('[class*="control"]') || field.el.parentElement?.parentElement;
+            const opts = { bubbles: true, cancelable: true, view: window };
+            const target = ctrl && ctrl !== field.el ? ctrl : field.el;
+            target.dispatchEvent(new MouseEvent("mousedown", { ...opts, button: 0, buttons: 1 }));
+            target.dispatchEvent(new MouseEvent("mouseup", opts));
+            target.dispatchEvent(new MouseEvent("click", opts));
+          }
+        });
+      }
     }
     let running = false;
     let paused = false;
@@ -712,6 +1043,8 @@
       running = true;
       paused = false;
       await loadCache();
+      await loadLearnedAnswers();
+      await loadActiveRules();
       const fields = scanFields();
       list.innerHTML = "";
       fields.forEach(addRow);
@@ -722,35 +1055,23 @@
         lastName: "Tiruvaipati",
         email: "t.sushanth@gmail.com",
         phone: "+1 425-628-4887",
-        city: "San Jose",
+        city: "Milpitas",
         state: "California",
         country: "United States",
-        postalCode: "95101",
-        linkedin: "https://www.linkedin.com/in/tsushanth",
+        postalCode: "95035",
+        linkedin: "https://www.linkedin.com/in/tsushanth/",
         github: "https://github.com/tsushanth",
-        portfolio: "https://kreativekoala.llc",
-        educationLevel: "Master's Degree",
-        schoolName: "Carnegie Mellon University",
-        fieldOfStudy: "Information Networking",
-        graduationYear: "2011",
+        portfolio: "",
+        educationLevel: "Bachelor's Degree",
+        schoolName: "",
+        fieldOfStudy: "Computer Science",
+        graduationYear: "",
         workAuth: "Yes",
         sponsorship: "No",
         salary: "150000",
         heardAbout: "LinkedIn",
-        background: `Sushanth Tiruvaipati is a software engineer with 10+ years at Google and an indie developer who has shipped 70+ iOS/Android apps generating real revenue. At Google he worked across Ads, Cloud AI, Play, and YouTube on large-scale distributed systems. Strong in TypeScript, Swift, Kotlin, Python, Go, C++, and cloud infrastructure. Located in Bay Area, CA, open to relocation. Compensation floor $150k base.`,
-        resume: `SUSHANTH TIRUVAIPATI
-Bay Area, CA \xB7 t.sushanth@gmail.com \xB7 425-628-4887 \xB7 linkedin.com/in/tsushanth
-
-EXPERIENCE
-Software Engineer \xB7 Google | Sep 2015 \u2013 Present
-- Large-scale distributed systems across Ads, Cloud AI, Play, YouTube
-Founder & Sole Engineer \xB7 KreativeKoala Solutions LLC | 2021 \u2013 Present
-- Built and shipped 70+ iOS/Android apps end-to-end
-Software Development Engineer \xB7 Microsoft | Nov 2012 \u2013 Feb 2015
-Software Development Engineer \xB7 Amazon | Oct 2011 \u2013 Oct 2012
-
-EDUCATION
-Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
+        background: "",
+        resume: ""
       };
       let profile;
       try {
@@ -777,12 +1098,32 @@ Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
         field.el.style.outline = "2px solid #f59e0b";
         setRow(field, "filling", "working\u2026");
         try {
+          if (!dryRun) {
+            const rule = getRuleFor(field);
+            if (rule) {
+              const value = field.key && profile[field.key] || getLearnedAnswer(field.label) || getCached(field.label);
+              const result = await applyRuleFix(rule, field, value);
+              if (result === "skip") {
+                setRow(field, "skip", `rule:${rule.id}`);
+                skipped++;
+                field.el.style.outline = "";
+                continue;
+              }
+              if (result === true) {
+                setRow(field, "done", `rule:${rule.id}`);
+                filled++;
+                field.el.style.outline = "";
+                continue;
+              }
+            }
+          }
           if (dryRun) {
             setRow(field, "skip", `dry-run \xB7 ${rowHint(field)}`);
             skipped++;
           } else if (isResumeField(field)) {
             setRow(field, "filling", "\u{1F916} tailoring resume\u2026");
-            const { pdf, filename } = await apiCall("/resume/tailor", { jobDescription: jobDesc, jobTitle: document.title }, profile);
+            const { pdf, filename: apiFilename } = await apiCall("/resume/tailor", { jobDescription: jobDesc, jobTitle: document.title }, profile);
+            const filename = apiFilename || `${profile.firstName || "Resume"}_${profile.lastName || "Resume"}_Resume.pdf`.replace(/\s+/g, "_");
             await attachPdfB64(field.el, pdf, filename);
             setRow(field, "done", "\u{1F4C4} attached \u2014 \u2197 view");
             const bytes = Uint8Array.from(atob(pdf), (c) => c.charCodeAt(0));
@@ -792,7 +1133,15 @@ Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
             filled++;
           } else if (isCoverLetterField(field)) {
             setRow(field, "filling", "attaching cover letter\u2026");
-            await attachFile(field.el, COVER_URL, "Sushanth_Tiruvaipati_CoverLetter.pdf");
+            const { coverLetterPdfDataUrl } = await chrome.storage.local.get("coverLetterPdfDataUrl");
+            if (coverLetterPdfDataUrl) {
+              const res = await fetch(coverLetterPdfDataUrl);
+              const blob = await res.blob();
+              const name = `${profile.firstName || "Cover"}_${profile.lastName || "Letter"}_CoverLetter.pdf`.replace(/\s+/g, "_");
+              await attachFileObj(field.el, new File([blob], name, { type: "application/pdf" }));
+            } else {
+              await attachFile(field.el, COVER_URL, "CoverLetter.pdf");
+            }
             setRow(field, "done", "\u{1F4C4} cover letter attached");
             filled++;
           } else if (isAgreementField(field) || field._contextLabel && AGREE_RE.test(field._contextLabel) && field.type === "checkbox") {
@@ -837,17 +1186,101 @@ Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
               setRow(field, "skip", "unknown");
               skipped++;
             }
-          } else if (field.key) {
+          } else if (field.type === "combobox" || field.type === "datalist") {
+            if (SKIP_EEOC.test(field.label) || SKIP_EEOC.test(field.key || "")) {
+              setRow(field, "skip", "EEOC \u2014 skipped");
+              skipped++;
+            } else if (field.key) {
+              const value = profile[field.key];
+              if (!value)
+                throw new Error("no data for " + field.key);
+              await fillCombobox(field, value);
+              setRow(field, "done", "filled");
+              filled++;
+            } else if (field.label && field.label !== "(Unlabeled)" && !SKIP_EEOC.test(field.label)) {
+              const isMultiSelect = field.el.id?.endsWith("[]");
+              const learnedVal = getLearnedAnswer(field.label);
+              if (isMultiSelect && learnedVal === void 0) {
+                setRow(field, "review", "\u26A0\uFE0F fill once \u2192 saved for next run");
+                skipped++;
+                field.el.closest('[class*="container"]')?.style && (field.el.closest('[class*="container"]').style.outline = "2px solid #f59e0b");
+                continue;
+              }
+              if (isMultiSelect && learnedVal !== void 0) {
+                await fillCombobox(field, learnedVal);
+                setRow(field, "done", "\u{1F4E6} from your saved answer");
+                filled++;
+                field.el.style.outline = "";
+                continue;
+              }
+              const preferred = learnedVal ?? getCached(field.label);
+              if (preferred !== void 0) {
+                await fillCombobox(field, preferred);
+                setRow(field, "done", "\u{1F4E6} from cache");
+                filled++;
+                field.el.style.outline = "";
+                continue;
+              }
+              setRow(field, "filling", "\u{1F916} asking AI\u2026");
+              const ctrl = field.el.closest('[class*="control"]') || field.el.parentElement?.parentElement;
+              if (ctrl && ctrl !== field.el)
+                reactClick(ctrl);
+              else
+                reactClick(field.el);
+              await sleep(450);
+              const openOpts = visibleOptions();
+              const optTexts = openOpts.map((o) => o.text);
+              const suffix = optTexts.length ? ` (choose best option from: ${optTexts.join(", ")})` : "";
+              const { answer } = await apiCall("/copilot/answer", { question: field.label + suffix, jobDescription: jobDesc, learnedAnswers }, profile);
+              if (openOpts.length > 0) {
+                const pick = fuzzyPickOption(openOpts, answer);
+                if (pick) {
+                  pick.el.click();
+                  await sleep(100);
+                  setCached(field.label, answer);
+                  setRow(field, "done", "\u{1F916} AI filled");
+                  filled++;
+                  field.el.style.outline = "";
+                  continue;
+                }
+                field.el.blur();
+                await sleep(100);
+              }
+              await fillCombobox(field, answer);
+              setCached(field.label, answer);
+              setRow(field, "done", "\u{1F916} AI filled");
+              filled++;
+            } else {
+              setRow(field, "skip", "unknown");
+              skipped++;
+            }
+          } else if (field.key && !SKIP_EEOC.test(field.label) && !SKIP_EEOC.test(field.key)) {
+            field._lastFillMethod = "fillStructured";
             await fillStructured(field, profile);
             setRow(field, "done", "filled");
             filled++;
           } else if (isOpenEnded(field)) {
+            field._lastFillMethod = "typeIn/AI";
             setRow(field, "filling", "\u{1F916} asking AI\u2026");
             if (field.type === "select-one") {
               const { fromCache } = await fillSelect(field, jobDesc, profile);
               setRow(field, "done", fromCache ? "\u{1F4E6} from cache" : "\u{1F916} AI filled");
             } else {
               const { answer, fromCache } = await fillOpenEndedWithCache(field, jobDesc, profile);
+              const dropOpts = await probeDropdown(field.el);
+              if (dropOpts.length > 0) {
+                const pick = fuzzyPickOption(dropOpts, answer);
+                if (pick) {
+                  pick.el.click();
+                  await sleep(100);
+                  setRow(field, "done", fromCache ? "\u{1F4E6} dropdown\xB7cache" : "\u{1F916} dropdown\xB7AI");
+                  filled++;
+                  field.el.style.outline = "";
+                  continue;
+                }
+                field.el.blur();
+                await sleep(100);
+              }
               await typeIn(field.el, answer);
               setRow(field, "done", fromCache ? "\u{1F4E6} from cache" : "\u{1F916} AI filled");
             }
@@ -878,6 +1311,8 @@ Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
         } catch (err) {
           setRow(field, "err", err.message);
           errors++;
+          if (!dryRun)
+            reportFailure(field, err.message, field._lastFillMethod || "unknown");
         } finally {
           field.el.style.outline = "";
         }
@@ -887,10 +1322,34 @@ Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
       }
       if (!dryRun) {
         watchForUserEdits(fields);
+        const reviewFields = fields.filter((f) => f._dot?.className?.includes("review"));
+        if (reviewFields.length > 0) {
+          const reviewBanner = document.createElement("div");
+          reviewBanner.style.cssText = "margin:6px 0 0;padding:8px 10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:8px;font-size:11px;color:#92400e;";
+          reviewBanner.innerHTML = `<strong style="display:block;margin-bottom:4px;">\u26A0\uFE0F Fill these \u2014 saved for next time:</strong>${reviewFields.map((f) => `<div style="margin-top:2px;">\u2022 ${f.label.slice(0, 60)}</div>`).join("")}`;
+          list.appendChild(reviewBanner);
+        }
         if (filled > 0) {
           const company = (() => {
             try {
-              return new URL(location.href).hostname.replace(/^www\./, "").split(".")[0];
+              const u = new URL(location.href);
+              const ghMatch = u.pathname.match(/^\/(?:embed\/job_app\?.*?for=([^&]+)|([^/]+)\/)/);
+              if (u.hostname.includes("greenhouse.io")) {
+                const forParam = u.searchParams.get("for");
+                if (forParam)
+                  return forParam;
+                const seg = u.pathname.split("/").find((s) => s && s !== "embed");
+                if (seg && seg !== "job_app")
+                  return seg;
+              }
+              if (u.hostname.includes("lever.co"))
+                return u.pathname.split("/")[1] || null;
+              if (u.hostname.includes("ashbyhq.com"))
+                return u.pathname.split("/")[1] || null;
+              if (u.hostname.includes("myworkdayjobs.com"))
+                return u.hostname.split(".")[0];
+              const parts = u.hostname.replace(/^www\./, "").split(".");
+              return parts.length >= 2 ? parts[parts.length - 2] : parts[0];
             } catch {
               return null;
             }
@@ -980,5 +1439,6 @@ Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
         location.reload();
       }
     });
+    return run;
   }
 })();
