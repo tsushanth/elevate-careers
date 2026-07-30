@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS job (
   tsv TSVECTOR,                       -- search index
   current_version_id BIGINT,
   dedupe_key TEXT UNIQUE,             -- idempotency
+  is_active BOOLEAN DEFAULT true,     -- false when no longer in ATS feed
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -76,6 +77,60 @@ CREATE TABLE IF NOT EXISTS application (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Discovered ATS companies (from GitHub datasets + extension crowdsourcing)
+CREATE TABLE IF NOT EXISTS discovered_company (
+  id BIGSERIAL PRIMARY KEY,
+  provider TEXT NOT NULL,        -- greenhouse, lever, ashby, smartrecruiters
+  org TEXT NOT NULL,             -- the ATS slug
+  name TEXT,                     -- human-readable name if known
+  source TEXT,                   -- 'github_kalil', 'github_feashliaa', 'extension', 'manual'
+  last_ingested_at TIMESTAMPTZ,  -- when we last fetched jobs for this org
+  enabled BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(provider, org)
+);
+CREATE INDEX IF NOT EXISTS idx_discovered_company_provider ON discovered_company(provider);
+CREATE INDEX IF NOT EXISTS idx_discovered_company_last_ingested ON discovered_company(last_ingested_at);
+
+-- Self-healing rule engine tables
+CREATE TABLE IF NOT EXISTS repair_queue (
+  id           BIGSERIAL PRIMARY KEY,
+  domain       TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  field_type   TEXT,
+  outer_html   TEXT,
+  fail_reason  TEXT,
+  fill_tried   TEXT,                        -- fill method that was attempted
+  count        INTEGER DEFAULT 1,
+  first_seen   TIMESTAMPTZ DEFAULT now(),
+  last_seen    TIMESTAMPTZ DEFAULT now(),
+  resolved     BOOLEAN DEFAULT false,
+  rule_id      TEXT,                        -- set when a rule fixes this failure
+  UNIQUE(domain, label)
+);
+CREATE INDEX IF NOT EXISTS idx_repair_queue_domain    ON repair_queue(domain);
+CREATE INDEX IF NOT EXISTS idx_repair_queue_resolved  ON repair_queue(resolved);
+CREATE INDEX IF NOT EXISTS idx_repair_queue_last_seen ON repair_queue(last_seen);
+
+CREATE TABLE IF NOT EXISTS ats_rules (
+  id          TEXT PRIMARY KEY,             -- matches rule.id in the JSON schema
+  version     INTEGER NOT NULL DEFAULT 1,
+  match_json  JSONB NOT NULL,
+  fix_json    JSONB NOT NULL,
+  approved_by TEXT,
+  approved_at TIMESTAMPTZ DEFAULT now(),
+  active      BOOLEAN DEFAULT true
+);
+
+-- Additive column migrations (safe to re-run)
+ALTER TABLE job ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+UPDATE job SET is_active = true WHERE is_active IS NULL;
+CREATE INDEX IF NOT EXISTS idx_job_is_active ON job(is_active);
+
+-- Lets a user dismiss a job title from "Recommended for you" entirely
+-- (as opposed to excluded_companies, which blocks a whole company).
+ALTER TABLE apply_preferences ADD COLUMN IF NOT EXISTS excluded_titles TEXT[] NOT NULL DEFAULT '{}';
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_job_company_id ON job(company_id);

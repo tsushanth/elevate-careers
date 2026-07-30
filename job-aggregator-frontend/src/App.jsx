@@ -14,6 +14,13 @@ function slugify(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+const dismissMenuItemStyle = {
+  display: 'block', width: '100%', textAlign: 'left',
+  background: 'none', border: 'none', color: '#cbd5e1',
+  padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderRadius: 6,
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+};
+
 function App() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
@@ -40,6 +47,7 @@ function App() {
   const [page, setPage] = useState(0);
   const [showApplied, setShowApplied] = useState(false);
   const [appliedCount, setAppliedCount] = useState(0);
+  const [dismissMenuJobId, setDismissMenuJobId] = useState(null);
   const PAGE_SIZE = 50;
 
   useEffect(() => {
@@ -56,6 +64,13 @@ function App() {
     // detect.js sets this flag when the extension is active on simplyappl.ai
     setExtensionInstalled(!!window.__simplyApplyInstalled);
   }, []);
+
+  useEffect(() => {
+    if (dismissMenuJobId === null) return;
+    const closeMenu = () => setDismissMenuJobId(null);
+    document.addEventListener('click', closeMenu);
+    return () => document.removeEventListener('click', closeMenu);
+  }, [dismissMenuJobId]);
 
   useEffect(() => {
     setPage(0);
@@ -106,6 +121,35 @@ function App() {
   const handleSearch = (e) => {
     e.preventDefault();
     fetchJobs();
+  };
+
+  // action: 'card' (this session only) | 'company' | 'title' (persisted to prefs)
+  const dismissJob = async (job, action) => {
+    setDismissMenuJobId(null);
+    if (action === 'card') {
+      setJobs(prev => prev.filter(j => j.id !== job.id));
+      return;
+    }
+    if (!session) return;
+    try {
+      const current = await fetch(`${API_URL}/api/preferences`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      }).then(r => r.json());
+
+      const patch = action === 'company'
+        ? { excluded_companies: [...new Set([...(current.excluded_companies || []), job.company_name])] }
+        : { excluded_titles: [...new Set([...(current.excluded_titles || []), job.title])] };
+
+      await fetch(`${API_URL}/api/preferences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ ...current, ...patch }),
+      });
+
+      setJobs(prev => prev.filter(j => action === 'company' ? j.company_name !== job.company_name : j.title !== job.title));
+    } catch (e) {
+      console.error('Failed to dismiss job', e);
+    }
   };
 
   const formatSalary = (job) => {
@@ -335,7 +379,36 @@ function App() {
                         style={{ cursor: 'pointer', color: '#6366f1' }}
                       >{job.company_name}</p>
                     </div>
-                    <button className="close-button">×</button>
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        className="close-button"
+                        onClick={e => { e.stopPropagation(); setDismissMenuJobId(dismissMenuJobId === job.id ? null : job.id); }}
+                      >×</button>
+                      {dismissMenuJobId === job.id && (
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute', top: '100%', right: 0, zIndex: 20,
+                            background: '#111827', border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 8, minWidth: 220, padding: 4,
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                          }}
+                        >
+                          <button
+                            onClick={() => dismissJob(job, 'company')}
+                            style={dismissMenuItemStyle}
+                          >Don't show jobs from {job.company_name}</button>
+                          <button
+                            onClick={() => dismissJob(job, 'title')}
+                            style={dismissMenuItemStyle}
+                          >Don't show "{job.title}" roles</button>
+                          <button
+                            onClick={() => dismissJob(job, 'card')}
+                            style={dismissMenuItemStyle}
+                          >Just remove this card</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="job-card-info">
