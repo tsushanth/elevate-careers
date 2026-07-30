@@ -1,0 +1,34 @@
+# SimplyApply
+
+> SimplyApply is a free Chrome extension and job board that autofills job
+> applications in one click, and aggregates open roles from Greenhouse,
+> Lever, Ashby, SmartRecruiters, and other applicant tracking systems.
+
+## What it does
+
+- Autofills job application forms (name, experience, resume, answers to
+  common screening questions) on company career pages and ATS-hosted
+  application forms, using a profile you fill in once.
+- Supports Greenhouse, Lever, Ashby, and SmartRecruiters application forms.
+- Aggregates and searches open job postings across thousands of companies,
+  refreshed daily, at https://www.simplyappl.ai/
+- Lets signed-in users get a personalized "Recommended for you" job feed
+  based on their stated preferences and application history.
+
+## Key pages
+
+- Homepage / job search: https://www.simplyappl.ai/
+- Company job listings: https://www.simplyappl.ai/companies/{company-slug}
+  (e.g. https://www.simplyappl.ai/companies/stripe)
+- Privacy policy: https://www.simplyappl.ai/privacy
+- Chrome extension: https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf
+
+## Who it's for
+
+Job seekers applying to multiple roles who want to skip manually re-typing
+the same application fields across Greenhouse, Lever, Ashby, and
+SmartRecruiters career sites.
+
+## Pricing
+
+Free.

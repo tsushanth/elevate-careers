@@ -13,7 +13,10 @@ import { recomputeSignals } from '../services/signals.js';
 
 let _supabase = null;
 function getSupabase() {
-  if (!_supabase) _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  if (!_supabase) _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { enabled: false },
+  });
   return _supabase;
 }
 
@@ -34,6 +37,18 @@ app.options('*', cors(corsOptions)); // explicit preflight handler
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow extension fetches
   crossOriginOpenerPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'", 'https://owvvrljdfnhntwedepkl.supabase.co'],
+      connectSrc: ["'self'", 'https://owvvrljdfnhntwedepkl.supabase.co', 'wss://owvvrljdfnhntwedepkl.supabase.co', 'https://elevate-careers-api.fly.dev'],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:'],
+      fontSrc: ["'self'", 'https:', 'data:'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+    },
+  },
 }));
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
@@ -52,6 +67,173 @@ app.get('/health', async (req, res) => {
 
 import aiResumeRoutes from '../routes/ai-resume.js';
 app.use('/api/ai-resume', aiResumeRoutes);
+
+import repairRoutes from '../routes/repair.js';
+app.use('/api/repair', repairRoutes);
+
+import applyRoutes from '../routes/apply.js';
+app.use('/api/apply', applyRoutes);
+
+import applyPreferencesRoutes from '../routes/apply-preferences.js';
+app.use('/api/preferences', applyPreferencesRoutes);
+
+// Fetch GitHub ATS datasets and populate discovered_company table
+app.post('/ingest/bootstrap-discovery', async (req, res) => {
+  try {
+    const { secret } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    res.json({ ok: true, status: 'bootstrapping in background' });
+
+    setImmediate(async () => {
+      let total = 0;
+
+      // Source 1: kalil0321/ats-scrapers — CSV with name,slug,url (clean, named)
+      const kalilPlatforms = {
+        greenhouse: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/greenhouse.csv',
+        lever: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/lever.csv',
+        ashby: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/ashby.csv',
+        smartrecruiters: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/smartrecruiters.csv',
+      };
+      for (const [provider, url] of Object.entries(kalilPlatforms)) {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const text = await resp.text();
+          const lines = text.trim().split('\n').slice(1); // skip header
+          for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length < 2) continue;
+            const name = parts[0].trim().replace(/^"|"$/g, '');
+            const org = parts[1].trim().replace(/^"|"$/g, '').toLowerCase();
+            if (!org) continue;
+            await db.query(
+              `INSERT INTO discovered_company (provider, org, name, source)
+               VALUES ($1, $2, $3, 'github_kalil')
+               ON CONFLICT (provider, org) DO UPDATE SET name = COALESCE(discovered_company.name, EXCLUDED.name)`,
+              [provider, org, name]
+            );
+            total++;
+          }
+          logger.info({ provider, source: 'github_kalil' }, 'Bootstrap CSV loaded');
+        } catch (e) {
+          logger.error({ error: e.message, provider, url }, 'Bootstrap CSV error');
+        }
+      }
+
+      // Source 2: Feashliaa/job-board-aggregator — JSON arrays of slugs (larger, noisier)
+      const feashliaaUrls = {
+        greenhouse: 'https://raw.githubusercontent.com/Feashliaa/job-board-aggregator/main/data/greenhouse_companies.json',
+        lever: 'https://raw.githubusercontent.com/Feashliaa/job-board-aggregator/main/data/lever_companies.json',
+        ashby: 'https://raw.githubusercontent.com/Feashliaa/job-board-aggregator/main/data/ashby_companies.json',
+      };
+      for (const [provider, url] of Object.entries(feashliaaUrls)) {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const slugs = await resp.json();
+          for (const slug of slugs) {
+            const org = String(slug).toLowerCase().trim();
+            // Skip noise: purely numeric IDs or very short slugs
+            if (!org || /^\d+$/.test(org) || org.length < 2) continue;
+            await db.query(
+              `INSERT INTO discovered_company (provider, org, source)
+               VALUES ($1, $2, 'github_feashliaa')
+               ON CONFLICT (provider, org) DO NOTHING`,
+              [provider, org]
+            );
+            total++;
+          }
+          logger.info({ provider, source: 'github_feashliaa' }, 'Bootstrap JSON loaded');
+        } catch (e) {
+          logger.error({ error: e.message, provider, url }, 'Bootstrap JSON error');
+        }
+      }
+
+      logger.info({ total }, 'Bootstrap discovery complete');
+    });
+  } catch (e) {
+    logger.error({ error: e }, 'Bootstrap discovery error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Extension-reported org discovery — called when extension sees a supported ATS job page
+app.post('/ingest/report-org', async (req, res) => {
+  try {
+    const { provider, org } = req.body;
+    if (!provider || !org) return res.status(400).json({ error: 'provider and org required' });
+    const validProviders = ['greenhouse', 'lever', 'ashby', 'smartrecruiters'];
+    if (!validProviders.includes(provider)) return res.status(400).json({ error: 'invalid provider' });
+    const cleanOrg = String(org).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
+    if (!cleanOrg || cleanOrg.length < 2) return res.status(400).json({ error: 'invalid org' });
+
+    await db.query(
+      `INSERT INTO discovered_company (provider, org, source)
+       VALUES ($1, $2, 'extension')
+       ON CONFLICT (provider, org) DO NOTHING`,
+      [provider, cleanOrg]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error({ error: e }, 'Report-org error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sync all companies — from discovered_company table + companies.json fallback
+app.post('/ingest/sync-all', async (req, res) => {
+  try {
+    const { secret } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    // Pull from discovered_company table first, fall back to companies.json
+    let tasks = [];
+    try {
+      const { rows } = await db.query(
+        `SELECT provider, org FROM discovered_company WHERE enabled = true ORDER BY last_ingested_at ASC NULLS FIRST`
+      );
+      tasks = rows;
+    } catch (e) {
+      logger.warn('discovered_company table not available, falling back to companies.json');
+    }
+
+    if (tasks.length === 0) {
+      const { createRequire } = await import('module');
+      const require = createRequire(import.meta.url);
+      const companies = require('../../companies.json');
+      for (const [provider, orgs] of Object.entries(companies)) {
+        for (const org of orgs) tasks.push({ provider, org });
+      }
+    }
+
+    res.json({ ok: true, queued: tasks.length });
+
+    setImmediate(async () => {
+      const getAdapter = (await import('../adapters/index.js')).default;
+      const normalizer = (await import('../services/normalizer.js')).default;
+      for (const { provider, org } of tasks) {
+        try {
+          const adapter = getAdapter(provider);
+          const rawJobs = await adapter.fetchJobs(org);
+          const results = await normalizer.processJobs(rawJobs, provider, org);
+          await db.query(
+            `UPDATE discovered_company SET last_ingested_at = now() WHERE provider = $1 AND org = $2`,
+            [provider, org]
+          ).catch(() => {});
+          logger.info({ org, provider, fetched: rawJobs.length, ...results }, 'Sync-all ingest complete');
+        } catch (e) {
+          logger.error({ error: e.message, org, provider }, 'Sync-all ingest error');
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      logger.info({ total: tasks.length }, 'Sync-all ingestion run complete');
+    });
+  } catch (e) {
+    logger.error({ error: e }, 'Sync-all error');
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Sync ingestion — responds immediately, processes in background
 app.post('/ingest/sync', async (req, res) => {
@@ -194,6 +376,77 @@ app.post('/ingest/discover', async (req, res) => {
   }
 });
 
+// JobSpy ingest — called by cron after ATS sync
+app.post('/ingest/jobspy', async (req, res) => {
+  try {
+    const { secret, queries, max_results = 50, sites } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    const jobspyUrl = process.env.JOBSPY_URL || 'https://elevate-careers-jobspy.fly.dev';
+    const jobspySecret = process.env.JOBSPY_SECRET || '';
+
+    // Kick off scrape on Python service
+    const scrapeRes = await fetch(`${jobspyUrl}/scrape`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(jobspySecret ? { Authorization: `Bearer ${jobspySecret}` } : {}),
+      },
+      body: JSON.stringify({ queries, max_results, sites }),
+      signal: AbortSignal.timeout(110_000),
+    });
+
+    if (!scrapeRes.ok) {
+      const err = await scrapeRes.text();
+      return res.status(502).json({ error: 'jobspy service error', detail: err });
+    }
+
+    const { jobs: rawJobs } = await scrapeRes.json();
+    logger.info({ count: rawJobs.length }, 'jobspy scrape returned');
+
+    const normalizer = (await import('../services/normalizer.js')).default;
+    let created = 0, skipped = 0, errors = 0;
+
+    for (const j of rawJobs) {
+      try {
+        if (!j.title || !j.apply_url || !j.company) { skipped++; continue; }
+
+        // Build a slug domain from company name for deduplication
+        const companySlug = j.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const companyDomain = `${companySlug}.jobspy`;
+
+        const normalized = {
+          provider:    j.source || 'jobspy',
+          external_id: j.external_id || null,
+          apply_url:   j.apply_url,
+          title:       j.title,
+          description: j.description || '',
+          employment_type: j.job_type || null,
+          remote:      j.remote || false,
+          salary_min:  j.salary_min || null,
+          salary_max:  j.salary_max || null,
+          salary_currency: j.currency || 'USD',
+          posted_at:   j.posted_at || null,
+          company_domain: companyDomain,
+          location:    j.location || null,
+        };
+
+        await normalizer.processJob(normalized, normalized.provider, companySlug);
+        created++;
+      } catch (e) {
+        logger.warn({ error: e.message, title: j.title }, 'jobspy job ingest error');
+        errors++;
+      }
+    }
+
+    logger.info({ created, skipped, errors }, 'jobspy ingest complete');
+    res.json({ ok: true, created, skipped, errors, total: rawJobs.length });
+  } catch (e) {
+    logger.error({ error: e.message }, 'jobspy ingest failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Jobs API
 app.get('/jobs/personalized', async (req, res) => {
   try {
@@ -214,73 +467,142 @@ app.get('/jobs/personalized', async (req, res) => {
     const appliedUrls = (appliedRows || []).map(r => r.job_url).filter(Boolean);
     const appliedCount = appliedUrls.length;
 
+    // Load user preferences for filtering
+    const { data: prefRow } = await sb.from('apply_preferences')
+      .select('keywords, remote, location, salary_min')
+      .eq('user_id', user.id)
+      .single();
+    const pref = prefRow || {};
+
+    // Build pref filter SQL + extra params (appended after fixed params in each query)
+    const buildPrefFilters = (startIdx) => {
+      const clauses = [];
+      const params = [];
+      let idx = startIdx;
+      if (pref.remote) clauses.push(`j.remote = true`);
+      if (pref.salary_min) { clauses.push(`(j.salary_min IS NULL OR j.salary_min >= $${idx})`); params.push(pref.salary_min); idx++; }
+      if (pref.location) { clauses.push(`EXISTS (SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id AND (jlf.city ILIKE $${idx} OR jlf.region ILIKE $${idx} OR jlf.country ILIKE $${idx}))`); params.push(`%${pref.location}%`); idx++; }
+      return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
+    };
+
     // Build exclusion clause
     const excludeClause = hideApplied && appliedUrls.length > 0
       ? `AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${i + 4}`).join(',')})`
       : '';
 
-    // Read precomputed signals — fast single row lookup
+    // Build title search query:
+    // 1. apply_preferences.keywords is the explicit user intent ("software engineer", "backend")
+    // 2. user_signals.keywords is derived from past applications — supplement only
     const { data: signals } = await sb.from('user_signals')
       .select('keywords, preferred_titles')
       .eq('user_id', user.id)
       .single();
 
-    const keywords = signals?.keywords || [];
+    // Build tsquery from preference keywords:
+    // Each phrase ("software engineer") becomes word1 & word2 (AND within phrase).
+    // Multiple phrases are joined with | (OR between phrases).
+    // This prevents "software | engineer" from matching unrelated PM/management roles.
+    // Signal keywords are only used when the user has set NO explicit preferences.
+    const prefPhrases = (pref.keywords || [])
+      .map(phrase => phrase.trim().split(/[\s,]+/)
+        .map(w => w.replace(/[^a-z0-9]/gi, '')).filter(Boolean).join(' & '))
+      .filter(Boolean);
+    const signalKeywords = prefPhrases.length === 0 ? (signals?.keywords || []) : [];
+    const signalPhrases = signalKeywords
+      .map(k => k.replace(/[^a-z0-9]/gi, '')).filter(k => /^[a-z0-9]+$/i.test(k));
+
+    const allPhrases = [...new Set([...prefPhrases, ...signalPhrases])];
+    // Flatten individual words for the hasAnyPrefs check
+    const allKeywords = allPhrases.flatMap(p => p.split(' & '));
+
     let jobs = [];
 
-    if (keywords.length > 0) {
-      const safeKeywords = keywords.filter(k => /^[a-z0-9]+$/i.test(k));
-      if (safeKeywords.length > 0) {
-        const tsQuery = safeKeywords.join(' | ');
-        const extraParams = hideApplied ? appliedUrls : [];
-        const result = await db.query(`
-          SELECT
+    if (allPhrases.length > 0) {
+      const tsQuery = allPhrases.join(' | ');
+      const extraParams = hideApplied ? appliedUrls : [];
+      const pf = buildPrefFilters(4 + extraParams.length);
+      const result = await db.query(`
+        SELECT
+          bpc.*,
+          loc.cities,
+          loc.countries
+        FROM (
+          SELECT DISTINCT ON (j.company_id)
             j.*,
             c.name as company_name,
             c.domain as company_domain,
-            array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
-            array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries,
             ts_rank(j.tsv, to_tsquery('english', $1)) as relevance
           FROM job j
           JOIN company c ON j.company_id = c.id
-          LEFT JOIN job_location jl ON j.id = jl.job_id
           WHERE j.tsv @@ to_tsquery('english', $1)
+          AND j.is_active = true
           ${excludeClause}
-          GROUP BY j.id, c.name, c.domain
-          ORDER BY relevance DESC, j.posted_at DESC NULLS LAST
-          LIMIT $2 OFFSET $3
-        `, [tsQuery, limit, offset, ...extraParams]);
-        jobs = result.rows;
-      }
+          ${pf.sql}
+          ORDER BY j.company_id, ts_rank(j.tsv, to_tsquery('english', $1)) DESC, j.posted_at DESC NULLS LAST
+        ) bpc
+        LEFT JOIN LATERAL (
+          SELECT array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
+                 array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
+          FROM job_location jl WHERE jl.job_id = bpc.id
+        ) loc ON true
+        ORDER BY bpc.relevance DESC, bpc.posted_at DESC NULLS LAST
+        LIMIT $2 OFFSET $3
+      `, [tsQuery, limit, offset, ...extraParams, ...pf.params]);
+      jobs = result.rows;
     }
 
-    // Fall back to recent jobs if no signals yet or too few results
-    if (jobs.length < 10) {
+    // Only skip the recency fallback if the user has set EXPLICIT preferences.
+    // Signal-derived keywords (from resume/applied titles) are inferred, not
+    // chosen by the user, and shouldn't be able to starve the feed to zero
+    // just because they don't happen to match the (currently small) job corpus.
+    const hasExplicitPrefs = prefPhrases.length > 0 || pref.remote || pref.location || pref.salary_min;
+    if (jobs.length < 10 && !hasExplicitPrefs) {
       const extraParams = hideApplied ? appliedUrls : [];
       const fallbackExclude = hideApplied && appliedUrls.length > 0
         ? `AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${i + 3}`).join(',')})`
         : '';
+      const fpf = buildPrefFilters(3 + extraParams.length);
       const result = await db.query(`
-        SELECT j.*, c.name as company_name, c.domain as company_domain,
-          array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
-          array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
-        FROM job j
-        JOIN company c ON j.company_id = c.id
-        LEFT JOIN job_location jl ON j.id = jl.job_id
-        WHERE 1=1 ${fallbackExclude}
-        GROUP BY j.id, c.name, c.domain
-        ORDER BY j.posted_at DESC NULLS LAST
+        SELECT bpc.*, loc.cities, loc.countries
+        FROM (
+          SELECT DISTINCT ON (j.company_id)
+            j.*, c.name as company_name, c.domain as company_domain
+          FROM job j
+          JOIN company c ON j.company_id = c.id
+          WHERE j.is_active = true ${fallbackExclude} ${fpf.sql}
+          ORDER BY j.company_id, j.posted_at DESC NULLS LAST
+        ) bpc
+        LEFT JOIN LATERAL (
+          SELECT array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
+                 array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
+          FROM job_location jl WHERE jl.job_id = bpc.id
+        ) loc ON true
+        ORDER BY bpc.posted_at DESC NULLS LAST
         LIMIT $1 OFFSET $2
-      `, [limit, offset, ...extraParams]);
+      `, [limit, offset, ...extraParams, ...fpf.params]);
       jobs = result.rows;
     }
 
-    res.json({ jobs, count: jobs.length, keywords, appliedCount, offset: parseInt(offset), limit: parseInt(limit) });
+    res.json({ jobs, count: jobs.length, keywords: allKeywords, appliedCount, offset: parseInt(offset), limit: parseInt(limit) });
   } catch (e) {
     logger.error({ error: e }, 'Personalized jobs error');
     res.status(500).json({ error: 'Failed to fetch personalized jobs' });
   }
 });
+
+// Simple in-process cache for job listings
+const jobCache = new Map();
+const JOB_CACHE_TTL = 60_000; // 60s
+function getCached(key) {
+  const entry = jobCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > JOB_CACHE_TTL) { jobCache.delete(key); return null; }
+  return entry.data;
+}
+function setCache(key, data) {
+  if (jobCache.size > 200) jobCache.clear(); // safety cap
+  jobCache.set(key, { data, ts: Date.now() });
+}
 
 app.get('/jobs', async (req, res) => {
   try {
@@ -292,6 +614,7 @@ app.get('/jobs', async (req, res) => {
       posted_since,
       employment_type,
       salary_min,
+      days,
       limit = 50,
       offset = 0,
     } = req.query;
@@ -306,12 +629,12 @@ app.get('/jobs', async (req, res) => {
       FROM job j
       JOIN company c ON j.company_id = c.id
       LEFT JOIN job_location jl ON j.id = jl.job_id
-      WHERE 1=1
+      WHERE j.is_active = true
     `;
-    
+
     const params = [];
     let paramCount = 0;
-    
+
     if (keyword) {
       paramCount++;
       query += ` AND j.tsv @@ plainto_tsquery('english', $${paramCount})`;
@@ -343,6 +666,12 @@ app.get('/jobs', async (req, res) => {
       query += ` AND j.posted_at >= $${paramCount}`;
       params.push(posted_since);
     }
+
+    if (days) {
+      paramCount++;
+      query += ` AND j.posted_at >= NOW() - ($${paramCount} || ' days')::interval`;
+      params.push(parseInt(days));
+    }
     
     if (employment_type) {
       paramCount++;
@@ -367,21 +696,129 @@ app.get('/jobs', async (req, res) => {
     query += ` OFFSET $${paramCount}`;
     params.push(offset);
     
+    const cacheKey = JSON.stringify(params) + query.slice(-20);
+    const cached = getCached(cacheKey);
+    if (cached) {
+      res.set('X-Cache', 'HIT');
+      return res.json(cached);
+    }
+
     const result = await db.query(query, params);
-    
-    res.json({
+    const payload = {
       jobs: result.rows,
       count: result.rows.length,
       offset: parseInt(offset),
       limit: parseInt(limit),
-    });
+    };
+    setCache(cacheKey, payload);
+    res.set('X-Cache', 'MISS');
+    res.json(payload);
   } catch (error) {
     logger.error({ error }, 'Jobs API error');
     res.status(500).json({ error: 'Failed to fetch jobs' });
   }
 });
 
+// Sitemap — regenerated from live company data (shares the 60s job-listing
+// cache) so it stays current as ingestion adds companies daily, instead of
+// going stale like a static file.
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    const cacheKey = 'sitemap.xml';
+    const cached = getCached(cacheKey);
+    if (cached) {
+      res.set('Content-Type', 'application/xml');
+      res.set('X-Cache', 'HIT');
+      return res.send(cached);
+    }
+
+    const result = await db.query(`
+      SELECT lower(regexp_replace(c.name, '[^a-zA-Z0-9]+', '-', 'g')) as slug,
+             MAX(j.posted_at) as last_posted
+      FROM company c
+      JOIN job j ON j.company_id = c.id
+      WHERE j.is_active = true
+      GROUP BY c.id
+      HAVING COUNT(j.id) > 0
+      ORDER BY slug
+    `);
+
+    const SITE = 'https://www.simplyappl.ai';
+    const urls = [
+      { loc: `${SITE}/`, priority: '1.0' },
+      { loc: `${SITE}/privacy`, priority: '0.3' },
+      ...result.rows.map(r => ({
+        loc: `${SITE}/companies/${r.slug}`,
+        lastmod: r.last_posted ? new Date(r.last_posted).toISOString().slice(0, 10) : undefined,
+        priority: '0.7',
+      })),
+    ];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url>
+    <loc>${u.loc}</loc>
+${u.lastmod ? `    <lastmod>${u.lastmod}</lastmod>\n` : ''}    <priority>${u.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+
+    setCache(cacheKey, xml);
+    res.set('Content-Type', 'application/xml');
+    res.set('X-Cache', 'MISS');
+    res.send(xml);
+  } catch (e) {
+    logger.error({ error: e }, 'Sitemap generation error');
+    res.status(500).send('');
+  }
+});
+
 // Get single job
+// Company pages
+app.get('/companies/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const result = await db.query(`
+      SELECT c.*, COUNT(j.id) FILTER (WHERE j.is_active) AS open_jobs
+      FROM company c
+      LEFT JOIN job j ON j.company_id = c.id
+      WHERE lower(regexp_replace(c.name, '[^a-zA-Z0-9]+', '-', 'g')) = $1
+         OR c.domain ILIKE $1 || '.%'
+      GROUP BY c.id
+      LIMIT 1
+    `, [slug]);
+    if (!result.rows[0]) return res.status(404).json({ error: 'Company not found' });
+    res.json(result.rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/companies/:slug/jobs', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+    const result = await db.query(`
+      SELECT j.*, c.name as company_name, c.domain as company_domain,
+        array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
+        array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
+      FROM job j
+      JOIN company c ON j.company_id = c.id
+      LEFT JOIN job_location jl ON j.id = jl.job_id
+      WHERE j.is_active = true
+        AND (
+          lower(regexp_replace(c.name, '[^a-zA-Z0-9]+', '-', 'g')) = $1
+          OR c.domain ILIKE $1 || '.%'
+        )
+      GROUP BY j.id, c.name, c.domain
+      ORDER BY j.posted_at DESC NULLS LAST
+      LIMIT $2 OFFSET $3
+    `, [slug, limit, offset]);
+    res.json({ jobs: result.rows, count: result.rows.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/jobs/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -543,10 +980,142 @@ app.patch('/applications/:id', async (req, res) => {
   }
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
+// ── Hourly auto-apply scheduler ──────────────────────────────────────────────
+// For each user with preferences.enabled=true, find matching jobs they haven't
+// applied to yet, and enqueue up to daily_limit applications per day.
+async function runAutoApplyScheduler() {
+  try {
+    const { Queue } = await import('bullmq');
+    const { connection } = await import('../services/queue.js');
+    if (!connection) return; // Redis not configured — skip
+
+    const queue = new Queue('playwright-apply', {
+      connection,
+      defaultJobOptions: { attempts: 2, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: 50, removeOnFail: 100 },
+    });
+
+    // Get all users with auto-apply-similar enabled
+    const prefsResult = await db.query(
+      `SELECT user_id, remote, location, salary_min, excluded_companies, daily_limit, auto_apply_similar
+       FROM apply_preferences WHERE enabled = true AND auto_apply_similar = true`
+    );
+
+    for (const prefs of prefsResult.rows) {
+      try {
+        // How many auto-applies already fired today?
+        const todayResult = await db.query(
+          `SELECT COUNT(*) as cnt FROM job_applications
+           WHERE user_id=$1 AND auto_applied=true AND created_at >= NOW() - INTERVAL '24 hours'`,
+          [prefs.user_id]
+        );
+        const firedToday = parseInt(todayResult.rows[0].cnt, 10);
+        const remaining = prefs.daily_limit - firedToday;
+        if (remaining <= 0) continue;
+
+        // Get user profile
+        const profileResult = await db.query(
+          `SELECT autofill_data FROM user_profile WHERE user_id=$1 LIMIT 1`,
+          [prefs.user_id]
+        );
+        const profile = profileResult.rows[0]?.autofill_data;
+        if (!profile || Object.keys(profile).length === 0) continue;
+
+        // Get already-applied URLs
+        const appliedResult = await db.query(
+          `SELECT job_url FROM job_applications WHERE user_id=$1`,
+          [prefs.user_id]
+        );
+        const appliedUrls = appliedResult.rows.map(r => r.job_url);
+
+        // Derive keywords from past application job titles
+        const titlesResult = await db.query(
+          `SELECT job_title FROM job_applications WHERE user_id=$1 AND job_title IS NOT NULL ORDER BY created_at DESC LIMIT 30`,
+          [prefs.user_id]
+        );
+        const allWords = titlesResult.rows.flatMap(r => r.job_title.split(/\s+/));
+        const safeKeywords = [...new Set(
+          allWords.filter(w => w.length > 3 && /^[a-z0-9#+.\-]+$/i.test(w))
+        )].slice(0, 15);
+        if (safeKeywords.length === 0) continue;
+        const tsQuery = safeKeywords.join(' | ');
+
+        let jobQuery = `
+          SELECT j.id, j.apply_url, j.title, c.name as company_name
+          FROM job j JOIN company c ON j.company_id = c.id
+          WHERE j.tsv @@ to_tsquery('english', $1)
+            AND j.posted_at >= NOW() - INTERVAL '7 days'
+        `;
+        const queryParams = [tsQuery];
+        let pidx = 2;
+
+        if (prefs.remote) { jobQuery += ` AND j.remote = true`; }
+        if (prefs.salary_min) { jobQuery += ` AND (j.salary_min IS NULL OR j.salary_min >= $${pidx})`; queryParams.push(prefs.salary_min); pidx++; }
+        if (appliedUrls.length) {
+          jobQuery += ` AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${pidx + i}`).join(',')})`;
+          queryParams.push(...appliedUrls);
+          pidx += appliedUrls.length;
+        }
+        if ((prefs.excluded_companies || []).length) {
+          jobQuery += ` AND c.name NOT ILIKE ANY($${pidx}::text[])`;
+          queryParams.push(prefs.excluded_companies);
+          pidx++;
+        }
+
+        jobQuery += ` ORDER BY j.posted_at DESC LIMIT $${pidx}`;
+        queryParams.push(remaining);
+
+        const jobsResult = await db.query(jobQuery, queryParams);
+        for (const job of jobsResult.rows) {
+          const appResult = await db.query(
+            `INSERT INTO job_applications (user_id, job_url, job_title, company, status, auto_applied, source, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,'queued',true,'auto',NOW(),NOW()) RETURNING id`,
+            [prefs.user_id, job.apply_url, job.title, job.company_name]
+          );
+          await queue.add('apply', {
+            applicationId: appResult.rows[0].id,
+            jobUrl: job.apply_url,
+            profile,
+            jobDescription: '',
+            dryRun: false,
+          });
+        }
+
+        if (jobsResult.rows.length > 0) {
+          logger.info({ userId: prefs.user_id, enqueued: jobsResult.rows.length }, 'Auto-apply scheduler enqueued jobs');
+        }
+      } catch (userErr) {
+        logger.error({ error: userErr, userId: prefs.user_id }, 'Auto-apply scheduler user error');
+      }
+    }
+  } catch (e) {
+    logger.error({ error: e }, 'Auto-apply scheduler error');
+  }
+}
+
+// Run scheduler once on startup (after 30s to let DB warm up), then every hour
+setTimeout(() => {
+  runAutoApplyScheduler();
+  setInterval(runAutoApplyScheduler, 60 * 60 * 1000);
+}, 30_000);
+
+// Serve React frontend in web mode
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import path from 'path';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const frontendBuild = path.join(__dirname, '../../job-aggregator-frontend/build');
+import fs from 'fs';
+if (fs.existsSync(frontendBuild)) {
+  app.use(express.static(frontendBuild));
+  app.use((req, res) => {
+    res.sendFile(path.join(frontendBuild, 'index.html'));
+  });
+} else {
+  // 404 handler (API-only mode)
+  app.use((req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+}
 
 // Error handler
 app.use((err, req, res, next) => {
