@@ -469,7 +469,7 @@ app.get('/jobs/personalized', async (req, res) => {
 
     // Load user preferences for filtering
     const { data: prefRow } = await sb.from('apply_preferences')
-      .select('keywords, remote, location, salary_min')
+      .select('keywords, remote, location, salary_min, excluded_companies, excluded_titles')
       .eq('user_id', user.id)
       .single();
     const pref = prefRow || {};
@@ -482,6 +482,8 @@ app.get('/jobs/personalized', async (req, res) => {
       if (pref.remote) clauses.push(`j.remote = true`);
       if (pref.salary_min) { clauses.push(`(j.salary_min IS NULL OR j.salary_min >= $${idx})`); params.push(pref.salary_min); idx++; }
       if (pref.location) { clauses.push(`EXISTS (SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id AND (jlf.city ILIKE $${idx} OR jlf.region ILIKE $${idx} OR jlf.country ILIKE $${idx}))`); params.push(`%${pref.location}%`); idx++; }
+      if ((pref.excluded_companies || []).length) { clauses.push(`c.name NOT ILIKE ANY($${idx}::text[])`); params.push(pref.excluded_companies); idx++; }
+      if ((pref.excluded_titles || []).length) { clauses.push(`j.title != ALL($${idx}::text[])`); params.push(pref.excluded_titles); idx++; }
       return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
     };
 
