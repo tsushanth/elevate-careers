@@ -518,7 +518,7 @@ function App() {
               <button
                 className="apply-button"
                 disabled={seedingJob === selectedJob.id}
-                onClick={() => {
+                onClick={async () => {
                   if (!session) { setShowAuthModal(true); return; }
                   setSeedingJob(selectedJob.id);
                   const url = new URL(selectedJob.apply_url);
@@ -533,6 +533,24 @@ function App() {
                     created_at: new Date().toISOString(),
                   });
                   setSeedingJob(null);
+
+                  // Persist the application — without this it only lived in
+                  // local React state, so it vanished on refresh, never
+                  // counted toward appliedCount, and never got excluded from
+                  // future "Recommended for you" results.
+                  try {
+                    await fetch(`${API_URL}/api/ai-resume/applications/track`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                      body: JSON.stringify({
+                        jobUrl: selectedJob.apply_url,
+                        jobTitle: selectedJob.title,
+                        company: selectedJob.company_name,
+                      }),
+                    });
+                  } catch (e) {
+                    console.error('Failed to record application', e);
+                  }
                 }}
               >
                 {seedingJob === selectedJob.id ? 'Opening…' : '⚡ Apply'} <ExternalLink size={16} />
