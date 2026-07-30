@@ -1,28 +1,42 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink } from 'lucide-react';
 import { supabase } from './supabase';
 import AuthModal from './AuthModal';
+import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './OnboardingModal';
+import ApplicationsTab from './ApplicationsTab';
 import './App.css';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf';
 
+function slugify(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 function App() {
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
-  const [selectedJob, setSelectedJob] = useState(null);
+  const [selectedJob, setSelectedJob] = useState(() => {
+    try { const s = sessionStorage.getItem('sa_selectedJob'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const selectJob = (job) => {
+    setSelectedJob(job);
+    try { sessionStorage.setItem('sa_selectedJob', JSON.stringify(job)); } catch {}
+  };
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
-    keyword: '',
-    remote: false,
-    location: '',
-    employmentType: '',
+    keyword: '', remote: false, location: '', employmentType: '', datePosted: '',
   });
   const [totalCount, setTotalCount] = useState(0);
   const [session, setSession] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState('jobs');
-  const [applications, setApplications] = useState([]);
-  const [appsLoading, setAppsLoading] = useState(false);
+  const [extensionInstalled, setExtensionInstalled] = useState(false);
+  const [seedingJob, setSeedingJob] = useState(null); // job id being seeded
+  const [seedError, setSeedError] = useState('');
+  const [pendingApply, setPendingApply] = useState(null); // { id, job_url, job_title, company }
   const [page, setPage] = useState(0);
   const [showApplied, setShowApplied] = useState(false);
   const [appliedCount, setAppliedCount] = useState(0);
@@ -36,6 +50,11 @@ function App() {
       setSession(session);
     });
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    // detect.js sets this flag when the extension is active on simplyappl.ai
+    setExtensionInstalled(!!window.__simplyApplyInstalled);
   }, []);
 
   useEffect(() => {
@@ -53,6 +72,7 @@ function App() {
         ...(filters.remote && { remote: 'true' }),
         ...(filters.location && { location: filters.location }),
         ...(filters.employmentType && { employment_type: filters.employmentType }),
+        ...(filters.datePosted && { days: filters.datePosted }),
       });
 
       // Use personalized feed when signed in and no explicit keyword search
@@ -71,7 +91,7 @@ function App() {
       setTotalCount(data.count || 0);
       if (data.appliedCount !== undefined) setAppliedCount(data.appliedCount);
       if (data.jobs && data.jobs.length > 0) {
-        setSelectedJob(data.jobs[0]);
+        selectJob(data.jobs[0]);
       }
     } catch (error) {
       console.error('Error fetching jobs:', error);
@@ -87,26 +107,6 @@ function App() {
     e.preventDefault();
     fetchJobs();
   };
-
-  const fetchApplications = async () => {
-    if (!session) return;
-    setAppsLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/ai-resume/applications`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      const data = await res.json();
-      setApplications(data.applications || []);
-    } catch (e) {
-      console.error('Error fetching applications:', e);
-    } finally {
-      setAppsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'applications') fetchApplications();
-  }, [activeTab, session]);
 
   const formatSalary = (job) => {
     if (job.salary_min && job.salary_max) {
@@ -180,7 +180,7 @@ function App() {
           gap: 16,
           fontSize: 14,
         }}>
-          <span style={{ color: '#93c5fd' }}>
+          <span style={{ color: '#1e3a8a' }}>
             ⚡ Autofill any job application in one click with the SimplyApply Chrome extension
           </span>
           <a
@@ -206,67 +206,13 @@ function App() {
 
       {/* Applications Tab */}
       {activeTab === 'applications' && (
-        <div className="applications-view">
-          <div className="applications-header">
-            <h2>Applied Jobs</h2>
-            <p className="results-count">{applications.length} applications</p>
-          </div>
-          {!session ? (
-            <div className="no-results"><p>Sign in to see your applications.</p></div>
-          ) : appsLoading ? (
-            <div className="loading">Loading…</div>
-          ) : applications.length === 0 ? (
-            <div className="no-results">
-              <p>No applications yet.</p>
-              <p style={{ marginTop: 8, color: '#64748b', fontSize: 14 }}>
-                Install the{' '}
-                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>
-                  SimplyApply Chrome extension
-                </a>
-                {' '}to autofill job applications — they'll appear here automatically.
-              </p>
-            </div>
-          ) : (
-            <table className="apps-table">
-              <thead>
-                <tr>
-                  <th>Company</th>
-                  <th>Job Title</th>
-                  <th>Date</th>
-                  <th>Fields</th>
-                  <th>AI</th>
-                  <th>Outcome</th>
-                </tr>
-              </thead>
-              <tbody>
-                {applications.map(app => (
-                  <tr key={app.id}>
-                    <td><strong>{app.company || '—'}</strong></td>
-                    <td>
-                      <a href={app.job_url} target="_blank" rel="noopener noreferrer" title={app.job_url}>
-                        {app.job_title ? app.job_title.slice(0, 60) : app.job_url.replace(/^https?:\/\//, '').slice(0, 50)}
-                      </a>
-                    </td>
-                    <td style={{whiteSpace:'nowrap'}}>
-                      {new Date(app.filled_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
-                    </td>
-                    <td style={{textAlign:'center'}}>
-                      <span title={`✓${app.fields_filled} skip${app.fields_skipped} err${app.fields_errored}`}>
-                        ✓{app.fields_filled} {app.fields_errored > 0 && <span style={{color:'#ef4444'}}>✗{app.fields_errored}</span>}
-                      </span>
-                    </td>
-                    <td style={{textAlign:'center'}}>{app.ai_used ? '🤖' : '—'}</td>
-                    <td style={{textAlign:'center'}}>
-                      {app.submitted === true && <span style={{color:'#22c55e',fontWeight:600}}>✓ Applied</span>}
-                      {app.submitted === false && <span style={{color:'#ef4444',fontWeight:600}}>✗ Failed</span>}
-                      {app.submitted === null && <span style={{color:'#94a3b8'}}>—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <ApplicationsTab
+          session={session}
+          API_URL={API_URL}
+          EXTENSION_URL={EXTENSION_URL}
+          pendingApply={pendingApply}
+          onPendingConsumed={() => setPendingApply(null)}
+        />
       )}
 
       {/* Search Bar */}
@@ -289,14 +235,31 @@ function App() {
         </form>
 
         <div className="filters">
-          <label className="filter-checkbox">
-            <input
-              type="checkbox"
-              checked={filters.remote}
-              onChange={(e) => setFilters({ ...filters, remote: e.target.checked })}
-            />
-            <span>Remote only</span>
-          </label>
+          {[
+            { label: 'Remote', key: 'remote', toggle: true },
+            { label: 'Full-time', key: 'employmentType', value: 'full_time' },
+            { label: 'Part-time', key: 'employmentType', value: 'part_time' },
+            { label: 'Contract', key: 'employmentType', value: 'contract' },
+            { label: 'Past week', key: 'datePosted', value: '7' },
+            { label: 'Past month', key: 'datePosted', value: '30' },
+          ].map(f => {
+            const active = f.toggle ? filters.remote : filters[f.key] === f.value;
+            return (
+              <button
+                key={f.label}
+                className={`filter-pill${active ? ' active' : ''}`}
+                onClick={() => {
+                  if (f.toggle) {
+                    setFilters({ ...filters, remote: !filters.remote });
+                  } else {
+                    setFilters({ ...filters, [f.key]: active ? '' : f.value });
+                  }
+                }}
+              >
+                {f.label} {active ? '✕' : '+'}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -360,14 +323,17 @@ function App() {
                 <div
                   key={job.id}
                   className={`job-card ${selectedJob?.id === job.id ? 'selected' : ''}`}
-                  onClick={() => { setSelectedJob(job); window.open(job.apply_url, '_blank', 'noopener,noreferrer'); }}
+                  onClick={() => selectJob(job)}
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="job-card-header">
                     <CompanyLogo name={job.company_name} domain={job.company_domain} className="company-logo" />
                     <div className="job-card-title">
                       <h3>{job.title}</h3>
-                      <p className="company-name">{job.company_name}</p>
+                      <p className="company-name"
+                        onClick={e => { e.stopPropagation(); navigate(`/companies/${slugify(job.company_name)}`); }}
+                        style={{ cursor: 'pointer', color: '#6366f1' }}
+                      >{job.company_name}</p>
                     </div>
                     <button className="close-button">×</button>
                   </div>
@@ -402,25 +368,27 @@ function App() {
                   </div>
                 </div>
               ))}
-            </div>
-          )}
 
-          {/* Pagination */}
-          {!loading && totalCount > PAGE_SIZE && (
-            <div className="pagination">
-              <button
-                className="page-btn"
-                disabled={page === 0}
-                onClick={() => { const p = page - 1; setPage(p); fetchJobs(p); }}
-              >← Prev</button>
-              <span className="page-info">
-                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalCount)} of {totalCount}
-              </span>
-              <button
-                className="page-btn"
-                disabled={(page + 1) * PAGE_SIZE >= totalCount}
-                onClick={() => { const p = page + 1; setPage(p); fetchJobs(p); }}
-              >Next →</button>
+              {/* Pagination */}
+              {!loading && (page > 0 || totalCount === PAGE_SIZE) && (
+                <div className="pagination">
+                  <button className="page-btn prev-next" disabled={page === 0}
+                    onClick={() => { const p = page - 1; setPage(p); fetchJobs(p); }}>←</button>
+                  {[...Array(Math.min(5, page + (totalCount === PAGE_SIZE ? 2 : 1)))].map((_, i) => {
+                    const start = Math.max(0, page - 2);
+                    const p = start + i;
+                    if (p > page && totalCount < PAGE_SIZE) return null;
+                    return (
+                      <button key={p} className={`page-btn${p === page ? ' active' : ''}`}
+                        onClick={() => { if (p !== page) { setPage(p); fetchJobs(p); } }}>
+                        {p + 1}
+                      </button>
+                    );
+                  })}
+                  <button className="page-btn prev-next" disabled={totalCount < PAGE_SIZE}
+                    onClick={() => { const p = page + 1; setPage(p); fetchJobs(p); }}>→</button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -431,7 +399,10 @@ function App() {
             <div className="job-detail-header">
               <div className="job-detail-company">
                 <CompanyLogo name={selectedJob.company_name} domain={selectedJob.company_domain} className="company-logo-large" />
-                <h2>{selectedJob.company_name}</h2>
+                <h2
+                  onClick={() => navigate(`/companies/${slugify(selectedJob.company_name)}`)}
+                  style={{ cursor: 'pointer', color: '#6366f1' }}
+                >{selectedJob.company_name}</h2>
               </div>
               <button className="more-button">⋯</button>
             </div>
@@ -467,19 +438,42 @@ function App() {
             </div>
 
             <div className="job-detail-actions">
-              <a
-                href={selectedJob.apply_url}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
                 className="apply-button"
+                disabled={seedingJob === selectedJob.id}
+                onClick={() => {
+                  if (!session) { setShowAuthModal(true); return; }
+                  setSeedingJob(selectedJob.id);
+                  const url = new URL(selectedJob.apply_url);
+                  url.searchParams.set('sa_autofill', '1');
+                  window.open(url.toString(), '_blank', 'noopener,noreferrer');
+                  setPendingApply({
+                    id: `pending-${Date.now()}`,
+                    job_url: selectedJob.apply_url,
+                    job_title: selectedJob.title,
+                    company: selectedJob.company_name,
+                    status: 'opened',
+                    created_at: new Date().toISOString(),
+                  });
+                  setSeedingJob(null);
+                }}
               >
-                Apply <ExternalLink size={16} />
-              </a>
-              <button className="save-button">
-                <Bookmark size={18} />
-                Save
+                {seedingJob === selectedJob.id ? 'Opening…' : '⚡ Apply'} <ExternalLink size={16} />
               </button>
             </div>
+            {extensionInstalled ? (
+              <p style={{ fontSize: 12, color: '#64748b', margin: '8px 0 0' }}>
+                ⚡ We'll auto-fill the form for you — just click Submit when ready.
+              </p>
+            ) : (
+              <p style={{ fontSize: 12, color: '#64748b', margin: '8px 0 0' }}>
+                ⚡ Auto-fill requires the{' '}
+                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'underline' }}>
+                  SimplyApply Chrome extension
+                </a>
+                {' '}— install it once, then click Apply.
+              </p>
+            )}
 
             <div className="job-detail-description">
               <h3>About the job</h3>
@@ -511,9 +505,16 @@ function App() {
       </>}
       {showAuthModal && (
         <AuthModal
-          onSuccess={(s) => setSession(s)}
+          onSuccess={(s, isNewUser) => {
+            setSession(s);
+            if (isNewUser && shouldShowOnboarding()) setShowOnboarding(true);
+          }}
           onClose={() => setShowAuthModal(false)}
         />
+      )}
+
+      {showOnboarding && (
+        <OnboardingModal onDismiss={() => setShowOnboarding(false)} />
       )}
     </div>
   );
