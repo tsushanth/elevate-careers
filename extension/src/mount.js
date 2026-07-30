@@ -1,3 +1,7 @@
+import { findRule, mergeRules } from './rules.js';
+import staticRules from './static-rules.js';
+import { reportFailure, RULES_URL } from './reporter.js';
+
 // ── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = 'https://elevate-careers-api.fly.dev/api/ai-resume';
 
@@ -23,14 +27,28 @@ const JOB_HOSTS = [
   'jobs.stripe.com', 'jobs.shopify.com',
   'boards.greenhouse.io', 'jobs.greenhouse.io',
   'careers.jobvite.com', 'hire.withgoogle.com',
+  // Custom career sites detected by detect-ats.js and injected via scripting API
+  'kula.ai',
 ];
 
 // Run on job sites in any frame, but only once per frame (guard re-injection)
 // Check both hostname and path since some entries contain path prefixes (e.g. stripe.com/jobs)
 const _loc = location.hostname + location.pathname;
-if (!JOB_HOSTS.some(h => _loc.includes(h))) { /* not a job site */ }
+// window.__simplyApplyForceInject is set by detect-ats.js before scripting injection
+// to bypass the JOB_HOSTS guard on custom company career pages
+if (!window.__simplyApplyForceInject && !JOB_HOSTS.some(h => _loc.includes(h))) { /* not a job site */ }
 else if (window.__simplyApplyRunning) { /* already injected in this frame */ }
-else { window.__simplyApplyRunning = true; main(); }
+else {
+  window.__simplyApplyRunning = true;
+  const _runFn = main();
+  // Auto-fill trigger: simplyappl.ai opens job URL with ?sa_autofill=1
+  if (new URLSearchParams(location.search).get('sa_autofill') === '1' && !window.__saAutoTriggered) {
+    window.__saAutoTriggered = true;
+    Promise.resolve(_runFn).then(run => {
+      if (typeof run === 'function') setTimeout(() => run(false).catch(() => {}), 3500);
+    });
+  }
+}
 
 function main() {
 
@@ -60,6 +78,47 @@ async function apiCall(path, body, profile) {
   if (res.status === 401) throw new Error('Session expired — open ⚙ to sign in again');
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
+}
+
+// ── Extension ping ───────────────────────────────────────────────────────────
+// Fire once per day to track active installs. Fire-and-forget, never blocks autofill.
+(async function pingExtensionInstall() {
+  try {
+    const { ext_ping_day } = await chrome.storage.local.get('ext_ping_day');
+    const today = new Date().toISOString().slice(0, 10);
+    if (ext_ping_day === today) return;
+    const token = await getToken();
+    if (!token) return;
+    const ok = await fetch(`${API_BASE}/ping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    }).then(r => r.ok).catch(() => false);
+    if (ok) await chrome.storage.local.set({ ext_ping_day: today });
+  } catch (_) {}
+})();
+
+// ── Remote rules ─────────────────────────────────────────────────────────────
+// Fetched once per session by sw.js and cached in chrome.storage.local.
+// Merged with staticRules at run start; remote wins on same id + higher version.
+let _activeRules = staticRules;
+
+async function loadActiveRules() {
+  try {
+    const { remoteRules } = await chrome.storage.local.get('remoteRules');
+    _activeRules = mergeRules(staticRules, remoteRules || []);
+  } catch (_) {
+    _activeRules = staticRules;
+  }
+}
+
+function getRuleFor(field) {
+  return findRule(_activeRules, {
+    domain:    location.hostname,
+    url:       location.href,
+    fieldType: field.type,
+    label:     field.label || '',
+    el:        field.el,
+  });
 }
 
 // ── Answer cache ─────────────────────────────────────────────────────────────
@@ -93,10 +152,34 @@ function setCached(label, value) {
   saveCache();
 }
 
+// ── Learned answers — user-entered values stored for future runs ──────────────
+// Higher priority than answerCache (AI-generated). Sent to the AI as context.
+let learnedAnswers = {};
+
+async function loadLearnedAnswers() {
+  try {
+    const { learnedAnswers: la } = await chrome.storage.local.get('learnedAnswers');
+    if (la && typeof la === 'object') learnedAnswers = la;
+  } catch (_) {}
+}
+
+function getLearnedAnswer(label) {
+  return learnedAnswers[cacheKey(label)];
+}
+
+function saveLearnedAnswer(label, value) {
+  const key = cacheKey(label);
+  if (learnedAnswers[key] === value) return;
+  learnedAnswers[key] = value;
+  try { chrome.storage.local.set({ learnedAnswers }); } catch (_) {}
+  // Mirror into answerCache so next run picks it up immediately
+  setCached(label, value);
+}
+
 // ── Label extraction (Simplify-style: walk up DOM) ───────────────────────────
 const LABEL_TAGS = new Set(['LABEL','LEGEND','SPAN','P','DIV','H1','H2','H3','H4','DT','LI']);
-const SKIP_EEOC  = /gender|lgbtq|race|ethnic|veteran|disability|pronouns|sexual|transgender/i;
-const AGREE_RE   = /i agree|i consent|i acknowledge|terms|privacy policy|by (checking|selecting|clicking)/i;
+const SKIP_EEOC  = /gender|lgbtq|race|ethnic|hispanic|latino|veteran|disability|pronouns|sexual|transgender/i;
+const AGREE_RE   = /i agree|i consent|i acknowledge|i certify|terms|privacy policy|by (checking|selecting|clicking)/i;
 
 function cleanText(t) {
   return (t || '')
@@ -172,7 +255,7 @@ function extractLabel(el) {
 // ── Field → profile key matching ──────────────────────────────────────────────
 const KEYWORD_RULES = [
   { re: /visa sponsorship|require.*sponsor|sponsor.*visa|h-?1b/i,         key: 'sponsorship' },
-  { re: /authorized to work|work auth|legally authorized|eligible to work/i, key: 'workAuth' },
+  { re: /authori[sz]ed to work|work auth|legally authoris|eligible to work/i, key: 'workAuth' },
   { re: /\bphone\b|\bmobile\b|telephone|cell number/i,                    key: 'phone' },
   { re: /\bcountry\b/i,                                                   key: 'country' },
   { re: /\bstate\b|\bprovince\b/i,                                        key: 'state' },
@@ -328,11 +411,13 @@ function isOpenEnded(field) {
   if (isResumeField(field) || isCoverLetterField(field)) return false;
   if (isAgreementField(field) || isCountryCodeField(field)) return false;
   if (SKIP_EEOC.test(field.label)) return false;
+  // combobox/datalist handled separately — never treat as plain text
+  if (field.type === 'combobox' || field.type === 'datalist') return false;
   if (field.el.tagName === 'TEXTAREA') return true;
   if (field.type === 'text' && field.label.length > 20 && /\?|why|tell|describe|explain|share|what/i.test(field.label)) return true;
-  // Selects / text inputs with no key but a real label — try cache then AI
+  // Selects with no key but a real label — try cache then AI
   if (field.label && field.label !== '(Unlabeled)' && !SKIP_EEOC.test(field.label)) {
-    if (field.type === 'select-one' || field.type === 'text') return true;
+    if (field.type === 'select-one') return true;
   }
   return false;
 }
@@ -356,7 +441,18 @@ function fieldsFromDoc(doc) {
     }).map(el => {
       const label = extractLabel(el);
       const key   = matchKey(label) || matchKey(el.name || '') || matchKey(el.placeholder || '');
-      return { el, label: label || '(Unlabeled)', key, type: (el.type || el.tagName).toLowerCase() };
+      let type = (el.type || el.tagName).toLowerCase();
+      // Detect combobox: input with role=combobox OR aria-autocomplete OR aria-haspopup=listbox
+      if (type === 'text' || type === 'search') {
+        if (el.getAttribute('role') === 'combobox' ||
+            el.getAttribute('aria-autocomplete') ||
+            el.getAttribute('aria-haspopup')) {  // "listbox", "true", or any truthy value
+          type = 'combobox';
+        } else if (el.getAttribute('list')) {
+          type = 'datalist';
+        }
+      }
+      return { el, label: label || '(Unlabeled)', key, type };
     });
 
     // Also scan for custom div/span dropdowns (Greenhouse work-auth, location, etc.)
@@ -421,7 +517,6 @@ function nativeSelectSet(el, value) {
 
 async function typeIn(el, value, delay = 12) {
   el.focus();
-  // Clear via native setter so React registers the change
   nativeSet(el, '');
   fire(el, 'input');
   for (const ch of String(value)) {
@@ -435,21 +530,15 @@ async function typeIn(el, value, delay = 12) {
 
 async function fillStructured(field, profile) {
   const { el, key, type } = field;
-  const value = profile[key] ?? (key === 'currentCompany' ? 'Google' : null);
+  const raw = profile[key] ?? (key === 'currentCompany' ? 'Google' : null);
+  const value = (raw === '' || raw == null) ? null : raw;
   if (value == null) throw new Error('no data for ' + key);
 
   if (type === 'select-one' || el.tagName === 'SELECT') {
-    const v = String(value).toLowerCase();
-    const opts = [...el.options];
-    const pick =
-      opts.find(o => o.textContent.trim().toLowerCase() === v) ||
-      opts.find(o => o.textContent.trim().toLowerCase().startsWith(v)) ||
-      opts.find(o => o.textContent.trim().toLowerCase().includes(v)) ||
-      opts.find(o => v.includes(o.textContent.trim().toLowerCase()) && o.textContent.trim().length > 1) ||
-      (v === 'yes' && opts.find(o => /^yes|^true/i.test(o.textContent.trim()))) ||
-      (v === 'no'  && opts.find(o => /^no|^false/i.test(o.textContent.trim())));
+    const opts = [...el.options].map(o => ({ el: o, text: o.textContent.trim() })).filter(o => o.text);
+    const pick = fuzzyPickOption(opts, value);
     if (!pick) throw new Error(`no option for "${value}"`);
-    nativeSelectSet(el, pick.value);
+    nativeSelectSet(el, pick.el.value);
     fire(el, 'input');
     fire(el, 'change');
     return;
@@ -481,76 +570,218 @@ async function fillCountryCode(field) {
   fire(el, 'change');
 }
 
+// ── Fuzzy option picker ────────────────────────────────────────────────────────
+// opts: array of { text: string, el?: any }
+// hint: string from profile or AI answer
+// returns the matched item or null
+function fuzzyPickOption(opts, hint) {
+  const h = String(hint).toLowerCase().trim();
+  return (
+    opts.find(o => o.text.toLowerCase() === h) ||
+    opts.find(o => o.text.toLowerCase().startsWith(h)) ||
+    opts.find(o => o.text.toLowerCase().includes(h)) ||
+    opts.find(o => h.includes(o.text.toLowerCase()) && o.text.length > 1) ||
+    // "Yes" matches any option starting with "Yes" (e.g. "Yes, no restriction.")
+    (/^yes/i.test(h) && opts.find(o => /^yes\b/i.test(o.text))) ||
+    // "No" matches any option starting with "No" but prefers ones without sponsorship mention
+    (/^no/i.test(h)  && (opts.find(o => /^no\b/i.test(o.text) && !/sponsor/i.test(o.text)) || opts.find(o => /^no\b/i.test(o.text)))) ||
+    null
+  );
+}
+
+// ── Combobox/datalist fill ─────────────────────────────────────────────────────
+// For inputs that reveal a dropdown when focused (role=combobox, aria-autocomplete, datalist)
+
+function visibleOptions() {
+  return [...document.querySelectorAll('[role="option"], [role="menuitem"], [role="listitem"]')]
+    .filter(o => { const r = o.getBoundingClientRect(); return r.width > 0 && r.height > 0; })
+    .map(o => ({ text: o.textContent.trim(), el: o }))
+    .filter(o => o.text);
+}
+
+async function fillCombobox(field, hint) {
+  const el = field.el;
+
+  // datalist: read options directly from the linked <datalist>
+  if (field.type === 'datalist') {
+    const listId = el.getAttribute('list');
+    const datalist = listId ? document.getElementById(listId) : null;
+    if (datalist) {
+      const opts = [...datalist.options].map(o => ({ text: (o.label || o.value).trim(), val: o.value })).filter(o => o.text);
+      const pick = fuzzyPickOption(opts, hint);
+      if (pick) {
+        await typeIn(el, pick.val || pick.text);
+        return;
+      }
+    }
+    await typeIn(el, hint);
+    return;
+  }
+
+  // Open the menu using React-compatible events (mousedown+mouseup+click)
+  const control = el.closest('[class*="control"]') || el.parentElement?.parentElement;
+  if (control && control !== el) reactClick(control); else reactClick(el);
+  await sleep(400);
+
+  // Pass 1: pick from options that appeared
+  let opts = visibleOptions();
+  if (opts.length > 0) {
+    const pick = fuzzyPickOption(opts, hint);
+    if (pick) {
+      pick.el.click();
+      await sleep(100);
+      return;
+    }
+    // Options visible but no match — close, then type to filter
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(150);
+  }
+
+  // Pass 2: type hint to trigger React Select filter, then click best result
+  if (control && control !== el) reactClick(control); else reactClick(el);
+  await sleep(300);
+  await typeIn(el, hint);
+  await sleep(450);
+  opts = visibleOptions();
+  if (opts.length > 0) {
+    const pick = fuzzyPickOption(opts, hint) || opts[0];
+    pick.el.click();
+    await sleep(100);
+    return;
+  }
+
+  // Nothing worked — leave typed text (last resort)
+}
+
+// ── React-compatible click — dispatches mousedown+mouseup+click ───────────────
+// Raw .click() only fires a synthetic click; React Select listens on mousedown.
+function reactClick(el) {
+  const opts = { bubbles: true, cancelable: true, view: window };
+  el.dispatchEvent(new MouseEvent('mousedown', { ...opts, button: 0, buttons: 1 }));
+  el.dispatchEvent(new MouseEvent('mouseup', opts));
+  el.dispatchEvent(new MouseEvent('click', opts));
+}
+
+// ── Probe for a hidden dropdown on any <input type="text"> ────────────────────
+async function probeDropdown(el) {
+  const control = el.closest('[class*="control"]') || el.parentElement?.parentElement;
+  if (control && control !== el) reactClick(control);
+  else reactClick(el);
+  await sleep(400);
+  return visibleOptions();
+}
+
 async function fillOpenEndedWithCache(field, jobDesc, profile) {
+  const learned = getLearnedAnswer(field.label);
+  if (learned !== undefined) return { answer: learned, fromCache: true };
   const cached = getCached(field.label);
   if (cached !== undefined) return { answer: cached, fromCache: true };
-  const { answer } = await apiCall('/copilot/answer', { question: field.label, jobDescription: jobDesc }, profile);
+  const { answer } = await apiCall('/copilot/answer', { question: field.label, jobDescription: jobDesc, learnedAnswers }, profile);
   setCached(field.label, answer);
   return { answer, fromCache: false };
 }
 
 async function fillSelect(field, jobDesc, profile) {
-  const cached = getCached(field.label);
-  if (cached !== undefined) {
-    const opts = [...field.el.options];
-    const pick = opts.find(o => o.textContent.trim().toLowerCase() === String(cached).toLowerCase()) ||
-                 opts.find(o => o.value.toLowerCase() === String(cached).toLowerCase());
+  const allOpts = [...field.el.options].map(o => ({ el: o, text: o.textContent.trim() })).filter(o => o.text);
+
+  const preferred = getLearnedAnswer(field.label) ?? getCached(field.label);
+  if (preferred !== undefined) {
+    const pick = fuzzyPickOption(allOpts, preferred);
     if (pick) {
-      nativeSelectSet(field.el, pick.value);
+      nativeSelectSet(field.el, pick.el.value);
       fire(field.el, 'input');
       fire(field.el, 'change');
       return { fromCache: true };
     }
   }
 
-  const opts = [...field.el.options].map(o => o.textContent.trim()).filter(Boolean);
-  const question = `${field.label} (choose the best option from: ${opts.join(', ')})`;
-  const { answer } = await apiCall('/copilot/answer', { question, jobDescription: jobDesc }, profile);
+  const optLabels = allOpts.map(o => o.text).join(', ');
+  const question = `${field.label} (choose the best option from: ${optLabels})`;
+  const { answer } = await apiCall('/copilot/answer', { question, jobDescription: jobDesc, learnedAnswers }, profile);
 
-  const normalAnswer = answer.toLowerCase();
-  const pick = [...field.el.options].find(o =>
-    o.textContent.trim().toLowerCase() === normalAnswer ||
-    normalAnswer.includes(o.textContent.trim().toLowerCase()) ||
-    o.textContent.trim().toLowerCase().includes(normalAnswer)
-  );
+  const pick = fuzzyPickOption(allOpts, answer);
   if (!pick) throw new Error(`AI answer "${answer}" matched no option`);
-  nativeSelectSet(field.el, pick.value);
+  nativeSelectSet(field.el, pick.el.value);
   fire(field.el, 'input');
   fire(field.el, 'change');
-  setCached(field.label, pick.textContent.trim());
+  setCached(field.label, pick.text);
   return { fromCache: false };
 }
 
 // ── Custom div-based dropdown fill ───────────────────────────────────────────
 // Handles Greenhouse-style aria/div dropdowns (role=combobox, aria-haspopup=listbox, etc.)
 async function fillCustomDropdown(el, value) {
-  // Click trigger to open the dropdown
-  el.click();
+  // Open with React-compatible events
+  reactClick(el);
   await sleep(300);
 
   const v = String(value).toLowerCase();
 
   // Option containers may be appended to body or be inside a sibling/child element
   // Search progressively: inside el, in body portals, then document-wide
-  function findOption(root) {
-    const candidates = [...root.querySelectorAll(
+  function collectOptions(root) {
+    return [...root.querySelectorAll(
       '[role="option"], [role="menuitem"], [role="listitem"], li[data-value], li[class*="option"], div[class*="option"]'
-    )];
-    return (
-      candidates.find(o => o.textContent.trim().toLowerCase() === v) ||
-      candidates.find(o => o.textContent.trim().toLowerCase().startsWith(v)) ||
-      candidates.find(o => o.textContent.trim().toLowerCase().includes(v)) ||
-      candidates.find(o => v.includes(o.textContent.trim().toLowerCase()) && o.textContent.trim().length > 1)
-    );
+    )].map(o => ({ text: o.textContent.trim(), el: o })).filter(o => o.text);
   }
 
-  let pick = findOption(el.parentElement || el) || findOption(document.body);
+  const opts = [...collectOptions(el.parentElement || el), ...collectOptions(document.body)];
+  const seen = new Set();
+  const deduped = opts.filter(o => { if (seen.has(o.text)) return false; seen.add(o.text); return true; });
+  const pick = fuzzyPickOption(deduped, value);
   if (!pick) throw new Error(`custom dropdown: no option for "${value}"`);
-  pick.click();
+  pick.el.click();
   await sleep(100);
 }
 
+// ── Rule-driven fill ─────────────────────────────────────────────────────────
+// Called when findRule() returns a match. Applies the rule's fix on top of
+// whatever value the normal logic would use. Returns 'skip', true, or false.
+async function applyRuleFix(rule, field, value) {
+  if (!value) return false;
+  const fix = rule.fix;
+
+  const el = (fix.selectorOverride && document.querySelector(fix.selectorOverride)) || field.el;
+  if (fix.waitMs) await sleep(fix.waitMs);
+
+  switch (fix.fillMethod) {
+    case 'execCommand': {
+      // _valueTracker reset + native setter: the approach that works for React
+      // controlled textareas (e.g. Ashby) where execCommand inserts text but React
+      // resets it on re-render because its internal tracker wasn't updated.
+      el.focus();
+      el.select?.();
+      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+      if (nativeSetter) {
+        if (el._valueTracker) el._valueTracker.setValue('');
+        nativeSetter.call(el, String(value));
+      } else {
+        nativeSet(el, String(value));
+      }
+      fire(el, 'input');
+      fire(el, 'change');
+      el.blur();
+      break;
+    }
+    case 'nativeSet':
+      nativeSet(el, String(value));
+      (fix.eventSequence || ['input', 'change']).forEach(e => fire(el, e));
+      break;
+    case 'reactClick':
+      await fillCombobox(field, value);
+      break;
+    case 'skip':
+      return 'skip';
+    default:
+      await typeIn(el, String(value));
+  }
+  return true;
+}
+
 // ── Post-fill observation: watch for user edits and cache them ────────────────
+// Watches ALL non-EEOC labeled fields, including ones the extension skipped.
+// Any value the user types is saved as a learnedAnswer and used on future runs.
 function watchForUserEdits(fields) {
   for (const field of fields) {
     if (!field.label || field.label === '(Unlabeled)') continue;
@@ -559,12 +790,34 @@ function watchForUserEdits(fields) {
 
     const el = field.el;
     const handler = () => {
-      const val = el.type === 'checkbox' || el.type === 'radio'
-        ? (el.checked ? 'Yes' : 'No')
-        : el.value?.trim();
-      if (val) setCached(field.label, val);
+      let val;
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        val = el.checked ? 'Yes' : 'No';
+      } else if (field.type === 'combobox' || field.type === 'datalist') {
+        // React Select keeps el.value empty; read the selected value from the control's display
+        const container = el.closest('[class*="container"]');
+        const singleVal = container?.querySelector('[class*="single-value"]')?.textContent?.trim();
+        const multiVals = container ? [...container.querySelectorAll('[class*="multi-value__label"]')].map(e => e.textContent.trim()) : [];
+        val = multiVals.length ? multiVals.join(', ') : singleVal;
+      } else {
+        val = el.value?.trim();
+      }
+      if (val) {
+        saveLearnedAnswer(field.label, val);
+      }
     };
 
+    // For combobox: watch for React Select's mutation on the container
+    if (field.type === 'combobox' || field.type === 'datalist') {
+      const container = el.closest('[class*="container"]');
+      if (container) {
+        const obs = new MutationObserver(() => { handler(); });
+        obs.observe(container, { childList: true, subtree: true });
+        // Disconnect after 5 minutes (form submission should happen by then)
+        setTimeout(() => obs.disconnect(), 5 * 60 * 1000);
+        continue;
+      }
+    }
     el.addEventListener('change', handler, { once: true });
     el.addEventListener('blur',   handler, { once: true });
   }
@@ -617,7 +870,7 @@ shadow.innerHTML = `
   .row { display:flex; align-items:flex-start; gap:8px; padding:5px 0; border-bottom:1px dashed #f1f5f9; }
   .row:last-child { border:none; }
   .dot { width:9px; height:9px; border-radius:50%; margin-top:4px; flex-shrink:0; background:#e2e8f0; }
-  .done { background:#22c55e; } .skip { background:#94a3b8; } .err { background:#ef4444; } .filling { background:#f59e0b; }
+  .done { background:#22c55e; } .skip { background:#94a3b8; } .err { background:#ef4444; } .filling { background:#f59e0b; } .review { background:#f59e0b; outline:2px solid #f59e0b; outline-offset:1px; }
   .lbl { font-size:12px; font-weight:500; }
   .sub { font-size:11px; color:#94a3b8; margin-top:1px; }
   #footer { display:flex; gap:6px; padding:8px 12px; border-top:1px solid #f1f5f9; flex-shrink:0; flex-wrap:wrap; }
@@ -697,6 +950,8 @@ function rowHint(field) {
   if (isAgreementField(field))   return '✓ agree';
   if (isCountryCodeField(field)) return 'country code';
   if (field.type === 'custom-select') return field.key ? `dropdown·${field.key}` : 'dropdown';
+  if (field.type === 'combobox')      return field.key ? `combobox·${field.key}` : 'combobox';
+  if (field.type === 'datalist')      return field.key ? `datalist·${field.key}` : 'datalist';
   if (isOpenEnded(field))        return '🤖 AI';
   if (field.key)                 return field.key;
   if (field._contextLabel) {
@@ -727,6 +982,24 @@ function addRow(field) {
 function setRow(field, state, msg) {
   field._dot.className = `dot ${state}`;
   field._sub.textContent = `${rowHint(field)} · ${msg}`;
+  if (state === 'review') {
+    // Make the row clickable to scroll to and focus the field
+    field._sub.innerHTML = `${rowHint(field)} · ${msg} <span style="color:#d97706;text-decoration:underline;cursor:pointer;" data-scroll-to>↑ fill it</span>`;
+    field._sub.querySelector('[data-scroll-to]').addEventListener('click', (e) => {
+      e.preventDefault();
+      field.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      field.el.focus();
+      // For combobox: trigger a reactClick to open the dropdown
+      if (field.type === 'combobox') {
+        const ctrl = field.el.closest('[class*="control"]') || field.el.parentElement?.parentElement;
+        const opts = { bubbles: true, cancelable: true, view: window };
+        const target = (ctrl && ctrl !== field.el) ? ctrl : field.el;
+        target.dispatchEvent(new MouseEvent('mousedown', { ...opts, button: 0, buttons: 1 }));
+        target.dispatchEvent(new MouseEvent('mouseup', opts));
+        target.dispatchEvent(new MouseEvent('click', opts));
+      }
+    });
+  }
 }
 
 // ── Autofill run ─────────────────────────────────────────────────────────────
@@ -739,6 +1012,8 @@ async function run(dryRun) {
   paused  = false;
 
   await loadCache();
+  await loadLearnedAnswers();
+  await loadActiveRules();
 
   const fields = scanFields();
   list.innerHTML = '';
@@ -750,14 +1025,11 @@ async function run(dryRun) {
   const DEFAULT_PROFILE = {
     firstName:'Sushanth',lastName:'Tiruvaipati',
     email:'t.sushanth@gmail.com',phone:'+1 425-628-4887',
-    city:'San Jose',state:'California',country:'United States',postalCode:'95101',
-    linkedin:'https://www.linkedin.com/in/tsushanth',github:'https://github.com/tsushanth',
-    portfolio:'https://kreativekoala.llc',
-    educationLevel:"Master's Degree",schoolName:'Carnegie Mellon University',
-    fieldOfStudy:'Information Networking',graduationYear:'2011',
+    city:'Milpitas',state:'California',country:'United States',postalCode:'95035',
+    linkedin:'https://www.linkedin.com/in/tsushanth/',github:'https://github.com/tsushanth',portfolio:'',
+    educationLevel:"Bachelor's Degree",schoolName:'',fieldOfStudy:'Computer Science',graduationYear:'',
     workAuth:'Yes',sponsorship:'No',salary:'150000',heardAbout:'LinkedIn',
-    background:`Sushanth Tiruvaipati is a software engineer with 10+ years at Google and an indie developer who has shipped 70+ iOS/Android apps generating real revenue. At Google he worked across Ads, Cloud AI, Play, and YouTube on large-scale distributed systems. Strong in TypeScript, Swift, Kotlin, Python, Go, C++, and cloud infrastructure. Located in Bay Area, CA, open to relocation. Compensation floor $150k base.`,
-    resume:`SUSHANTH TIRUVAIPATI\nBay Area, CA · t.sushanth@gmail.com · 425-628-4887 · linkedin.com/in/tsushanth\n\nEXPERIENCE\nSoftware Engineer · Google | Sep 2015 – Present\n- Large-scale distributed systems across Ads, Cloud AI, Play, YouTube\nFounder & Sole Engineer · KreativeKoala Solutions LLC | 2021 – Present\n- Built and shipped 70+ iOS/Android apps end-to-end\nSoftware Development Engineer · Microsoft | Nov 2012 – Feb 2015\nSoftware Development Engineer · Amazon | Oct 2011 – Oct 2012\n\nEDUCATION\nCarnegie Mellon University — M.S., Information Networking · 2011`,
+    background:'',resume:'',
   };
 
   let profile;
@@ -790,12 +1062,25 @@ async function run(dryRun) {
     setRow(field, 'filling', 'working…');
 
     try {
+      // ── Rule engine: check before default fill logic ──────────────────────
+      if (!dryRun) {
+        const rule = getRuleFor(field);
+        if (rule) {
+          const value = (field.key && profile[field.key]) || getLearnedAnswer(field.label) || getCached(field.label);
+          const result = await applyRuleFix(rule, field, value);
+          if (result === 'skip') { setRow(field, 'skip', `rule:${rule.id}`); skipped++; field.el.style.outline = ''; continue; }
+          if (result === true)   { setRow(field, 'done', `rule:${rule.id}`); filled++;  field.el.style.outline = ''; continue; }
+          // result === false means no value — fall through to default logic
+        }
+      }
+
       if (dryRun) {
         setRow(field, 'skip', `dry-run · ${rowHint(field)}`);
         skipped++;
       } else if (isResumeField(field)) {
         setRow(field, 'filling', '🤖 tailoring resume…');
-        const { pdf, filename } = await apiCall('/resume/tailor', { jobDescription: jobDesc, jobTitle: document.title }, profile);
+        const { pdf, filename: apiFilename } = await apiCall('/resume/tailor', { jobDescription: jobDesc, jobTitle: document.title }, profile);
+        const filename = apiFilename || `${(profile.firstName || 'Resume')}_${(profile.lastName || 'Resume')}_Resume.pdf`.replace(/\s+/g, '_');
         await attachPdfB64(field.el, pdf, filename);
         setRow(field, 'done', '📄 attached — ↗ view');
         const bytes = Uint8Array.from(atob(pdf), c => c.charCodeAt(0));
@@ -805,7 +1090,15 @@ async function run(dryRun) {
         filled++;
       } else if (isCoverLetterField(field)) {
         setRow(field, 'filling', 'attaching cover letter…');
-        await attachFile(field.el, COVER_URL, 'Sushanth_Tiruvaipati_CoverLetter.pdf');
+        const { coverLetterPdfDataUrl } = await chrome.storage.local.get('coverLetterPdfDataUrl');
+        if (coverLetterPdfDataUrl) {
+          const res = await fetch(coverLetterPdfDataUrl);
+          const blob = await res.blob();
+          const name = `${profile.firstName || 'Cover'}_${profile.lastName || 'Letter'}_CoverLetter.pdf`.replace(/\s+/g, '_');
+          await attachFileObj(field.el, new File([blob], name, { type: 'application/pdf' }));
+        } else {
+          await attachFile(field.el, COVER_URL, 'CoverLetter.pdf');
+        }
         setRow(field, 'done', '📄 cover letter attached');
         filled++;
       } else if (isAgreementField(field) || (field._contextLabel && AGREE_RE.test(field._contextLabel) && field.type === 'checkbox')) {
@@ -846,17 +1139,107 @@ async function run(dryRun) {
           setRow(field, 'skip', 'unknown');
           skipped++;
         }
-      } else if (field.key) {
+      } else if (field.type === 'combobox' || field.type === 'datalist') {
+        if (SKIP_EEOC.test(field.label) || SKIP_EEOC.test(field.key || '')) {
+          setRow(field, 'skip', 'EEOC — skipped');
+          skipped++;
+        } else if (field.key) {
+          const value = profile[field.key];
+          if (!value) throw new Error('no data for ' + field.key);
+          await fillCombobox(field, value);
+          setRow(field, 'done', 'filled');
+          filled++;
+        } else if (field.label && field.label !== '(Unlabeled)' && !SKIP_EEOC.test(field.label)) {
+          // Multi-select fields (id ends with []) are location/city preferences — skip if not cached,
+          // mark "fill once" so user enters it manually and the cache persists for next time.
+          const isMultiSelect = field.el.id?.endsWith('[]');
+          // Multi-select: only use explicitly learned answers (user-entered), not AI cache
+          const learnedVal = getLearnedAnswer(field.label);
+          if (isMultiSelect && learnedVal === undefined) {
+            setRow(field, 'review', '⚠️ fill once → saved for next run');
+            skipped++;
+            field.el.closest('[class*="container"]')?.style && (field.el.closest('[class*="container"]').style.outline = '2px solid #f59e0b');
+            continue;
+          }
+          if (isMultiSelect && learnedVal !== undefined) {
+            await fillCombobox(field, learnedVal);
+            setRow(field, 'done', '📦 from your saved answer');
+            filled++;
+            field.el.style.outline = '';
+            continue;
+          }
+          const preferred = learnedVal ?? getCached(field.label);
+          // Check learned/cache before hitting AI
+          if (preferred !== undefined) {
+            await fillCombobox(field, preferred);
+            setRow(field, 'done', '📦 from cache');
+            filled++;
+            field.el.style.outline = '';
+            continue;
+          }
+          setRow(field, 'filling', '🤖 asking AI…');
+          // Open dropdown with React-compatible events (mousedown+mouseup+click)
+          const ctrl = field.el.closest('[class*="control"]') || field.el.parentElement?.parentElement;
+          if (ctrl && ctrl !== field.el) reactClick(ctrl); else reactClick(field.el);
+          await sleep(450);
+          const openOpts = visibleOptions();
+          const optTexts = openOpts.map(o => o.text);
+          const suffix = optTexts.length ? ` (choose best option from: ${optTexts.join(', ')})` : '';
+          // Ask AI while dropdown is still open, passing learned answers as context
+          const { answer } = await apiCall('/copilot/answer', { question: field.label + suffix, jobDescription: jobDesc, learnedAnswers }, profile);
+          // Try to pick from already-open dropdown first
+          if (openOpts.length > 0) {
+            const pick = fuzzyPickOption(openOpts, answer);
+            if (pick) {
+              pick.el.click();
+              await sleep(100);
+              setCached(field.label, answer);
+              setRow(field, 'done', '🤖 AI filled');
+              filled++;
+              field.el.style.outline = '';
+              continue;
+            }
+            // Close before type-filter
+            field.el.blur();
+            await sleep(100);
+          }
+          // Fallback: type answer to filter, then click first result
+          await fillCombobox(field, answer);
+          setCached(field.label, answer);
+          setRow(field, 'done', '🤖 AI filled');
+          filled++;
+        } else {
+          setRow(field, 'skip', 'unknown');
+          skipped++;
+        }
+      } else if (field.key && !SKIP_EEOC.test(field.label) && !SKIP_EEOC.test(field.key)) {
+        field._lastFillMethod = 'fillStructured';
         await fillStructured(field, profile);
         setRow(field, 'done', 'filled');
         filled++;
       } else if (isOpenEnded(field)) {
+        field._lastFillMethod = 'typeIn/AI';
         setRow(field, 'filling', '🤖 asking AI…');
         if (field.type === 'select-one') {
           const { fromCache } = await fillSelect(field, jobDesc, profile);
           setRow(field, 'done', fromCache ? '📦 from cache' : '🤖 AI filled');
         } else {
           const { answer, fromCache } = await fillOpenEndedWithCache(field, jobDesc, profile);
+          // Probe for a hidden dropdown before typing
+          const dropOpts = await probeDropdown(field.el);
+          if (dropOpts.length > 0) {
+            const pick = fuzzyPickOption(dropOpts, answer);
+            if (pick) {
+              pick.el.click();
+              await sleep(100);
+              setRow(field, 'done', fromCache ? '📦 dropdown·cache' : '🤖 dropdown·AI');
+              filled++;
+              field.el.style.outline = '';
+              continue;
+            }
+            field.el.blur();
+            await sleep(100);
+          }
           await typeIn(field.el, answer);
           setRow(field, 'done', fromCache ? '📦 from cache' : '🤖 AI filled');
         }
@@ -888,6 +1271,7 @@ async function run(dryRun) {
     } catch (err) {
       setRow(field, 'err', err.message);
       errors++;
+      if (!dryRun) reportFailure(field, err.message, field._lastFillMethod || 'unknown');
     } finally {
       field.el.style.outline = '';
     }
@@ -896,13 +1280,44 @@ async function run(dryRun) {
     if (!dryRun) await sleep(80);
   }
 
-  // After fill, watch for user corrections and cache them
+  // After fill, watch for user corrections and save as learned answers
   if (!dryRun) {
     watchForUserEdits(fields);
 
+    // Show a "needs your input" banner for any REVIEW fields
+    const reviewFields = fields.filter(f => f._dot?.className?.includes('review'));
+    if (reviewFields.length > 0) {
+      const reviewBanner = document.createElement('div');
+      reviewBanner.style.cssText = 'margin:6px 0 0;padding:8px 10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:8px;font-size:11px;color:#92400e;';
+      reviewBanner.innerHTML = `<strong style="display:block;margin-bottom:4px;">⚠️ Fill these — saved for next time:</strong>${
+        reviewFields.map(f => `<div style="margin-top:2px;">• ${f.label.slice(0, 60)}</div>`).join('')
+      }`;
+      list.appendChild(reviewBanner);
+    }
+
+
     if (filled > 0) {
       const company = (() => {
-        try { return new URL(location.href).hostname.replace(/^www\./, '').split('.')[0]; } catch { return null; }
+        try {
+          const u = new URL(location.href);
+          // Greenhouse: job-boards.greenhouse.io/COMPANY/... or boards.greenhouse.io/COMPANY
+          const ghMatch = u.pathname.match(/^\/(?:embed\/job_app\?.*?for=([^&]+)|([^/]+)\/)/);
+          if (u.hostname.includes('greenhouse.io')) {
+            const forParam = u.searchParams.get('for');
+            if (forParam) return forParam;
+            const seg = u.pathname.split('/').find(s => s && s !== 'embed');
+            if (seg && seg !== 'job_app') return seg;
+          }
+          // Lever: jobs.lever.co/COMPANY
+          if (u.hostname.includes('lever.co')) return u.pathname.split('/')[1] || null;
+          // Ashby: jobs.ashbyhq.com/COMPANY
+          if (u.hostname.includes('ashbyhq.com')) return u.pathname.split('/')[1] || null;
+          // Workday: COMPANY.myworkdayjobs.com
+          if (u.hostname.includes('myworkdayjobs.com')) return u.hostname.split('.')[0];
+          // Generic fallback: second-level domain (stripe.com → stripe)
+          const parts = u.hostname.replace(/^www\./, '').split('.');
+          return parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+        } catch { return null; }
       })();
 
       // Track fill attempt with outcome counts; hold the row ID for self-report
@@ -990,4 +1405,5 @@ $('settings').addEventListener('click', () => {
   }
 });
 
+return run;
 } // end main()

@@ -187,13 +187,44 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (tabId) chrome.scripting.executeScript({ target: { tabId }, files: ['mount.js'] }).catch(() => {});
     return false;
   }
+
+  if (msg.type === 'INJECT_MOUNT') {
+    // Called by detect-ats.js when it identifies a job page on a custom company domain.
+    // Set the force-inject flag first so mount.js bypasses the JOB_HOSTS guard.
+    const tabId = _sender.tab?.id;
+    if (tabId) {
+      chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => { window.__simplyApplyForceInject = true; },
+      }).then(() =>
+        chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['mount.js'] })
+      ).catch(() => {});
+    }
+    return false;
+  }
 });
 
-// Open options on first install
+// Fetch remote rules and cache them — runs on install, update, and every 6 hours
+async function refreshRemoteRules() {
+  try {
+    const res = await fetch('https://elevate-careers-api.fly.dev/api/repair/rules', { cache: 'no-store' });
+    if (!res.ok) return;
+    const rules = await res.json();
+    if (Array.isArray(rules)) await chrome.storage.local.set({ remoteRules: rules });
+  } catch (_) {}
+}
+
 chrome.runtime.onInstalled.addListener(({ reason }) => {
+  refreshRemoteRules();
   if (reason === 'install') {
     chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
   }
+});
+
+// Refresh rules every 6 hours via alarm
+chrome.alarms.create('refreshRules', { periodInMinutes: 360 });
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === 'refreshRules') refreshRemoteRules();
 });
 
 // Manual inject via toolbar click — reset guard first so re-injection always works
