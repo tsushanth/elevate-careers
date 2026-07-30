@@ -485,9 +485,15 @@ app.get('/jobs/personalized', async (req, res) => {
       return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
     };
 
-    // Build exclusion clause
-    const excludeClause = hideApplied && appliedUrls.length > 0
-      ? `AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${i + 4}`).join(',')})`
+    // Build exclusion clause. Compares URLs with query string + trailing slash
+    // stripped, since the extension appends tracking params (e.g. ?gh_src=...)
+    // when a user applies, which would defeat an exact-string match against
+    // the plain apply_url the ingestion pipeline stores.
+    const excludeClause = (paramIdx) => hideApplied && appliedUrls.length > 0
+      ? `AND NOT EXISTS (
+          SELECT 1 FROM unnest($${paramIdx}::text[]) au(url)
+          WHERE rtrim(split_part(j.apply_url, '?', 1), '/') = rtrim(split_part(au.url, '?', 1), '/')
+        )`
       : '';
 
     // Build title search query:
@@ -519,7 +525,7 @@ app.get('/jobs/personalized', async (req, res) => {
 
     if (allPhrases.length > 0) {
       const tsQuery = allPhrases.join(' | ');
-      const extraParams = hideApplied ? appliedUrls : [];
+      const extraParams = hideApplied && appliedUrls.length > 0 ? [appliedUrls] : [];
       const pf = buildPrefFilters(4 + extraParams.length);
       const result = await db.query(`
         SELECT
@@ -536,7 +542,7 @@ app.get('/jobs/personalized', async (req, res) => {
           JOIN company c ON j.company_id = c.id
           WHERE j.tsv @@ to_tsquery('english', $1)
           AND j.is_active = true
-          ${excludeClause}
+          ${excludeClause(4)}
           ${pf.sql}
           ORDER BY j.company_id, ts_rank(j.tsv, to_tsquery('english', $1)) DESC, j.posted_at DESC NULLS LAST
         ) bpc
@@ -557,10 +563,8 @@ app.get('/jobs/personalized', async (req, res) => {
     // just because they don't happen to match the (currently small) job corpus.
     const hasExplicitPrefs = prefPhrases.length > 0 || pref.remote || pref.location || pref.salary_min;
     if (jobs.length < 10 && !hasExplicitPrefs) {
-      const extraParams = hideApplied ? appliedUrls : [];
-      const fallbackExclude = hideApplied && appliedUrls.length > 0
-        ? `AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${i + 3}`).join(',')})`
-        : '';
+      const extraParams = hideApplied && appliedUrls.length > 0 ? [appliedUrls] : [];
+      const fallbackExclude = excludeClause(3);
       const fpf = buildPrefFilters(3 + extraParams.length);
       const result = await db.query(`
         SELECT bpc.*, loc.cities, loc.countries

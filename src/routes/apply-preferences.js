@@ -131,9 +131,15 @@ router.get('/suggested', requireAuth, async (req, res) => {
     let pidx = 2;
 
     if (appliedUrls.length) {
-      jobQuery += ` AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${pidx + i}`).join(',')})`;
-      queryParams.push(...appliedUrls);
-      pidx += appliedUrls.length;
+      // Compare with query string + trailing slash stripped — the extension
+      // appends tracking params (e.g. ?gh_src=...) when a user applies, which
+      // would defeat an exact-string match against the ingested apply_url.
+      jobQuery += ` AND NOT EXISTS (
+        SELECT 1 FROM unnest($${pidx}::text[]) au(url)
+        WHERE rtrim(split_part(j.apply_url, '?', 1), '/') = rtrim(split_part(au.url, '?', 1), '/')
+      )`;
+      queryParams.push(appliedUrls);
+      pidx += 1;
     }
     if (prefs.remote) jobQuery += ` AND j.remote = true`;
     if (prefs.salary_min) { jobQuery += ` AND (j.salary_min IS NULL OR j.salary_min >= $${pidx})`; queryParams.push(prefs.salary_min); pidx++; }
