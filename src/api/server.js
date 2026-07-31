@@ -11,9 +11,9 @@ import { createClient } from '@supabase/supabase-js';
 
 import { recomputeSignals } from '../services/signals.js';
 import { normalizeCompanyName, normalizeTitle } from '../services/normalizer.js';
-import { REGION_NAMES, nonUsTitleRegex } from '../services/geo.js';
+import { REGION_CODES, nonUsTitleRegex } from '../services/geo.js';
 
-const NON_US_REGION_CODES_SQL = REGION_NAMES.map(r => r.toUpperCase()).join('|');
+const NON_US_REGION_CODES_SQL = REGION_CODES.join('|');
 const NON_US_TITLE_REGEX_SQL = nonUsTitleRegex();
 
 let _supabase = null;

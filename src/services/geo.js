@@ -31,9 +31,27 @@ export const COUNTRY_NAMES = [
 ];
 
 // Recruiting-region shorthand — not real countries, map to `region` instead.
-export const REGION_NAMES = [
-  'latam', 'emea', 'apac', 'dach', 'nordics', 'benelux', 'anz', 'cee',
-];
+// Multiple phrasings map to the same canonical code (e.g. "Latin America"
+// and "LATAM" both -> LATAM) so job_location.region only ever holds the
+// canonical form, keeping the SQL region-code check (server.js) and the
+// title-text regex (below) matching the same values a company might use.
+const REGION_SYNONYMS = {
+  latam: 'LATAM', 'latin america': 'LATAM',
+  emea: 'EMEA',
+  apac: 'APAC', 'asia pacific': 'APAC',
+  dach: 'DACH',
+  nordics: 'NORDICS', nordic: 'NORDICS',
+  benelux: 'BENELUX',
+  anz: 'ANZ', 'australia and new zealand': 'ANZ',
+  cee: 'CEE',
+};
+
+// All recognized phrasings (for title-text matching) — see nonUsTitleRegex.
+export const REGION_NAMES = Object.keys(REGION_SYNONYMS);
+
+// Canonical codes only (for the job_location.region SQL check) — dedupe
+// since several synonyms map to the same code.
+export const REGION_CODES = [...new Set(Object.values(REGION_SYNONYMS))];
 
 // Matches "India (Remote)", "India - Remote", "India, Remote" etc. — strips
 // the remote-work qualifier so the country lookup underneath still hits.
@@ -51,7 +69,7 @@ function titleCase(s) {
 export function matchCountryOrRegion(rawToken) {
   const cleaned = stripRemoteQualifier(rawToken).trim().toLowerCase();
   if (!cleaned) return null;
-  if (REGION_NAMES.includes(cleaned)) return { type: 'region', value: cleaned.toUpperCase() };
+  if (REGION_SYNONYMS[cleaned]) return { type: 'region', value: REGION_SYNONYMS[cleaned] };
   if (COUNTRY_NAMES.includes(cleaned)) return { type: 'country', value: titleCase(cleaned) };
   return null;
 }
