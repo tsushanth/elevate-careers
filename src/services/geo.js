@@ -156,7 +156,11 @@ const ACRONYM_DISPLAY = { uk: 'UK', uae: 'UAE' };
 
 function titleCase(s) {
   if (ACRONYM_DISPLAY[s]) return ACRONYM_DISPLAY[s];
-  return s.replace(/\b\w/g, c => c.toUpperCase());
+  // \b\w only matches ASCII word chars, so "são paulo" broke ("SãO Paulo" —
+  // the accented "ã" isn't \w, so \b treated the letter after it as a new
+  // word boundary too). \p{L} + explicit start-of-string/after-space is
+  // Unicode-correct and only capitalizes the true first letter of each word.
+  return s.replace(/(^|\s)\p{L}/gu, c => c.toUpperCase());
 }
 
 // Tries a single already-trimmed token against country/region/city lookups.
