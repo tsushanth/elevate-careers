@@ -190,6 +190,47 @@ app.post('/ingest/bootstrap-discovery', async (req, res) => {
   }
 });
 
+// One-time-ish backfill: resolve logo_domain for existing companies that
+// don't have one yet (created before this column existed). Rate-limited
+// loop against Clearbit's free autocomplete endpoint.
+app.post('/ingest/backfill-logos', async (req, res) => {
+  try {
+    const { secret, limit = 500 } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    const { rows } = await db.query(
+      `SELECT id, name FROM company WHERE logo_domain IS NULL ORDER BY id LIMIT $1`,
+      [limit]
+    );
+    res.json({ ok: true, queued: rows.length });
+
+    setImmediate(async () => {
+      const { resolveLogoDomain } = await import('../services/normalizer.js');
+      let updated = 0;
+      for (const company of rows) {
+        try {
+          const logoDomain = await resolveLogoDomain(company.name);
+          if (logoDomain) {
+            await db.query('UPDATE company SET logo_domain = $1 WHERE id = $2', [logoDomain, company.id]);
+            updated++;
+          } else {
+            // Mark attempted with a sentinel so it isn't retried every run —
+            // NULL specifically means "not looked up yet".
+            await db.query(`UPDATE company SET logo_domain = '' WHERE id = $1`, [company.id]);
+          }
+        } catch (e) {
+          logger.warn({ error: e.message, company: company.name }, 'Backfill logo lookup failed');
+        }
+        await new Promise(r => setTimeout(r, 300));
+      }
+      logger.info({ total: rows.length, updated }, 'Logo backfill complete');
+    });
+  } catch (e) {
+    logger.error({ error: e }, 'Logo backfill error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Extension-reported org discovery — called when extension sees a supported ATS job page
 app.post('/ingest/report-org', async (req, res) => {
   try {
@@ -624,7 +665,7 @@ app.get('/jobs/personalized', async (req, res) => {
           SELECT DISTINCT ON (j.company_id)
             j.*,
             c.name as company_name,
-            c.domain as company_domain,
+            c.domain as company_domain, c.logo_domain as company_logo_domain,
             ts_rank(j.tsv, to_tsquery('english', $1)) as relevance
           FROM job j
           JOIN company c ON j.company_id = c.id
@@ -658,7 +699,7 @@ app.get('/jobs/personalized', async (req, res) => {
         SELECT bpc.*, loc.cities, loc.countries
         FROM (
           SELECT DISTINCT ON (j.company_id)
-            j.*, c.name as company_name, c.domain as company_domain
+            j.*, c.name as company_name, c.domain as company_domain, c.logo_domain as company_logo_domain
           FROM job j
           JOIN company c ON j.company_id = c.id
           WHERE j.is_active = true ${fallbackExclude} ${fpf.sql}
@@ -715,7 +756,7 @@ app.get('/jobs', async (req, res) => {
       SELECT 
         j.*,
         c.name as company_name,
-        c.domain as company_domain,
+        c.domain as company_domain, c.logo_domain as company_logo_domain,
         array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
         array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
       FROM job j
@@ -1021,7 +1062,7 @@ app.get('/companies/:slug/jobs', async (req, res) => {
     const { slug } = req.params;
     const { limit = 50, offset = 0 } = req.query;
     const result = await db.query(`
-      SELECT j.*, c.name as company_name, c.domain as company_domain,
+      SELECT j.*, c.name as company_name, c.domain as company_domain, c.logo_domain as company_logo_domain,
         array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
         array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
       FROM job j
@@ -1050,7 +1091,7 @@ app.get('/jobs/:id', async (req, res) => {
       SELECT 
         j.*,
         c.name as company_name,
-        c.domain as company_domain,
+        c.domain as company_domain, c.logo_domain as company_logo_domain,
         jv.description_md,
         jv.skills,
         array_agg(json_build_object(
