@@ -11,6 +11,10 @@ import { createClient } from '@supabase/supabase-js';
 
 import { recomputeSignals } from '../services/signals.js';
 import { normalizeCompanyName, normalizeTitle } from '../services/normalizer.js';
+import { REGION_NAMES, nonUsTitleRegex } from '../services/geo.js';
+
+const NON_US_REGION_CODES_SQL = REGION_NAMES.map(r => r.toUpperCase()).join('|');
+const NON_US_TITLE_REGEX_SQL = nonUsTitleRegex();
 
 let _supabase = null;
 function getSupabase() {
@@ -576,6 +580,14 @@ app.get('/jobs/personalized', async (req, res) => {
     const appliedUrls = (appliedRows || []).filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
     const appliedCount = (appliedRows || []).length;
 
+    // Jobs the user explicitly dismissed via "Just remove this card" — always
+    // excluded regardless of the show_applied toggle (that toggle is only
+    // about applied jobs, unrelated to a card the user asked to hide).
+    const { data: dismissedRows } = await sb.from('dismissed_jobs')
+      .select('job_id')
+      .eq('user_id', user.id);
+    const dismissedJobIds = (dismissedRows || []).map(r => r.job_id).filter(Boolean);
+
     // Load user preferences for filtering
     const { data: prefRow } = await sb.from('apply_preferences')
       .select('keywords, remote, location, salary_min, excluded_companies, excluded_titles')
@@ -601,13 +613,23 @@ app.get('/jobs/personalized', async (req, res) => {
           // requiring literal "USA" dropped 31 companies to 4), so this
           // excludes only jobs with a clear NON-US signal instead — jobs with
           // no location data, or an unspecified/ambiguous country, still pass.
+          // Also rejects recruiting-region codes in `region` (LATAM/APAC/etc
+          // — never the US) and an unambiguous non-US country/region name in
+          // the title itself, since location data is frequently incomplete
+          // (bare "Canada"/"Colombia"/"India (Remote)" style postings — see
+          // parseLocation in normalizer.js) but the title often spells it
+          // out anyway ("... - Bangalore, India", "... - LATAM").
           clauses.push(`(
-            NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
-            OR EXISTS (
-              SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
-                AND (jlf.country IS NULL OR jlf.country ~* '\y(usa|us|united states)\y')
-                AND jlf.city !~* '(bengaluru|bangalore|mumbai|hyderabad|pune|delhi|chennai|noida|gurgaon|gurugram)'
+            (
+              NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
+              OR EXISTS (
+                SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
+                  AND (jlf.country IS NULL OR jlf.country ~* '\y(usa|us|united states)\y')
+                  AND jlf.city !~* '(bengaluru|bangalore|mumbai|hyderabad|pune|delhi|chennai|noida|gurgaon|gurugram)'
+                  AND (jlf.region IS NULL OR jlf.region !~* '\y(${NON_US_REGION_CODES_SQL})\y')
+              )
             )
+            AND j.title !~* '${NON_US_TITLE_REGEX_SQL}'
           )`);
         } else {
           clauses.push(`EXISTS (SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id AND (jlf.city ILIKE $${idx} OR jlf.region ILIKE $${idx} OR jlf.country ILIKE $${idx}))`);
@@ -631,15 +653,17 @@ app.get('/jobs/personalized', async (req, res) => {
       return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
     };
 
-    // Build exclusion clause for applied jobs. Prefers matching by j.id
-    // (stable, resolved once at apply time) and only falls back to the
-    // URL-string comparison for legacy rows that have no job_id — apply_url
-    // can drift on re-ingestion, so a pure URL match silently un-hides
-    // applied jobs over time (see job_id backfill in the migration).
+    // Build exclusion clause for applied + dismissed jobs. Prefers matching
+    // by j.id (stable, resolved/recorded once, at apply/dismiss time) and
+    // only falls back to URL-string comparison for legacy applied-job rows
+    // with no job_id — apply_url can drift on re-ingestion, so a pure URL
+    // match silently un-hides applied jobs over time (see job_id backfill in
+    // the migration). Dismissed jobs are always excluded, independent of
+    // hideApplied — that toggle only concerns applied jobs.
+    const excludedJobIds = [...dismissedJobIds, ...(hideApplied ? appliedJobIds : [])];
     const excludeClause = (paramIdx) => {
-      if (!hideApplied) return '';
-      const idClause = appliedJobIds.length > 0 ? `j.id = ANY($${paramIdx}::bigint[])` : null;
-      const urlClause = appliedUrls.length > 0
+      const idClause = excludedJobIds.length > 0 ? `j.id = ANY($${paramIdx}::bigint[])` : null;
+      const urlClause = hideApplied && appliedUrls.length > 0
         ? `EXISTS (
             SELECT 1 FROM unnest($${paramIdx + (idClause ? 1 : 0)}::text[]) au(url)
             WHERE rtrim(split_part(j.apply_url, '?', 1), '/') = rtrim(split_part(au.url, '?', 1), '/')
@@ -649,8 +673,8 @@ app.get('/jobs/personalized', async (req, res) => {
       return inner.length ? `AND NOT (${inner.join(' OR ')})` : '';
     };
     const excludeClauseParams = [
-      ...(appliedJobIds.length > 0 ? [appliedJobIds] : []),
-      ...(appliedUrls.length > 0 ? [appliedUrls] : []),
+      ...(excludedJobIds.length > 0 ? [excludedJobIds] : []),
+      ...(hideApplied && appliedUrls.length > 0 ? [appliedUrls] : []),
     ];
 
     // Build title search query:

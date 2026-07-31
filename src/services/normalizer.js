@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import TurndownService from 'turndown';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
+import { matchCountryOrRegion } from './geo.js';
 
 const turndownService = new TurndownService();
 
@@ -280,9 +281,25 @@ export class NormalizerService {
 
   parseLocation(locationString) {
     if (!locationString) return { city: null, region: null, country: null };
-    
+
     const parts = locationString.split(',').map(s => s.trim());
-    
+
+    // Many ATS postings (mostly Lever) give a bare country/region name with
+    // no comma at all — e.g. "Canada", "India (Remote)", "LATAM". Without
+    // this check the whole string lands in `city` and `country` stays null,
+    // which the US-location feed filter treats as "no clear non-US signal"
+    // and lets through. Only try this when there's no comma (parts.length
+    // === 1) — a genuine "City, Country" pair should keep using the
+    // comma-split path below.
+    if (parts.length === 1) {
+      const match = matchCountryOrRegion(parts[0]);
+      if (match) {
+        return match.type === 'country'
+          ? { city: null, region: null, country: match.value }
+          : { city: null, region: match.value, country: null };
+      }
+    }
+
     return {
       city: parts[0] || null,
       region: parts[1] || null,

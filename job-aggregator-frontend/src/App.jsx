@@ -193,6 +193,16 @@ function App() {
     setDismissMenuJobId(null);
     if (action === 'card') {
       removeJobsFromCache(j => j.id === job.id);
+      // Persist server-side when signed in — otherwise this was purely a
+      // sessionStorage edit and silently came back on the next fetch (new
+      // tab, browser restart, any filter change re-triggering fetchJobs).
+      if (session) {
+        fetch(`${API_URL}/api/preferences/dismiss-job`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ jobId: job.id }),
+        }).catch(e => console.error('Failed to persist card dismissal', e));
+      }
       return;
     }
     if (!session) return;
