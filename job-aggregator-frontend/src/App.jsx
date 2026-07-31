@@ -467,7 +467,7 @@ function App() {
                             position: 'fixed', top: dismissMenuPos.top, left: dismissMenuPos.left,
                             transform: 'translateX(-100%)', zIndex: 1000,
                             background: '#111827', border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: 8, minWidth: 220, padding: 4,
+                            borderRadius: 8, minWidth: 220, maxWidth: 280, padding: 4,
                             boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
                           }}
                         >
