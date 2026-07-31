@@ -253,8 +253,15 @@ function App() {
         <div className="header-content">
           <h1 className="logo">SimplyApply</h1>
           <nav className="nav">
-            <a href="#jobs" onClick={e => { e.preventDefault(); setActiveTab('jobs'); }} className={activeTab === 'jobs' ? 'nav-active' : ''}>Jobs</a>
-            <a href="#applications" onClick={e => { e.preventDefault(); setActiveTab('applications'); }} className={activeTab === 'applications' ? 'nav-active' : ''}>Applications</a>
+            <a href="#jobs" onClick={e => { e.preventDefault(); setActiveTab('jobs'); }} className={`nav-icon-link${activeTab === 'jobs' ? ' nav-active' : ''}`}>
+              <svg className="nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M13.5 2.5L6 14h6l-1.5 7.5L19 10h-6l1.5-7.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/></svg>
+              <span>Jobs</span>
+            </a>
+            <a href="#applications" onClick={e => { e.preventDefault(); setActiveTab('applications'); }} className={`nav-icon-link${activeTab === 'applications' ? ' nav-active' : ''}`}>
+              <svg className="nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.8"/><path d="M8 7V5a4 4 0 018 0v2" stroke="currentColor" strokeWidth="1.8"/></svg>
+              <span>Applications</span>
+            </a>
+            <div className="nav-separator" aria-hidden="true" />
             {session ? (
               <div className="nav-user">
                 <span className="nav-email">{session.user.email}</span>
