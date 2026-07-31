@@ -94,6 +94,9 @@ app.post('/ingest/bootstrap-discovery', async (req, res) => {
         lever: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/lever.csv',
         ashby: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/ashby.csv',
         smartrecruiters: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/smartrecruiters.csv',
+        workable: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/workable.csv',
+        bamboohr: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/bamboohr.csv',
+        recruitee: 'https://raw.githubusercontent.com/kalil0321/ats-scrapers/main/ats-companies/recruitee.csv',
       };
       for (const [provider, url] of Object.entries(kalilPlatforms)) {
         try {

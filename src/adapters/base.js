@@ -24,6 +24,17 @@ export class BaseAdapter {
     }
   }
 
+  async post(url, body = {}, options = {}) {
+    try {
+      logger.debug({ url, adapter: this.name }, 'Posting data');
+      const response = await this.client.post(url, body, options);
+      return response.data;
+    } catch (error) {
+      logger.error({ error, url, adapter: this.name }, 'Post error');
+      throw error;
+    }
+  }
+
   async fetchJobs(org) {
     throw new Error(`fetchJobs not implemented for ${this.name}`);
   }
