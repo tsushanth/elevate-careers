@@ -780,6 +780,137 @@ ${u.lastmod ? `    <lastmod>${u.lastmod}</lastmod>\n` : ''}    <priority>${u.pri
 
 // Get single job
 // Company pages
+// ── Dynamic rendering for crawlers ──────────────────────────────────────────
+// The React frontend is 100% client-rendered, so a non-JS crawler (most AI
+// bots included) sees an empty <div id="root"> at these URLs. nginx on
+// elevate-careers-web detects bot user-agents and proxies /companies/:slug
+// (and /) to these SSR routes instead of serving the SPA shell — real users
+// still get the normal React app. See job-aggregator-frontend/nginx.conf.
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+app.get('/ssr/home', async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT c.name, c.domain,
+             lower(regexp_replace(c.name, '[^a-zA-Z0-9]+', '-', 'g')) as slug,
+             COUNT(j.id) as open_jobs
+      FROM company c
+      JOIN job j ON j.company_id = c.id
+      WHERE j.is_active = true
+      GROUP BY c.id
+      ORDER BY open_jobs DESC
+      LIMIT 200
+    `);
+
+    const SITE = 'https://www.simplyappl.ai';
+    const rows = result.rows;
+    const listItems = rows.map((r, i) => `
+      <li>
+        <a href="${SITE}/companies/${r.slug}">${escapeHtml(r.name)}</a>
+        — ${r.open_jobs} open role${r.open_jobs === '1' ? '' : 's'}
+      </li>`).join('');
+
+    const itemListLd = {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      itemListElement: rows.map((r, i) => ({
+        '@type': 'ListItem', position: i + 1,
+        url: `${SITE}/companies/${r.slug}`, name: r.name,
+      })),
+    };
+
+    res.set('Content-Type', 'text/html');
+    res.send(`<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/>
+<title>SimplyApply — AI Job Autofill</title>
+<meta name="description" content="Autofill job applications in one click. SimplyApply fills Greenhouse, Lever, Ashby and more using your saved profile."/>
+<link rel="canonical" href="${SITE}/"/>
+<script type="application/ld+json">${JSON.stringify(itemListLd)}</script>
+</head><body>
+<h1>SimplyApply — AI Job Autofill</h1>
+<p>Autofill job applications in one click. SimplyApply fills Greenhouse, Lever, Ashby, SmartRecruiters and more using your saved profile. Free Chrome extension.</p>
+<h2>Companies hiring now</h2>
+<ul>${listItems}</ul>
+</body></html>`);
+  } catch (e) {
+    res.status(500).send('');
+  }
+});
+
+app.get('/ssr/companies/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const companyResult = await db.query(`
+      SELECT c.*, COUNT(j.id) FILTER (WHERE j.is_active) AS open_jobs
+      FROM company c
+      LEFT JOIN job j ON j.company_id = c.id
+      WHERE lower(regexp_replace(c.name, '[^a-zA-Z0-9]+', '-', 'g')) = $1
+         OR c.domain ILIKE $1 || '.%'
+      GROUP BY c.id
+      LIMIT 1
+    `, [slug]);
+    const company = companyResult.rows[0];
+    if (!company) return res.status(404).send('');
+
+    const jobsResult = await db.query(`
+      SELECT j.title, j.apply_url, j.posted_at, j.employment_type, j.remote,
+             j.salary_min, j.salary_max, j.description_excerpt,
+             array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
+             array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
+      FROM job j
+      LEFT JOIN job_location jl ON j.id = jl.job_id
+      WHERE j.company_id = $1 AND j.is_active = true
+      GROUP BY j.id
+      ORDER BY j.posted_at DESC NULLS LAST
+      LIMIT 100
+    `, [company.id]);
+    const jobs = jobsResult.rows;
+
+    const SITE = 'https://www.simplyappl.ai';
+    const jobItems = jobs.map(j => `
+      <li>
+        <a href="${escapeHtml(j.apply_url)}">${escapeHtml(j.title)}</a>
+        ${j.remote ? ' — Remote' : (j.cities || [])[0] ? ` — ${escapeHtml(j.cities[0])}` : ''}
+        ${j.posted_at ? ` — posted ${new Date(j.posted_at).toISOString().slice(0, 10)}` : ''}
+      </li>`).join('');
+
+    const jobPostingsLd = jobs.map(j => ({
+      '@context': 'https://schema.org',
+      '@type': 'JobPosting',
+      title: j.title,
+      description: j.description_excerpt || j.title,
+      datePosted: j.posted_at ? new Date(j.posted_at).toISOString().slice(0, 10) : undefined,
+      employmentType: j.employment_type || undefined,
+      hiringOrganization: { '@type': 'Organization', name: company.name, sameAs: company.domain ? `https://${company.domain}` : undefined },
+      jobLocationType: j.remote ? 'TELECOMMUTE' : undefined,
+      applicantLocationRequirements: j.remote ? { '@type': 'Country', name: 'US' } : undefined,
+      jobLocation: (!j.remote && (j.cities || [])[0]) ? {
+        '@type': 'Place',
+        address: { '@type': 'PostalAddress', addressLocality: j.cities[0], addressCountry: (j.countries || [])[0] || undefined },
+      } : undefined,
+      directApply: true,
+      url: j.apply_url,
+    }));
+
+    res.set('Content-Type', 'text/html');
+    res.send(`<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/>
+<title>${escapeHtml(company.name)} jobs — SimplyApply</title>
+<meta name="description" content="${company.open_jobs} open roles at ${escapeHtml(company.name)}, aggregated by SimplyApply."/>
+<link rel="canonical" href="${SITE}/companies/${slug}"/>
+${jobPostingsLd.map(ld => `<script type="application/ld+json">${JSON.stringify(ld)}</script>`).join('\n')}
+</head><body>
+<h1>${escapeHtml(company.name)} — ${company.open_jobs} open roles</h1>
+<p><a href="${SITE}/">Back to SimplyApply</a></p>
+<ul>${jobItems}</ul>
+</body></html>`);
+  } catch (e) {
+    res.status(500).send('');
+  }
+});
+
 app.get('/companies/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
