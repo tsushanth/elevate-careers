@@ -13,10 +13,14 @@ async function requireAuth(req, res, next) {
   try {
     const sb = getSupabase();
     const { data: { user }, error } = await sb.auth.getUser(token);
-    if (error || !user) return res.status(401).json({ error: 'Invalid session — sign in again' });
+    if (error || !user) {
+      console.error('[auth] getUser failed:', error?.message, error?.status, error?.code);
+      return res.status(401).json({ error: 'Invalid session — sign in again' });
+    }
     req.user = user;
     next();
   } catch (e) {
+    console.error('[auth] exception:', e?.message);
     return res.status(401).json({ error: 'Auth check failed' });
   }
 }
@@ -41,7 +45,10 @@ function getSupabase() {
   if (!_supabase) {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
       throw new Error('Supabase not configured');
-    _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+    _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      realtime: { enabled: false },
+    });
   }
   return _supabase;
 }
@@ -570,8 +577,14 @@ function generateResumeText(resumeData) {
 // Answers an open-ended job application question using the user's profile
 router.post('/copilot/answer', requireAuth, async (req, res) => {
   try {
-    const { question, jobDescription, profile } = req.body;
+    const { question, jobDescription, profile, learnedAnswers } = req.body;
     if (!question) return res.status(400).json({ error: 'question required' });
+
+    const learnedCtx = learnedAnswers && Object.keys(learnedAnswers).length > 0
+      ? `\n\nUser's previously entered answers on job applications (treat as the user's known preferences):\n${
+          Object.entries(learnedAnswers).map(([q, a]) => `- ${q}: ${a}`).join('\n')
+        }`
+      : '';
 
     const completion = await getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -579,11 +592,46 @@ router.post('/copilot/answer', requireAuth, async (req, res) => {
       system: `You are a professional job application assistant. Answer the given job application question concisely and professionally in first person, using the candidate's profile. Write 2-4 sentences max. Do not include any preamble like "Here is my answer:" — just the answer itself.`,
       messages: [{
         role: 'user',
-        content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 800)}\n\nQuestion: ${question}`,
+        content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 800)}${learnedCtx}\n\nQuestion: ${question}`,
       }],
     });
     incrementAiUsage(req.user.id);
     res.json({ answer: completion.content[0].text.trim() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/ai-resume/copilot/pick-option
+// Closed-set classification: given a field label and its exact option list,
+// return only the index of the best match (or -1). Used as a fallback when
+// the extension's local heuristic matching (substring/prefix) can't confidently
+// pick an option for a dropdown/combobox — replaces the old approach of asking
+// for free text and fuzzy-matching it back onto an option string.
+router.post('/copilot/pick-option', requireAuth, async (req, res) => {
+  try {
+    const { label, options, profile, jobDescription } = req.body;
+    if (!label) return res.status(400).json({ error: 'label required' });
+    if (!Array.isArray(options) || options.length === 0) return res.status(400).json({ error: 'options required' });
+
+    const numbered = options.map((o, i) => `${i}: ${o}`).join('\n');
+    const completion = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 10,
+      system: `You are matching a job application form field to one of a fixed list of dropdown options. Given the field's label and the candidate's profile, respond with ONLY the number of the single best-matching option, and nothing else — no words, no punctuation. If none of the options are a reasonable match, respond with -1.`,
+      messages: [{
+        role: 'user',
+        content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 500)}\n\nField label: ${label}\n\nOptions:\n${numbered}\n\nRespond with only the index number.`,
+      }],
+    });
+    incrementAiUsage(req.user.id);
+
+    const raw = completion.content[0].text.trim();
+    const index = parseInt(raw.match(/-?\d+/)?.[0], 10);
+    if (Number.isNaN(index) || index < -1 || index >= options.length) {
+      return res.status(422).json({ error: `model returned unusable index: "${raw}"` });
+    }
+    res.json({ index });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -633,6 +681,20 @@ router.post('/resume/tailor', requireAuth, async (req, res) => {
 });
 
 // ── Profile sync from extension ──────────────────────────────────────────────
+// Fetch saved profile for the signed-in user
+router.get('/profile/sync', requireAuth, async (req, res) => {
+  try {
+    const sb = getSupabase();
+    const { data } = await sb.from('user_profile')
+      .select('autofill_data')
+      .eq('user_id', req.user.id)
+      .single();
+    res.json({ profile: data?.autofill_data || null });
+  } catch (e) {
+    res.json({ profile: null });
+  }
+});
+
 // Called when user saves their profile in the extension options page
 router.post('/profile/sync', requireAuth, async (req, res) => {
   try {
@@ -742,6 +804,24 @@ router.get('/usage', requireAuth, async (req, res) => {
       ai_calls_remaining: Math.max(0, FREE_AI_LIMIT - used),
       is_over_limit: used >= FREE_AI_LIMIT,
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Extension heartbeat — called once per day from mount.js to track active installs
+router.post('/ping', requireAuth, async (req, res) => {
+  try {
+    const { db } = await import('../db/index.js');
+    await db.query(
+      `INSERT INTO user_usage (user_id, extension_seen_at, extension_first_seen)
+       VALUES ($1, NOW(), NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         extension_seen_at = NOW(),
+         extension_first_seen = COALESCE(user_usage.extension_first_seen, NOW())`,
+      [req.user.id]
+    );
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

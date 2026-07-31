@@ -589,6 +589,46 @@ function fuzzyPickOption(opts, hint) {
   );
 }
 
+// ── AI-assisted option picking ────────────────────────────────────────────────
+// Fallback for when fuzzyPickOption can't confidently match visible dropdown
+// options against a hint (phrasing mismatch, no textual overlap, etc). Sends
+// the field label + exact option list to the server as a closed-set
+// classification task and gets back an index — cached per-label afterward so
+// repeat fills of the same field never re-hit the API.
+async function pickOptionViaAI(field, opts, jobDesc, profile) {
+  const cached = getLearnedAnswer(field.label) ?? getCached(field.label);
+  if (cached !== undefined) {
+    const pick = fuzzyPickOption(opts, cached);
+    if (pick) return pick;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const token = await getToken();
+    if (!token) return null;
+    const res = await fetch(`${API_BASE}/copilot/pick-option`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+      body: JSON.stringify({
+        label: field.label,
+        options: opts.map(o => o.text),
+        profile,
+        jobDescription: jobDesc,
+      }),
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const { index } = await res.json();
+    if (index === -1 || index == null || !opts[index]) return null;
+    setCached(field.label, opts[index].text);
+    return opts[index];
+  } catch (_) {
+    return null; // timeout, network error, etc. — caller falls back to local heuristic
+  }
+}
+
 // ── Combobox/datalist fill ─────────────────────────────────────────────────────
 // For inputs that reveal a dropdown when focused (role=combobox, aria-autocomplete, datalist)
 
@@ -599,7 +639,7 @@ function visibleOptions() {
     .filter(o => o.text);
 }
 
-async function fillCombobox(field, hint) {
+async function fillCombobox(field, hint, ctx = {}) {
   const el = field.el;
 
   // datalist: read options directly from the linked <datalist>
@@ -608,7 +648,7 @@ async function fillCombobox(field, hint) {
     const datalist = listId ? document.getElementById(listId) : null;
     if (datalist) {
       const opts = [...datalist.options].map(o => ({ text: (o.label || o.value).trim(), val: o.value })).filter(o => o.text);
-      const pick = fuzzyPickOption(opts, hint);
+      const pick = fuzzyPickOption(opts, hint) || await pickOptionViaAI(field, opts, ctx.jobDesc, ctx.profile);
       if (pick) {
         await typeIn(el, pick.val || pick.text);
         return;
@@ -644,7 +684,7 @@ async function fillCombobox(field, hint) {
   await sleep(450);
   opts = visibleOptions();
   if (opts.length > 0) {
-    const pick = fuzzyPickOption(opts, hint) || opts[0];
+    const pick = fuzzyPickOption(opts, hint) || await pickOptionViaAI(field, opts, ctx.jobDesc, ctx.profile) || opts[0];
     pick.el.click();
     await sleep(100);
     return;
@@ -695,12 +735,10 @@ async function fillSelect(field, jobDesc, profile) {
     }
   }
 
-  const optLabels = allOpts.map(o => o.text).join(', ');
-  const question = `${field.label} (choose the best option from: ${optLabels})`;
-  const { answer } = await apiCall('/copilot/answer', { question, jobDescription: jobDesc, learnedAnswers }, profile);
-
-  const pick = fuzzyPickOption(allOpts, answer);
-  if (!pick) throw new Error(`AI answer "${answer}" matched no option`);
+  // Closed-set classification: ask the server to pick the option index directly,
+  // instead of asking for free text and fuzzy-matching it back onto an option.
+  const pick = await pickOptionViaAI(field, allOpts, jobDesc, profile);
+  if (!pick) throw new Error(`AI could not match any option for "${field.label}"`);
   nativeSelectSet(field.el, pick.el.value);
   fire(field.el, 'input');
   fire(field.el, 'change');
@@ -710,12 +748,11 @@ async function fillSelect(field, jobDesc, profile) {
 
 // ── Custom div-based dropdown fill ───────────────────────────────────────────
 // Handles Greenhouse-style aria/div dropdowns (role=combobox, aria-haspopup=listbox, etc.)
-async function fillCustomDropdown(el, value) {
+async function fillCustomDropdown(field, value, ctx = {}) {
+  const el = field.el;
   // Open with React-compatible events
   reactClick(el);
   await sleep(300);
-
-  const v = String(value).toLowerCase();
 
   // Option containers may be appended to body or be inside a sibling/child element
   // Search progressively: inside el, in body portals, then document-wide
@@ -728,7 +765,7 @@ async function fillCustomDropdown(el, value) {
   const opts = [...collectOptions(el.parentElement || el), ...collectOptions(document.body)];
   const seen = new Set();
   const deduped = opts.filter(o => { if (seen.has(o.text)) return false; seen.add(o.text); return true; });
-  const pick = fuzzyPickOption(deduped, value);
+  const pick = fuzzyPickOption(deduped, value) || await pickOptionViaAI(field, deduped, ctx.jobDesc, ctx.profile);
   if (!pick) throw new Error(`custom dropdown: no option for "${value}"`);
   pick.el.click();
   await sleep(100);
@@ -1112,7 +1149,7 @@ async function run(dryRun) {
       } else if (field.type === 'custom-select' && field.key) {
         const value = profile[field.key];
         if (!value) throw new Error('no data for ' + field.key);
-        await fillCustomDropdown(field.el, value);
+        await fillCustomDropdown(field, value, { jobDesc, profile });
         setRow(field, 'done', 'filled');
         filled++;
       } else if (field.type === 'custom-select') {
@@ -1124,18 +1161,16 @@ async function run(dryRun) {
         const optEls = [...document.querySelectorAll('[role="option"], [role="menuitem"], [role="listitem"]')]
           .filter(o => { const r = o.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
         if (!optEls.length) { field.el.click(); throw new Error('custom dropdown: no options found'); }
-        const opts = optEls.map(o => o.textContent.trim()).filter(Boolean);
-        // Close dropdown before asking AI
-        field.el.click();
-        await sleep(100);
+        const opts = optEls.map(o => ({ text: o.textContent.trim(), el: o })).filter(o => o.text);
         if (field.label && field.label !== '(Unlabeled)' && !SKIP_EEOC.test(field.label)) {
-          const question = `${field.label} (choose the best option from: ${opts.join(', ')})`;
-          const { answer } = await apiCall('/copilot/answer', { question, jobDescription: jobDesc }, profile);
-          await fillCustomDropdown(field.el, answer);
-          setCached(field.label, answer);
+          const pick = await pickOptionViaAI(field, opts, jobDesc, profile);
+          if (!pick) { field.el.click(); throw new Error(`AI could not match option for "${field.label}"`); }
+          pick.el.click();
+          await sleep(100);
           setRow(field, 'done', '🤖 AI filled');
           filled++;
         } else {
+          field.el.click(); // close dropdown
           setRow(field, 'skip', 'unknown');
           skipped++;
         }
@@ -1146,7 +1181,7 @@ async function run(dryRun) {
         } else if (field.key) {
           const value = profile[field.key];
           if (!value) throw new Error('no data for ' + field.key);
-          await fillCombobox(field, value);
+          await fillCombobox(field, value, { jobDesc, profile });
           setRow(field, 'done', 'filled');
           filled++;
         } else if (field.label && field.label !== '(Unlabeled)' && !SKIP_EEOC.test(field.label)) {
@@ -1162,7 +1197,7 @@ async function run(dryRun) {
             continue;
           }
           if (isMultiSelect && learnedVal !== undefined) {
-            await fillCombobox(field, learnedVal);
+            await fillCombobox(field, learnedVal, { jobDesc, profile });
             setRow(field, 'done', '📦 from your saved answer');
             filled++;
             field.el.style.outline = '';
@@ -1171,7 +1206,7 @@ async function run(dryRun) {
           const preferred = learnedVal ?? getCached(field.label);
           // Check learned/cache before hitting AI
           if (preferred !== undefined) {
-            await fillCombobox(field, preferred);
+            await fillCombobox(field, preferred, { jobDesc, profile });
             setRow(field, 'done', '📦 from cache');
             filled++;
             field.el.style.outline = '';
@@ -1183,17 +1218,13 @@ async function run(dryRun) {
           if (ctrl && ctrl !== field.el) reactClick(ctrl); else reactClick(field.el);
           await sleep(450);
           const openOpts = visibleOptions();
-          const optTexts = openOpts.map(o => o.text);
-          const suffix = optTexts.length ? ` (choose best option from: ${optTexts.join(', ')})` : '';
-          // Ask AI while dropdown is still open, passing learned answers as context
-          const { answer } = await apiCall('/copilot/answer', { question: field.label + suffix, jobDescription: jobDesc, learnedAnswers }, profile);
-          // Try to pick from already-open dropdown first
+          // Ask AI to pick directly from the exact visible option list (closed-set
+          // classification), rather than the old free-text-answer + fuzzy-match hack.
           if (openOpts.length > 0) {
-            const pick = fuzzyPickOption(openOpts, answer);
+            const pick = await pickOptionViaAI(field, openOpts, jobDesc, profile);
             if (pick) {
               pick.el.click();
               await sleep(100);
-              setCached(field.label, answer);
               setRow(field, 'done', '🤖 AI filled');
               filled++;
               field.el.style.outline = '';
@@ -1203,10 +1234,10 @@ async function run(dryRun) {
             field.el.blur();
             await sleep(100);
           }
-          // Fallback: type answer to filter, then click first result
-          await fillCombobox(field, answer);
-          setCached(field.label, answer);
-          setRow(field, 'done', '🤖 AI filled');
+          // Fallback: nothing visible yet, or AI couldn't confidently match —
+          // type the field's own label to trigger the filter, then retry via fillCombobox
+          await fillCombobox(field, field.label, { jobDesc, profile });
+          setRow(field, 'done', '🤖 filled (best effort)');
           filled++;
         } else {
           setRow(field, 'skip', 'unknown');

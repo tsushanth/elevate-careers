@@ -654,20 +654,56 @@
       /^yes/i.test(h) && opts.find((o) => /^yes\b/i.test(o.text)) || // "No" matches any option starting with "No" but prefers ones without sponsorship mention
       /^no/i.test(h) && (opts.find((o) => /^no\b/i.test(o.text) && !/sponsor/i.test(o.text)) || opts.find((o) => /^no\b/i.test(o.text))) || null;
     }
+    async function pickOptionViaAI(field, opts, jobDesc, profile) {
+      const cached = getLearnedAnswer(field.label) ?? getCached(field.label);
+      if (cached !== void 0) {
+        const pick = fuzzyPickOption(opts, cached);
+        if (pick)
+          return pick;
+      }
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3e3);
+        const token = await getToken();
+        if (!token)
+          return null;
+        const res = await fetch(`${API_BASE}/copilot/pick-option`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+          body: JSON.stringify({
+            label: field.label,
+            options: opts.map((o) => o.text),
+            profile,
+            jobDescription: jobDesc
+          })
+        });
+        clearTimeout(timeout);
+        if (!res.ok)
+          return null;
+        const { index } = await res.json();
+        if (index === -1 || index == null || !opts[index])
+          return null;
+        setCached(field.label, opts[index].text);
+        return opts[index];
+      } catch (_) {
+        return null;
+      }
+    }
     function visibleOptions() {
       return [...document.querySelectorAll('[role="option"], [role="menuitem"], [role="listitem"]')].filter((o) => {
         const r = o.getBoundingClientRect();
         return r.width > 0 && r.height > 0;
       }).map((o) => ({ text: o.textContent.trim(), el: o })).filter((o) => o.text);
     }
-    async function fillCombobox(field, hint) {
+    async function fillCombobox(field, hint, ctx = {}) {
       const el = field.el;
       if (field.type === "datalist") {
         const listId = el.getAttribute("list");
         const datalist = listId ? document.getElementById(listId) : null;
         if (datalist) {
           const opts2 = [...datalist.options].map((o) => ({ text: (o.label || o.value).trim(), val: o.value })).filter((o) => o.text);
-          const pick = fuzzyPickOption(opts2, hint);
+          const pick = fuzzyPickOption(opts2, hint) || await pickOptionViaAI(field, opts2, ctx.jobDesc, ctx.profile);
           if (pick) {
             await typeIn(el, pick.val || pick.text);
             return;
@@ -702,7 +738,7 @@
       await sleep(450);
       opts = visibleOptions();
       if (opts.length > 0) {
-        const pick = fuzzyPickOption(opts, hint) || opts[0];
+        const pick = fuzzyPickOption(opts, hint) || await pickOptionViaAI(field, opts, ctx.jobDesc, ctx.profile) || opts[0];
         pick.el.click();
         await sleep(100);
         return;
@@ -746,22 +782,19 @@
           return { fromCache: true };
         }
       }
-      const optLabels = allOpts.map((o) => o.text).join(", ");
-      const question = `${field.label} (choose the best option from: ${optLabels})`;
-      const { answer } = await apiCall("/copilot/answer", { question, jobDescription: jobDesc, learnedAnswers }, profile);
-      const pick = fuzzyPickOption(allOpts, answer);
+      const pick = await pickOptionViaAI(field, allOpts, jobDesc, profile);
       if (!pick)
-        throw new Error(`AI answer "${answer}" matched no option`);
+        throw new Error(`AI could not match any option for "${field.label}"`);
       nativeSelectSet(field.el, pick.el.value);
       fire(field.el, "input");
       fire(field.el, "change");
       setCached(field.label, pick.text);
       return { fromCache: false };
     }
-    async function fillCustomDropdown(el, value) {
+    async function fillCustomDropdown(field, value, ctx = {}) {
+      const el = field.el;
       reactClick(el);
       await sleep(300);
-      const v = String(value).toLowerCase();
       function collectOptions(root) {
         return [...root.querySelectorAll(
           '[role="option"], [role="menuitem"], [role="listitem"], li[data-value], li[class*="option"], div[class*="option"]'
@@ -775,7 +808,7 @@
         seen.add(o.text);
         return true;
       });
-      const pick = fuzzyPickOption(deduped, value);
+      const pick = fuzzyPickOption(deduped, value) || await pickOptionViaAI(field, deduped, ctx.jobDesc, ctx.profile);
       if (!pick)
         throw new Error(`custom dropdown: no option for "${value}"`);
       pick.el.click();
@@ -1157,7 +1190,7 @@
             const value = profile[field.key];
             if (!value)
               throw new Error("no data for " + field.key);
-            await fillCustomDropdown(field.el, value);
+            await fillCustomDropdown(field, value, { jobDesc, profile });
             setRow(field, "done", "filled");
             filled++;
           } else if (field.type === "custom-select") {
@@ -1172,17 +1205,19 @@
               field.el.click();
               throw new Error("custom dropdown: no options found");
             }
-            const opts = optEls.map((o) => o.textContent.trim()).filter(Boolean);
-            field.el.click();
-            await sleep(100);
+            const opts = optEls.map((o) => ({ text: o.textContent.trim(), el: o })).filter((o) => o.text);
             if (field.label && field.label !== "(Unlabeled)" && !SKIP_EEOC.test(field.label)) {
-              const question = `${field.label} (choose the best option from: ${opts.join(", ")})`;
-              const { answer } = await apiCall("/copilot/answer", { question, jobDescription: jobDesc }, profile);
-              await fillCustomDropdown(field.el, answer);
-              setCached(field.label, answer);
+              const pick = await pickOptionViaAI(field, opts, jobDesc, profile);
+              if (!pick) {
+                field.el.click();
+                throw new Error(`AI could not match option for "${field.label}"`);
+              }
+              pick.el.click();
+              await sleep(100);
               setRow(field, "done", "\u{1F916} AI filled");
               filled++;
             } else {
+              field.el.click();
               setRow(field, "skip", "unknown");
               skipped++;
             }
@@ -1194,7 +1229,7 @@
               const value = profile[field.key];
               if (!value)
                 throw new Error("no data for " + field.key);
-              await fillCombobox(field, value);
+              await fillCombobox(field, value, { jobDesc, profile });
               setRow(field, "done", "filled");
               filled++;
             } else if (field.label && field.label !== "(Unlabeled)" && !SKIP_EEOC.test(field.label)) {
@@ -1207,7 +1242,7 @@
                 continue;
               }
               if (isMultiSelect && learnedVal !== void 0) {
-                await fillCombobox(field, learnedVal);
+                await fillCombobox(field, learnedVal, { jobDesc, profile });
                 setRow(field, "done", "\u{1F4E6} from your saved answer");
                 filled++;
                 field.el.style.outline = "";
@@ -1215,7 +1250,7 @@
               }
               const preferred = learnedVal ?? getCached(field.label);
               if (preferred !== void 0) {
-                await fillCombobox(field, preferred);
+                await fillCombobox(field, preferred, { jobDesc, profile });
                 setRow(field, "done", "\u{1F4E6} from cache");
                 filled++;
                 field.el.style.outline = "";
@@ -1229,15 +1264,11 @@
                 reactClick(field.el);
               await sleep(450);
               const openOpts = visibleOptions();
-              const optTexts = openOpts.map((o) => o.text);
-              const suffix = optTexts.length ? ` (choose best option from: ${optTexts.join(", ")})` : "";
-              const { answer } = await apiCall("/copilot/answer", { question: field.label + suffix, jobDescription: jobDesc, learnedAnswers }, profile);
               if (openOpts.length > 0) {
-                const pick = fuzzyPickOption(openOpts, answer);
+                const pick = await pickOptionViaAI(field, openOpts, jobDesc, profile);
                 if (pick) {
                   pick.el.click();
                   await sleep(100);
-                  setCached(field.label, answer);
                   setRow(field, "done", "\u{1F916} AI filled");
                   filled++;
                   field.el.style.outline = "";
@@ -1246,9 +1277,8 @@
                 field.el.blur();
                 await sleep(100);
               }
-              await fillCombobox(field, answer);
-              setCached(field.label, answer);
-              setRow(field, "done", "\u{1F916} AI filled");
+              await fillCombobox(field, field.label, { jobDesc, profile });
+              setRow(field, "done", "\u{1F916} filled (best effort)");
               filled++;
             } else {
               setRow(field, "skip", "unknown");
