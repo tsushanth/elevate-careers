@@ -58,6 +58,20 @@ function App() {
   const [showApplied, setShowApplied] = useState(false);
   const [appliedCount, setAppliedCount] = useState(0);
   const [dismissMenuJobId, setDismissMenuJobId] = useState(null);
+  // Marks jobs applied-to in this session so the card/button update the
+  // instant Apply is clicked, without waiting for the next server refetch
+  // (which excludes applied jobs, but only once it re-runs).
+  const [appliedJobIds, setAppliedJobIds] = useState(() => {
+    try { const s = sessionStorage.getItem('sa_appliedJobIds'); return s ? new Set(JSON.parse(s)) : new Set(); } catch { return new Set(); }
+  });
+  const markApplied = (jobId) => {
+    setAppliedJobIds(prev => {
+      const next = new Set(prev);
+      next.add(jobId);
+      try { sessionStorage.setItem('sa_appliedJobIds', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
   const fetchSeq = useRef(0);
   const PAGE_SIZE = 50;
 
@@ -410,6 +424,14 @@ function App() {
                     <div className="job-card-title">
                       <h3>{job.title}</h3>
                       <p className="company-name">{job.company_name}</p>
+                      {appliedJobIds.has(job.id) && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          fontSize: 11, fontWeight: 600, color: '#22c55e',
+                          background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)',
+                          borderRadius: 4, padding: '2px 6px', marginTop: 4,
+                        }}>✓ Applied</span>
+                      )}
                     </div>
                     <div style={{ position: 'relative' }}>
                       <button
@@ -560,6 +582,7 @@ function App() {
                     status: 'opened',
                     created_at: new Date().toISOString(),
                   });
+                  markApplied(selectedJob.id);
                   setSeedingJob(null);
 
                   // Persist the application — without this it only lived in
@@ -581,7 +604,9 @@ function App() {
                   }
                 }}
               >
-                {seedingJob === selectedJob.id ? 'Opening…' : '⚡ Apply'} <ExternalLink size={16} />
+                {seedingJob === selectedJob.id
+                  ? 'Opening…'
+                  : appliedJobIds.has(selectedJob.id) ? '✓ Applied — Apply again?' : '⚡ Apply'} <ExternalLink size={16} />
               </button>
             </div>
             {extensionInstalled ? (
