@@ -112,10 +112,7 @@
   }
 
   .hero-sub {
-    font-size: 16px;
-    color: #00000099;
-    margin-bottom: 28px;
-    max-width: 420px;
+    display: none;
   }
 
   .hero-ctas {
