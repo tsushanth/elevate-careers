@@ -8,10 +8,15 @@
 --    company can be found instead of spawning a duplicate row.
 ALTER TABLE company ADD COLUMN IF NOT EXISTS name_normalized TEXT;
 
+-- Note: Postgres regexp_replace uses POSIX ARE syntax, where \b is a
+-- backspace escape, NOT a word boundary (\y is) — unlike JS \b. Must match
+-- normalizeCompanyName() in src/services/normalizer.js exactly, including
+-- stripping punctuation before the legal-suffix pass so "Bumble Inc." and
+-- "Bumble Inc" normalize identically.
 UPDATE company
 SET name_normalized = trim(regexp_replace(
-  regexp_replace(lower(name), '\b(inc|llc|ltd|corp|co)\.?\b', '', 'g'),
-  '[^a-z0-9]+', ' ', 'g'
+  regexp_replace(regexp_replace(lower(name), '[^a-z0-9]+', ' ', 'g'), '\y(inc|llc|ltd|corp|co)\y', '', 'g'),
+  '\s+', ' ', 'g'
 ))
 WHERE name_normalized IS NULL;
 
