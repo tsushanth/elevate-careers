@@ -5,6 +5,28 @@ import { logger } from '../utils/logger.js';
 
 const turndownService = new TurndownService();
 
+// Resolves a company's real website domain from its name, for logo lookups —
+// company.domain is the ATS subdomain (bumbleinc.greenhouse.io), which isn't
+// resolvable by a logo API. Free, unauthenticated, no published rate limit;
+// never throws — a failed/slow lookup shouldn't break company creation.
+export async function resolveLogoDomain(name) {
+  if (!name) return null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(name)}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const results = await res.json();
+    return results[0]?.domain || null;
+  } catch (e) {
+    logger.warn({ error: e.message, name }, 'Logo domain lookup failed');
+    return null;
+  }
+}
+
 export class NormalizerService {
   
   async processJobs(jobs, provider, org) {
@@ -114,9 +136,11 @@ export class NormalizerService {
       if (discovered.rows[0]?.name) name = discovered.rows[0].name;
     }
 
+    const logoDomain = await resolveLogoDomain(name);
+
     const insert = await db.query(
-      'INSERT INTO company (name, domain) VALUES ($1, $2) RETURNING *',
-      [name, domain]
+      'INSERT INTO company (name, domain, logo_domain) VALUES ($1, $2, $3) RETURNING *',
+      [name, domain, logoDomain]
     );
 
     return insert.rows[0];

@@ -123,6 +123,11 @@ CREATE TABLE IF NOT EXISTS ats_rules (
   active      BOOLEAN DEFAULT true
 );
 
+-- Real company website domain for logo lookups — company.domain is the ATS
+-- subdomain (e.g. bumbleinc.greenhouse.io), which Clearbit's logo API can't
+-- resolve since it isn't the company's actual site.
+ALTER TABLE company ADD COLUMN IF NOT EXISTS logo_domain TEXT;
+
 -- Additive column migrations (safe to re-run)
 ALTER TABLE job ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 UPDATE job SET is_active = true WHERE is_active IS NULL;

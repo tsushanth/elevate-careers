@@ -436,7 +436,7 @@ function App() {
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="job-card-header">
-                    <CompanyLogo name={job.company_name} domain={job.company_domain} className="company-logo" />
+                    <CompanyLogo name={job.company_name} domain={job.company_logo_domain || job.company_domain} className="company-logo" />
                     <div className="job-card-title">
                       <h3>{job.title}</h3>
                       <p className="company-name">{job.company_name}</p>
@@ -549,7 +549,7 @@ function App() {
           <div className="job-detail">
             <div className="job-detail-header">
               <div className="job-detail-company">
-                <CompanyLogo name={selectedJob.company_name} domain={selectedJob.company_domain} className="company-logo-large" />
+                <CompanyLogo name={selectedJob.company_name} domain={selectedJob.company_logo_domain || selectedJob.company_domain} className="company-logo-large" />
                 <h2
                   onClick={() => navigate(`/companies/${slugify(selectedJob.company_name)}`)}
                   style={{ cursor: 'pointer', color: '#6366f1' }}
