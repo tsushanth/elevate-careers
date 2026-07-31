@@ -125,6 +125,36 @@
     align-items: flex-start;
   }
 
+  .hero-cta-google {
+    background: #fff;
+    color: #3c4043;
+    border: 1.5px solid #dadce0;
+    border-radius: 9999px;
+    padding: 13px 28px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    min-width: 340px;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    box-sizing: border-box;
+  }
+
+  .hero-cta-google:hover {
+    background: #f8f9fa;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+
+  .hero-cta-google-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
   .hero-cta-primary {
     background: #0a66c2;
     color: #fff;
