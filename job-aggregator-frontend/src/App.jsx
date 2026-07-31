@@ -328,7 +328,7 @@ function App() {
       {activeTab === 'jobs' && !session && (
         <div className="hero-section">
           <div className="hero-left">
-            <h2 className="hero-headline">Find the job that's right for you.</h2>
+            <h1 className="hero-headline">Find the job that's right for you.</h1>
             <p className="hero-sub">AI-powered job matching and one-click autofill — so you can apply faster and smarter.</p>
             <div className="hero-ctas">
               <button className="hero-cta-primary" onClick={() => setShowAuthModal(true)}>Sign up free</button>
