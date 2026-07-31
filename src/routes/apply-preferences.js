@@ -119,6 +119,12 @@ router.get('/suggested', requireAuth, async (req, res) => {
     const appliedJobIds = appliedResult.rows.map(r => r.job_id).filter(Boolean);
     const appliedUrls = appliedResult.rows.filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
 
+    const dismissedResult = await db.query(
+      `SELECT job_id FROM dismissed_jobs WHERE user_id=$1`,
+      [req.user.id]
+    );
+    const dismissedJobIds = dismissedResult.rows.map(r => r.job_id);
+
     const tsQuery = keywords.join(' | ');
     let jobQuery = `
       SELECT j.id, j.apply_url, j.title, j.remote, j.salary_min, j.salary_max, j.posted_at,
@@ -137,6 +143,11 @@ router.get('/suggested', requireAuth, async (req, res) => {
     if (appliedJobIds.length) {
       jobQuery += ` AND j.id != ALL($${pidx}::bigint[])`;
       queryParams.push(appliedJobIds);
+      pidx++;
+    }
+    if (dismissedJobIds.length) {
+      jobQuery += ` AND j.id != ALL($${pidx}::bigint[])`;
+      queryParams.push(dismissedJobIds);
       pidx++;
     }
     if (appliedUrls.length) {
@@ -233,6 +244,25 @@ router.post('/seed', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('[prefs seed]', e);
     res.status(500).json({ error: 'Failed to seed preferences' });
+  }
+});
+
+// POST /api/preferences/dismiss-job — persists "just remove this card".
+// Previously client-only (sessionStorage), so it silently came back on any
+// fresh fetch (new tab, browser restart, filter change).
+router.post('/dismiss-job', requireAuth, async (req, res) => {
+  const { jobId } = req.body;
+  if (!jobId) return res.status(400).json({ error: 'jobId required' });
+  try {
+    await db.query(
+      `INSERT INTO dismissed_jobs (user_id, job_id) VALUES ($1, $2)
+       ON CONFLICT (user_id, job_id) DO NOTHING`,
+      [req.user.id, jobId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[dismiss-job]', e);
+    res.status(500).json({ error: 'Failed to dismiss job' });
   }
 });
 
