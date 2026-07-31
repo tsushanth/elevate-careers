@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink } from 'lucide-react';
 import { supabase } from './supabase';
@@ -66,6 +67,10 @@ function App() {
   const [showApplied, setShowApplied] = useState(false);
   const [appliedCount, setAppliedCount] = useState(0);
   const [dismissMenuJobId, setDismissMenuJobId] = useState(null);
+  // Screen coordinates for the portal-rendered dismiss menu below — it's
+  // rendered into document.body via createPortal so it isn't clipped by the
+  // job list's `overflow-y: auto`, which was cutting the menu off before.
+  const [dismissMenuPos, setDismissMenuPos] = useState(null);
   // Marks jobs applied-to in this session so the card/button update the
   // instant Apply is clicked, without waiting for the next server refetch
   // (which excludes applied jobs, but only once it re-runs).
@@ -447,13 +452,20 @@ function App() {
                     <div style={{ position: 'relative' }}>
                       <button
                         className="close-button"
-                        onClick={e => { e.stopPropagation(); setDismissMenuJobId(dismissMenuJobId === job.id ? null : job.id); }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (dismissMenuJobId === job.id) { setDismissMenuJobId(null); return; }
+                          const r = e.currentTarget.getBoundingClientRect();
+                          setDismissMenuPos({ top: r.bottom + 4, left: r.right });
+                          setDismissMenuJobId(job.id);
+                        }}
                       >×</button>
-                      {dismissMenuJobId === job.id && (
+                      {dismissMenuJobId === job.id && dismissMenuPos && createPortal(
                         <div
                           onClick={e => e.stopPropagation()}
                           style={{
-                            position: 'absolute', top: '100%', right: 0, zIndex: 20,
+                            position: 'fixed', top: dismissMenuPos.top, left: dismissMenuPos.left,
+                            transform: 'translateX(-100%)', zIndex: 1000,
                             background: '#111827', border: '1px solid rgba(255,255,255,0.12)',
                             borderRadius: 8, minWidth: 220, padding: 4,
                             boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
@@ -471,7 +483,8 @@ function App() {
                             onClick={() => dismissJob(job, 'card')}
                             style={dismissMenuItemStyle}
                           >Just remove this card</button>
-                        </div>
+                        </div>,
+                        document.body
                       )}
                     </div>
                   </div>
