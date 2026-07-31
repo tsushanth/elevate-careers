@@ -614,18 +614,21 @@ app.get('/jobs/personalized', async (req, res) => {
           // excludes only jobs with a clear NON-US signal instead — jobs with
           // no location data, or an unspecified/ambiguous country, still pass.
           // Also rejects recruiting-region codes in `region` (LATAM/APAC/etc
-          // — never the US) and an unambiguous non-US country/region name in
-          // the title itself, since location data is frequently incomplete
-          // (bare "Canada"/"Colombia"/"India (Remote)" style postings — see
-          // parseLocation in normalizer.js) but the title often spells it
-          // out anyway ("... - Bangalore, India", "... - LATAM").
+          // — never the US) and an unambiguous non-US country/region/city
+          // name in the title itself, since location data is frequently
+          // incomplete (bare "Canada"/"Colombia"/"Zurich" style postings —
+          // see parseLocation/geo.js in normalizer.js) but the title often
+          // spells it out anyway ("... - Bangalore, India", "... - LATAM").
+          // The old hardcoded Indian-city regex that used to live here is
+          // gone — geo.js's CITY_COUNTRY table (India cities included) now
+          // resolves those to a real `country`, so the country check alone
+          // covers it, with broader coverage than just India.
           clauses.push(`(
             (
               NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
               OR EXISTS (
                 SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
                   AND (jlf.country IS NULL OR jlf.country ~* '\y(usa|us|united states)\y')
-                  AND jlf.city !~* '(bengaluru|bangalore|mumbai|hyderabad|pune|delhi|chennai|noida|gurgaon|gurugram)'
                   AND (jlf.region IS NULL OR jlf.region !~* '\y(${NON_US_REGION_CODES_SQL})\y')
               )
             )
