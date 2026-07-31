@@ -99,20 +99,23 @@
 
   .hero-ctas {
     display: flex;
+    flex-direction: column;
     gap: 12px;
-    flex-wrap: wrap;
+    align-items: flex-start;
   }
 
   .hero-cta-primary {
     background: #0a66c2;
     color: #fff;
     border: none;
-    border-radius: 24px;
-    padding: 12px 28px;
+    border-radius: 9999px;
+    padding: 14px 28px;
     font-size: 16px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.2s;
+    min-width: 340px;
+    text-align: center;
   }
 
   .hero-cta-primary:hover {
@@ -123,7 +126,7 @@
     background: transparent;
     color: #0a66c2;
     border: 2px solid #0a66c2;
-    border-radius: 24px;
+    border-radius: 9999px;
     padding: 12px 28px;
     font-size: 16px;
     font-weight: 600;
@@ -131,6 +134,9 @@
     text-decoration: none;
     transition: background 0.2s, color 0.2s;
     display: inline-block;
+    min-width: 340px;
+    text-align: center;
+    box-sizing: border-box;
   }
 
   .hero-cta-secondary:hover {
