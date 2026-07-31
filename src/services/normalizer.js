@@ -5,6 +5,24 @@ import { logger } from '../utils/logger.js';
 
 const turndownService = new TurndownService();
 
+// Mirrors the SQL normalization in the company_identity_and_applied_job_id
+// migration exactly — keep both in sync, they're compared directly.
+export function normalizeCompanyName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|corp|co)\.?\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Mirrors the SQL `lower(trim(regexp_replace(title, '\s+', ' ', 'g')))` used
+// in the excluded_titles filter — catches case/whitespace variants only,
+// not reworded titles (e.g. "... II" suffix). Full fuzzy title matching is
+// a separate, larger piece of work.
+export function normalizeTitle(title) {
+  return (title || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
 // Resolves a company's real website domain from its name, for logo lookups —
 // company.domain is the ATS subdomain (bumbleinc.greenhouse.io), which isn't
 // resolvable by a logo API. Free, unauthenticated, no published rate limit;
@@ -136,11 +154,27 @@ export class NormalizerService {
       if (discovered.rows[0]?.name) name = discovered.rows[0].name;
     }
 
+    // Domain alone isn't a stable company identity — the same company shows
+    // up under different domains across ingestion adapters/runs (ATS
+    // subdomain vs. a later-discovered custom domain, casing, etc). Before
+    // creating a new row, check whether a company with the same normalized
+    // name already exists and reuse it — otherwise a domain variant spawns
+    // a duplicate company row that user exclusions (matched by name) can't
+    // find, and jobs from an "excluded" company silently reappear.
+    const normalized = normalizeCompanyName(name);
+    const byName = await db.query(
+      'SELECT * FROM company WHERE name_normalized = $1 LIMIT 1',
+      [normalized]
+    );
+    if (byName.rows.length > 0) {
+      return byName.rows[0];
+    }
+
     const logoDomain = await resolveLogoDomain(name);
 
     const insert = await db.query(
-      'INSERT INTO company (name, domain, logo_domain) VALUES ($1, $2, $3) RETURNING *',
-      [name, domain, logoDomain]
+      'INSERT INTO company (name, domain, logo_domain, name_normalized) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, domain, logoDomain, normalized]
     );
 
     return insert.rows[0];

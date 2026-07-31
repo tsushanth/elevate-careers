@@ -3,6 +3,8 @@ import { Queue } from 'bullmq';
 import { connection } from '../services/queue.js';
 import { db } from '../db/index.js';
 import { createClient } from '@supabase/supabase-js';
+import { resolveJobIdForUrl } from '../services/jobIdentity.js';
+import { normalizeCompanyName } from '../services/normalizer.js';
 
 const router = express.Router();
 
@@ -108,12 +110,14 @@ router.get('/suggested', requireAuth, async (req, res) => {
 
     if (keywords.length === 0) return res.json({ jobs: [], keywords: [] });
 
-    // Get already-applied URLs
+    // Get already-applied jobs — prefer job_id (stable) over job_url
+    // (drifts on re-ingestion), same reasoning as /jobs/personalized.
     const appliedResult = await db.query(
-      `SELECT job_url FROM job_applications WHERE user_id=$1`,
+      `SELECT job_id, job_url FROM job_applications WHERE user_id=$1`,
       [req.user.id]
     );
-    const appliedUrls = appliedResult.rows.map(r => r.job_url).filter(Boolean);
+    const appliedJobIds = appliedResult.rows.map(r => r.job_id).filter(Boolean);
+    const appliedUrls = appliedResult.rows.filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
 
     const tsQuery = keywords.join(' | ');
     let jobQuery = `
@@ -130,10 +134,16 @@ router.get('/suggested', requireAuth, async (req, res) => {
     const queryParams = [tsQuery];
     let pidx = 2;
 
+    if (appliedJobIds.length) {
+      jobQuery += ` AND j.id != ALL($${pidx}::bigint[])`;
+      queryParams.push(appliedJobIds);
+      pidx++;
+    }
     if (appliedUrls.length) {
       // Compare with query string + trailing slash stripped — the extension
       // appends tracking params (e.g. ?gh_src=...) when a user applies, which
       // would defeat an exact-string match against the ingested apply_url.
+      // Fallback only, for legacy rows with no job_id (see jobIdentity.js).
       jobQuery += ` AND NOT EXISTS (
         SELECT 1 FROM unnest($${pidx}::text[]) au(url)
         WHERE rtrim(split_part(j.apply_url, '?', 1), '/') = rtrim(split_part(au.url, '?', 1), '/')
@@ -144,8 +154,8 @@ router.get('/suggested', requireAuth, async (req, res) => {
     if (prefs.remote) jobQuery += ` AND j.remote = true`;
     if (prefs.salary_min) { jobQuery += ` AND (j.salary_min IS NULL OR j.salary_min >= $${pidx})`; queryParams.push(prefs.salary_min); pidx++; }
     if ((prefs.excluded_companies || []).length) {
-      jobQuery += ` AND c.name NOT ILIKE ANY($${pidx}::text[])`;
-      queryParams.push(prefs.excluded_companies);
+      jobQuery += ` AND c.name_normalized != ALL($${pidx}::text[])`;
+      queryParams.push(prefs.excluded_companies.map(normalizeCompanyName));
       pidx++;
     }
 
@@ -199,11 +209,12 @@ router.post('/seed', requireAuth, async (req, res) => {
       return res.json({ ok: true, queued: false, reason: 'no_profile' });
     }
 
+    const jobId = await resolveJobIdForUrl(jobUrl);
     const appResult = await db.query(
-      `INSERT INTO job_applications (user_id, job_url, job_title, company, status, auto_applied, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,'queued',true,NOW(),NOW())
+      `INSERT INTO job_applications (user_id, job_url, job_title, company, job_id, status, auto_applied, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,'queued',true,NOW(),NOW())
        RETURNING id`,
-      [req.user.id, jobUrl, jobTitle || null, company || null]
+      [req.user.id, jobUrl, jobTitle || null, company || null, jobId]
     );
     const applicationId = appResult.rows[0].id;
 
