@@ -3,6 +3,7 @@ import { Queue } from 'bullmq';
 import { connection } from '../services/queue.js';
 import { db } from '../db/index.js';
 import { createClient } from '@supabase/supabase-js';
+import { resolveJobIdForUrl } from '../services/jobIdentity.js';
 
 const router = express.Router();
 
@@ -59,11 +60,12 @@ router.post('/enqueue', requireAuth, async (req, res) => {
   if (!profile || Object.keys(profile).length === 0) return res.status(400).json({ error: 'No profile found — complete your profile first' });
 
   // Insert job_application row
+  const jobId = await resolveJobIdForUrl(jobUrl);
   const appResult = await db.query(
-    `INSERT INTO job_applications (user_id, job_url, job_title, company, status, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, 'queued', NOW(), NOW())
+    `INSERT INTO job_applications (user_id, job_url, job_title, company, job_id, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, 'queued', NOW(), NOW())
      RETURNING id`,
-    [req.user.id, jobUrl, jobTitle || null, company || null]
+    [req.user.id, jobUrl, jobTitle || null, company || null, jobId]
   );
   const applicationId = appResult.rows[0].id;
 

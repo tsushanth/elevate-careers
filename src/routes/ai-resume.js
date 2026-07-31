@@ -3,6 +3,7 @@ import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
+import { resolveJobIdForUrl } from '../services/jobIdentity.js';
 
 const router = express.Router();
 
@@ -721,11 +722,13 @@ router.post('/applications/track', requireAuth, async (req, res) => {
     if (!jobUrl) return res.status(400).json({ error: 'jobUrl required' });
 
     const sb = getSupabase();
+    const jobId = await resolveJobIdForUrl(jobUrl);
     const { data, error } = await sb.from('job_applications').insert({
       user_id:        req.user.id,
       job_url:        jobUrl,
       job_title:      jobTitle || null,
       company:        company  || null,
+      job_id:         jobId,
       field_count:    fieldCount || 0,
       ai_used:        !!aiUsed,
       fields_filled:  filled  || 0,
