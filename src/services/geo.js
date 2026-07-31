@@ -40,6 +40,9 @@ const COUNTRY_SYNONYMS = {
   // (e.g. "Atlanta, Georgia"), which is exactly the false-positive risk to
   // avoid here. Add a country-vs-state disambiguation before re-adding it.
   azerbaijan: 'Azerbaijan', kazakhstan: 'Kazakhstan', russia: 'Russia', cyprus: 'Cyprus',
+  moldova: 'Moldova', armenia: 'Armenia', belarus: 'Belarus', slovakia: 'Slovakia',
+  slovenia: 'Slovenia', lithuania: 'Lithuania', latvia: 'Latvia', estonia: 'Estonia',
+  luxembourg: 'Luxembourg', malta: 'Malta', iceland: 'Iceland',
   'united states': 'United States', usa: 'United States', us: 'United States',
 };
 
@@ -71,7 +74,8 @@ export const REGION_CODES = [...new Set(Object.values(REGION_SYNONYMS))];
 const CITY_COUNTRY = {
   // UK
   london: 'UK', manchester: 'UK', bristol: 'UK', edinburgh: 'UK', glasgow: 'UK', leeds: 'UK',
-  birmingham: 'UK', cambridge: 'UK', oxford: 'UK',
+  birmingham: 'UK', cambridge: 'UK', oxford: 'UK', bracknell: 'UK', reading: 'UK',
+  slough: 'UK', leicester: 'UK', sheffield: 'UK', newcastle: 'UK', belfast: 'UK',
   // Ireland
   dublin: 'Ireland', cork: 'Ireland',
   // France
