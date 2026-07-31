@@ -23,7 +23,13 @@ const dismissMenuItemStyle = {
 
 function App() {
   const navigate = useNavigate();
-  const [jobs, setJobs] = useState([]);
+  // Cached the same way selectedJob already was — otherwise every fresh
+  // mount (navigating to a company page and back, browser back/forward)
+  // blanks the list and shows a loading spinner even though the results
+  // probably haven't changed since last visit.
+  const [jobs, setJobs] = useState(() => {
+    try { const s = sessionStorage.getItem('sa_jobs'); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
   const [selectedJob, setSelectedJob] = useState(() => {
     try { const s = sessionStorage.getItem('sa_selectedJob'); return s ? JSON.parse(s) : null; } catch { return null; }
   });
@@ -31,11 +37,15 @@ function App() {
     setSelectedJob(job);
     try { sessionStorage.setItem('sa_selectedJob', JSON.stringify(job)); } catch {}
   };
-  const [loading, setLoading] = useState(true);
+  // Only true while there's no cached list to show yet — a background
+  // refetch on top of cached results shouldn't blank the page.
+  const [loading, setLoading] = useState(jobs.length === 0);
   const [filters, setFilters] = useState({
     keyword: '', remote: false, location: '', employmentType: '', datePosted: '',
   });
-  const [totalCount, setTotalCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(() => {
+    try { return parseInt(sessionStorage.getItem('sa_totalCount'), 10) || 0; } catch { return 0; }
+  });
   const [session, setSession] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -84,7 +94,9 @@ function App() {
     // request can resolve after a later one and clobber it with stale/smaller
     // results. Only the response from the most-recently-issued call wins.
     const mySeq = ++fetchSeq.current;
-    setLoading(true);
+    // Only show the blocking spinner when there's nothing cached to display —
+    // a background refresh on top of an already-visible list shouldn't blank it.
+    if (jobs.length === 0) setLoading(true);
     try {
       const params = new URLSearchParams({
         limit: PAGE_SIZE,
@@ -109,11 +121,19 @@ function App() {
       const response = await fetch(url, { headers });
       const data = await response.json();
       if (mySeq !== fetchSeq.current) return; // a newer request superseded this one
-      setJobs(data.jobs || []);
+      const freshJobs = data.jobs || [];
+      setJobs(freshJobs);
       setTotalCount(data.count || 0);
+      try {
+        sessionStorage.setItem('sa_jobs', JSON.stringify(freshJobs));
+        sessionStorage.setItem('sa_totalCount', String(data.count || 0));
+      } catch {}
       if (data.appliedCount !== undefined) setAppliedCount(data.appliedCount);
-      if (data.jobs && data.jobs.length > 0) {
-        selectJob(data.jobs[0]);
+      // Only auto-select the first job when nothing is already selected —
+      // otherwise a background refresh would keep snapping the detail pane
+      // back to job #1 out from under whatever the user had picked.
+      if (!selectedJob && freshJobs.length > 0) {
+        selectJob(freshJobs[0]);
       }
     } catch (error) {
       console.error('Error fetching jobs:', error);
@@ -131,10 +151,18 @@ function App() {
   };
 
   // action: 'card' (this session only) | 'company' | 'title' (persisted to prefs)
+  const removeJobsFromCache = (predicate) => {
+    setJobs(prev => {
+      const next = prev.filter(j => !predicate(j));
+      try { sessionStorage.setItem('sa_jobs', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
   const dismissJob = async (job, action) => {
     setDismissMenuJobId(null);
     if (action === 'card') {
-      setJobs(prev => prev.filter(j => j.id !== job.id));
+      removeJobsFromCache(j => j.id === job.id);
       return;
     }
     if (!session) return;
@@ -153,7 +181,7 @@ function App() {
         body: JSON.stringify({ ...current, ...patch }),
       });
 
-      setJobs(prev => prev.filter(j => action === 'company' ? j.company_name !== job.company_name : j.title !== job.title));
+      removeJobsFromCache(j => action === 'company' ? j.company_name === job.company_name : j.title === job.title);
     } catch (e) {
       console.error('Failed to dismiss job', e);
     }

@@ -20,7 +20,7 @@ echo "Step 2: Ingesting jobs for all discovered companies..."
 # The loop runs HERE, on the cron machine, not as a background task inside the
 # API process — that used to mean every unrelated API deploy killed ingestion
 # mid-run. This machine is untouched by API deploys, so it survives them.
-QUEUE=$(curl -sf --max-time 30 "$API/ingest/queue?secret=$SECRET&limit=3000")
+QUEUE=$(curl -sf --max-time 30 "$API/ingest/queue?secret=$SECRET&limit=6000")
 COUNT=$(echo "$QUEUE" | jq -r '.companies | length' 2>/dev/null)
 echo "Queue: $COUNT companies to ingest"
 

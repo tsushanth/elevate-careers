@@ -87,6 +87,43 @@ app.post('/ingest/bootstrap-discovery', async (req, res) => {
 
     setImmediate(async () => {
       let total = 0;
+      const CHUNK = 500;
+
+      // Batch-insert helper: one multi-row INSERT per chunk instead of one
+      // query per row. With ~20K+ rows across all sources combined, one-row-
+      // at-a-time (~90ms/row observed) took 60-90+ minutes — long enough that
+      // the cron script's fixed wait before starting ingestion ran out before
+      // discovery actually finished. Chunked inserts bring this down to seconds.
+      async function batchUpsert(rows, { withName }) {
+        // A single INSERT...ON CONFLICT can't target the same (provider, org)
+        // twice — dedupe first in case a source lists the same company twice.
+        const seen = new Set();
+        const deduped = rows.filter(r => {
+          const key = `${r[0]}:${r[1]}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        for (let i = 0; i < deduped.length; i += CHUNK) {
+          const chunk = deduped.slice(i, i + CHUNK);
+          const cols = withName ? 4 : 3;
+          const values = [];
+          const placeholders = chunk.map((row, j) => {
+            const base = j * cols;
+            values.push(...row);
+            return withName
+              ? `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`
+              : `($${base + 1}, $${base + 2}, $${base + 3})`;
+          }).join(', ');
+          const sql = withName
+            ? `INSERT INTO discovered_company (provider, org, name, source) VALUES ${placeholders}
+               ON CONFLICT (provider, org) DO UPDATE SET name = COALESCE(discovered_company.name, EXCLUDED.name)`
+            : `INSERT INTO discovered_company (provider, org, source) VALUES ${placeholders}
+               ON CONFLICT (provider, org) DO NOTHING`;
+          await db.query(sql, values);
+          total += chunk.length;
+        }
+      }
 
       // Source 1: kalil0321/ats-scrapers — CSV with name,slug,url (clean, named)
       const kalilPlatforms = {
@@ -104,21 +141,17 @@ app.post('/ingest/bootstrap-discovery', async (req, res) => {
           if (!resp.ok) continue;
           const text = await resp.text();
           const lines = text.trim().split('\n').slice(1); // skip header
+          const rows = [];
           for (const line of lines) {
             const parts = line.split(',');
             if (parts.length < 2) continue;
             const name = parts[0].trim().replace(/^"|"$/g, '');
             const org = parts[1].trim().replace(/^"|"$/g, '').toLowerCase();
             if (!org) continue;
-            await db.query(
-              `INSERT INTO discovered_company (provider, org, name, source)
-               VALUES ($1, $2, $3, 'github_kalil')
-               ON CONFLICT (provider, org) DO UPDATE SET name = COALESCE(discovered_company.name, EXCLUDED.name)`,
-              [provider, org, name]
-            );
-            total++;
+            rows.push([provider, org, name, 'github_kalil']);
           }
-          logger.info({ provider, source: 'github_kalil' }, 'Bootstrap CSV loaded');
+          await batchUpsert(rows, { withName: true });
+          logger.info({ provider, source: 'github_kalil', count: rows.length }, 'Bootstrap CSV loaded');
         } catch (e) {
           logger.error({ error: e.message, provider, url }, 'Bootstrap CSV error');
         }
@@ -135,19 +168,15 @@ app.post('/ingest/bootstrap-discovery', async (req, res) => {
           const resp = await fetch(url);
           if (!resp.ok) continue;
           const slugs = await resp.json();
+          const rows = [];
           for (const slug of slugs) {
             const org = String(slug).toLowerCase().trim();
             // Skip noise: purely numeric IDs or very short slugs
             if (!org || /^\d+$/.test(org) || org.length < 2) continue;
-            await db.query(
-              `INSERT INTO discovered_company (provider, org, source)
-               VALUES ($1, $2, 'github_feashliaa')
-               ON CONFLICT (provider, org) DO NOTHING`,
-              [provider, org]
-            );
-            total++;
+            rows.push([provider, org, 'github_feashliaa']);
           }
-          logger.info({ provider, source: 'github_feashliaa' }, 'Bootstrap JSON loaded');
+          await batchUpsert(rows, { withName: false });
+          logger.info({ provider, source: 'github_feashliaa', count: rows.length }, 'Bootstrap JSON loaded');
         } catch (e) {
           logger.error({ error: e.message, provider, url }, 'Bootstrap JSON error');
         }
@@ -192,7 +221,7 @@ app.post('/ingest/report-org', async (req, res) => {
 // touch) fixes that; this endpoint just hands it the ordered work list.
 app.get('/ingest/queue', async (req, res) => {
   try {
-    const { secret, limit = 3000 } = req.query;
+    const { secret, limit = 6000 } = req.query;
     if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
     const { rows } = await db.query(
       `SELECT provider, org FROM discovered_company WHERE enabled = true ORDER BY last_ingested_at ASC NULLS FIRST LIMIT $1`,
