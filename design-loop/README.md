@@ -10,6 +10,8 @@ cd design-loop && npm install && npx playwright install chromium
 ```
 Requires: local `claude` CLI logged in (OAuth) — no `ANTHROPIC_API_KEY` needed, it's stripped from the subprocess env on purpose. Requires `flyctl auth login` for deploys.
 
+Optional: `DESIGN_LOOP_TEST_EMAIL` / `DESIGN_LOOP_TEST_PASSWORD` — a dedicated Supabase test account. When set, the loop also captures the logged-in Applications tab (vs LinkedIn's Jobs page) as a third rotating page. Without it, that page is skipped and only the two public pages (home hero, scrolled job listing) rotate.
+
 ## Run
 ```
 node src/loop.js --no-deploy --iterations=1   # dry run: capture, judge, patch — no build/deploy/commit review yet
@@ -17,12 +19,20 @@ node src/loop.js --iterations=3               # small real run with deploys
 node src/loop.js --iterations=20              # full run (default cap)
 ```
 
+## Pages
+The loop rotates across `PAGES` in `src/loop.js` (one page per iteration, round-robin) instead of hammering a single view:
+- `home-hero` — logged-out landing vs `linkedin.com`
+- `job-listing` — scrolled past the hero to the job list vs `linkedin.com/jobs/`
+- `applications-tab` — logged-in Applications tab vs `linkedin.com/jobs/` (only when test credentials are set)
+
+Gap memory, best-score tracking, and the regression guard are all scoped per-page — scores from different page pairs aren't compared against each other.
+
 ## Guardrails
 - Build must pass (`npm run build`) before any deploy attempt.
 - No-op detection: if a patch builds but produces byte-identical static output, it's marked `did-not-land` (not scored as "no improvement") and retried once with a different approach before being abandoned.
-- Per-gap stagnation: 3 consecutive near-zero-delta attempts on the same gap → marked `exhausted`, never re-selected.
-- Global stagnation: if the last 5 iterations summed to ≤2 points of improvement, the loop stops early rather than burning the rest of the iteration budget.
-- Regression guard: if a deploy scores >3 points below the best-known score, it's auto-reverted and redeployed immediately.
+- Per-gap stagnation: 3 consecutive near-zero-delta attempts on the same gap (within its page) → marked `exhausted`, never re-selected.
+- Global stagnation: if the last 5 iterations (across all pages) summed to ≤2 points of improvement, the loop stops early rather than burning the rest of the iteration budget.
+- Regression guard: if a deploy scores >3 points below that page's best-known score, it's auto-reverted and redeployed immediately.
 - Missing *features* (not styling) go to `feature-backlog.json` for manual review — the loop never auto-builds backend/data-model changes.
 
 ## Output

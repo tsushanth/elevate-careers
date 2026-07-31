@@ -1,0 +1,166 @@
+[
+  {
+    "name": "Hero Illustration",
+    "description": "LinkedIn's homepage features a large right-side decorative illustration (person at laptop) that creates visual warmth. We have no hero illustration."
+  },
+  {
+    "name": "Google/Social Auth",
+    "description": "LinkedIn prominently offers 'Continue with Google' OAuth. We have no social auth entry point."
+  },
+  {
+    "name": "Legal / Terms copy",
+    "description": "LinkedIn shows consent text ('By clicking Continue… you agree to LinkedIn's User Agreement, Privacy Policy, and Cookie Policy') below auth CTAs. We have no equivalent."
+  },
+  {
+    "name": "Secondary content discovery section",
+    "description": "LinkedIn has a full-width 'Explore top LinkedIn content' section with topic category chips (Career, Productivity, Finance, etc.) driving content discovery. We have no equivalent content section."
+  },
+  {
+    "name": "OAuth / Social Sign-in",
+    "description": "LinkedIn prominently offers 'Continue with Google' as the primary auth entry point. We have no OAuth flow at all."
+  },
+  {
+    "name": "Content Discovery Band",
+    "description": "LinkedIn has a full-width section below the hero with curated topic categories (Career, Productivity, Finance…). We jump straight to job listings with no discovery layer."
+  },
+  {
+    "name": "Icon-labeled Navigation",
+    "description": "LinkedIn nav items pair an icon with a text label, making the nav scannable and visually rich. Ours is plain text only."
+  },
+  {
+    "name": "OAuth / social sign-in buttons",
+    "description": "LinkedIn prominently features 'Continue with Google' as the primary CTA using a branded Google button; our site has no OAuth flow"
+  },
+  {
+    "name": "Icon-based navigation",
+    "description": "LinkedIn's top nav uses stacked icon+label items (Top Content, People, Learning, Jobs, Games) with SVG icons — our nav is text-only links"
+  },
+  {
+    "name": "Legal consent copy",
+    "description": "LinkedIn shows 'By clicking Continue you agree to...' fine print with inline links below the CTAs; we have no consent/legal copy in the hero"
+  },
+  {
+    "name": "Content discovery section",
+    "description": "LinkedIn's below-fold shows a 'Explore top LinkedIn content' section with topic category pills in a multi-row grid; we jump directly to job results"
+  },
+  {
+    "name": "Rich hero illustration",
+    "description": "LinkedIn uses a large detailed illustrated scene (person + environment) as the right-column visual; ours is a small flat SVG card mockup"
+  },
+  {
+    "name": "Social sign-in",
+    "description": "LinkedIn offers 'Continue with Google' OAuth as primary CTA; we have no social auth option"
+  },
+  {
+    "name": "Full-bleed illustration",
+    "description": "LinkedIn illustration extends to the right viewport edge with no card border; ours is boxed in a rounded container"
+  },
+  {
+    "name": "Two-tone page layout",
+    "description": "LinkedIn splits the page into white hero and #f3f2ef content zone; our page is a single uniform gray"
+  },
+  {
+    "name": "Google SSO CTA",
+    "description": "LinkedIn's primary hero CTA is a Google SSO button with the Google logo. We have no OAuth/SSO entry point, only generic sign-up and Chrome extension buttons."
+  },
+  {
+    "name": "Circular illustration bleed",
+    "description": "LinkedIn's illustration uses a large decorative circle/blob that bleeds beyond the content column, giving an editorial feel. We use a flat rectangular SVG in a contained box."
+  },
+  {
+    "name": "Icon-based navigation tabs",
+    "description": "LinkedIn's top nav has icon+label pairs for major sections. Ours is text-only links."
+  },
+  {
+    "name": "Topic/category exploration band",
+    "description": "LinkedIn has a full-width secondary section below the hero showing curated topic chips (Career, Finance, Technology…). We jump straight to a job results card."
+  },
+  {
+    "name": "New user join prompt",
+    "description": "LinkedIn shows 'New to LinkedIn? Join now' inline text link below the auth options. We have no equivalent secondary onboarding nudge below the CTAs."
+  },
+  {
+    "name": "Legal/ToS consent copy",
+    "description": "LinkedIn displays fine-print consent text below the CTA buttons ('By clicking Continue… you agree to LinkedIn's User Agreement, Privacy Policy…') — important for compliance and trust signals"
+  },
+  {
+    "name": "Google OAuth CTA",
+    "description": "LinkedIn prominently features a 'Continue with Google' button with the Google logo as the primary hero CTA. We have no OAuth provider buttons."
+  },
+  {
+    "name": "Legal/terms copy under CTA",
+    "description": "LinkedIn shows fine-print legal text ('By clicking Continue to join or sign in, you agree to LinkedIn's User Agreement, Privacy Policy, and Cookie Policy.') below the auth buttons. We have no equivalent."
+  },
+  {
+    "name": "Icon-labeled navbar",
+    "description": "LinkedIn nav items have a small icon stacked above the label text. We have text-only nav links with no icons."
+  },
+  {
+    "name": "SSO / OAuth CTA",
+    "description": "LinkedIn prominently offers 'Continue with Google' as the primary hero CTA with brand logo. Our site has no OAuth option."
+  },
+  {
+    "name": "Icon-labeled navigation",
+    "description": "LinkedIn nav items combine a small icon above a text label for Top Content, People, Learning, Jobs, Games — creating visual navigation landmarks we entirely lack."
+  },
+  {
+    "name": "Topic exploration section",
+    "description": "LinkedIn's below-fold shows a curated topic grid (Career, Productivity, Finance, etc.) for content discovery. We jump straight to job results."
+  },
+  {
+    "name": "Legal fine print under CTAs",
+    "description": "LinkedIn shows User Agreement / Privacy Policy / Cookie Policy disclaimer under the hero CTAs, building trust and meeting compliance expectations."
+  },
+  {
+    "name": "Google/SSO auth flow",
+    "description": "LinkedIn leads with social auth (Continue with Google) as the primary conversion action on the logged-out homepage"
+  },
+  {
+    "name": "Illustration bleeds to edge",
+    "description": "LinkedIn's hero illustration circle is cropped by the viewport right edge creating depth; ours is fully contained"
+  },
+  {
+    "name": "Category browse section",
+    "description": "LinkedIn has a topic grid (Career, Productivity, Finance, Soft Skills…) below the fold for content discovery — we jump straight to job listings"
+  },
+  {
+    "name": "Social sign-in button",
+    "description": "LinkedIn prominently features 'Continue with Google' (with Google logo) as the primary CTA. We have no OAuth/social sign-in button."
+  },
+  {
+    "name": "Multi-category nav",
+    "description": "LinkedIn nav has 5 categorized links (Top Content, People, Learning, Jobs, Games) representing the platform's full feature breadth. We only show 2 task-oriented links."
+  },
+  {
+    "name": "Topic/content discovery chips",
+    "description": "LinkedIn's below-fold section shows curated topic pills (Career, Finance, Productivity, etc.) for content discovery. We have job-filter chips instead, which serve a different purpose."
+  },
+  {
+    "name": "TOS/privacy agreement copy",
+    "description": "LinkedIn shows inline legal consent text beneath CTAs. We have no legal copy, which is a trust and compliance gap."
+  },
+  {
+    "name": "Social OAuth login",
+    "description": "LinkedIn leads with Google/email auth buttons directly in the hero — we have no login flow visible on the landing page"
+  },
+  {
+    "name": "Topic/category pill grid",
+    "description": "LinkedIn's below-fold section surfaces curated content topics as a browsable pill grid; we show a job results panel instead"
+  },
+  {
+    "name": "Legal consent line",
+    "description": "LinkedIn shows a legal agreement line below CTAs referencing User Agreement, Privacy Policy, and Cookie Policy — builds trust and is legally standard."
+  },
+  {
+    "name": "'New to X? Join now' prompt",
+    "description": "A text-based signup nudge ('New to LinkedIn? Join now') below CTAs that provides a low-friction secondary conversion path."
+  },
+  {
+    "name": "Content category chips below fold",
+    "description": "LinkedIn's below-fold shows a 'Explore top content' section with topic chips (Career, Finance, Productivity, etc.) as a discovery surface — we show an empty job card instead."
+  },
+  {
+    "name": "5-item icon nav",
+    "description": "LinkedIn has 5 navigable sections with icons above text labels; we have 2, making our nav feel sparse."
+  }
+]
