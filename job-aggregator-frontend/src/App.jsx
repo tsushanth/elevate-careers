@@ -424,31 +424,6 @@ function App() {
               <rect x="148" y="274" width="6" height="32" rx="2" transform="rotate(-20 148 274)" fill="#fbbc04"/>
               <polygon points="148,274 154,274 151,265" fill="#f87171"/>
 
-              {/* Person sitting at desk */}
-              {/* Chair back */}
-              <rect x="222" y="300" width="56" height="70" rx="8" fill="#4a5568"/>
-              <rect x="230" y="308" width="40" height="54" rx="6" fill="#64748b"/>
-              {/* Body / torso */}
-              <ellipse cx="250" cy="296" rx="30" ry="36" fill="#fbbf24"/>
-              {/* Shirt */}
-              <ellipse cx="250" cy="310" rx="28" ry="22" fill="#0a66c2"/>
-              {/* Head */}
-              <circle cx="250" cy="258" r="26" fill="#fde68a"/>
-              {/* Hair */}
-              <ellipse cx="250" cy="238" rx="26" ry="12" fill="#92400e"/>
-              <ellipse cx="224" cy="248" rx="6" ry="12" fill="#92400e"/>
-              <ellipse cx="276" cy="248" rx="6" ry="12" fill="#92400e"/>
-              {/* Eyes */}
-              <circle cx="241" cy="258" r="3.5" fill="#1e293b"/>
-              <circle cx="259" cy="258" r="3.5" fill="#1e293b"/>
-              <circle cx="242" cy="257" r="1.2" fill="#fff"/>
-              <circle cx="260" cy="257" r="1.2" fill="#fff"/>
-              {/* Smile */}
-              <path d="M243 267 Q250 273 257 267" stroke="#92400e" strokeWidth="2" fill="none" strokeLinecap="round"/>
-              {/* Arms reaching to keyboard */}
-              <path d="M222 306 Q190 320 180 334" stroke="#fde68a" strokeWidth="14" strokeLinecap="round" fill="none"/>
-              <path d="M278 306 Q310 320 320 334" stroke="#fde68a" strokeWidth="14" strokeLinecap="round" fill="none"/>
-
               {/* Floating badge: "New Match!" */}
               <rect x="340" y="130" width="110" height="40" rx="10" fill="#fff" stroke="#0a66c2" strokeWidth="1.5"/>
               <circle cx="358" cy="150" r="8" fill="#0a66c2"/>
