@@ -1,0 +1,25 @@
+app = "elevate-redis"
+primary_region = "iad"
+
+[build]
+  image = "redis:7-alpine"
+
+[mounts]
+  source = "redis_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 6379
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+
+  [[services.ports]]
+    port = 6379
+
+[env]
+  REDIS_APPENDONLY = "yes"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -19,7 +19,7 @@ function AuthModal({ onSuccess, onClose }) {
       if (tab === 'signin') {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        onSuccess(data.session);
+        onSuccess(data.session, false);
         onClose();
       } else {
         const source = JSON.parse(sessionStorage.getItem('sa_source') || '{}');
@@ -30,7 +30,7 @@ function AuthModal({ onSuccess, onClose }) {
         });
         if (error) throw error;
         if (data.session) {
-          onSuccess(data.session);
+          onSuccess(data.session, true);
           onClose();
         } else {
           setMessage('Check your email to confirm your account.');

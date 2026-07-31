@@ -13,14 +13,14 @@ export class AshbyAdapter extends BaseAdapter {
       const url = `https://jobs.ashbyhq.com/${org}`;
       const html = await this.fetch(url);
       
-      // Ashby embeds job data in a script tag
-      const match = html.match(/window\.__INITIAL_STATE__\s*=\s*({.*?});/s);
+      // Ashby embeds job data in window.__appData.jobBoard.jobPostings
+      const match = html.match(/window\.__appData\s*=\s*(\{.*?\});/s);
       if (!match) {
-        throw new Error('Could not find job data in Ashby page');
+        throw new Error('Could not find __appData in Ashby page');
       }
-      
+
       const data = JSON.parse(match[1]);
-      const jobs = data.jobs || [];
+      const jobs = data.jobBoard?.jobPostings || [];
       
       logger.info({ org, count: jobs.length }, 'Ashby jobs fetched');
       
@@ -102,10 +102,7 @@ export class AshbyAdapter extends BaseAdapter {
   }
 
   isRemote(job) {
-    // Check isRemote field
-    if (job.isRemote === true) return true;
-    
-    // Check location name
+    if (job.workplaceType === 'Remote') return true;
     const location = (job.locationName || job.location || '').toLowerCase();
     return location.includes('remote') || location.includes('anywhere');
   }

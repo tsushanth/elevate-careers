@@ -1,3 +1,8 @@
 *.xcuserstate
-*.yamlextension/dist/.DS_Store
+*.yaml
+extension/dist/.DS_Store
 **/.DS_Store
+node_modules/
+*.zip
+debug-shots/
+*.mjs.log

@@ -1,0 +1,27 @@
+{
+  "name": "autofill-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run src/app.test.js",
+    "test:e2e": "vitest run src/e2e.test.js",
+    "test:all": "vitest run",
+    "start": "node src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@hono/node-server": "^2.0.8",
+    "@supabase/supabase-js": "^2.110.2",
+    "hono": "^4.12.29",
+    "pdf-lib": "^1.17.1"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
+    "vitest": "^4.1.10"
+  }
+}
