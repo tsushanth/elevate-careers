@@ -324,6 +324,35 @@ function App() {
         />
       )}
 
+      {/* Hero Section — unauthenticated only */}
+      {activeTab === 'jobs' && !session && (
+        <div className="hero-section">
+          <div className="hero-left">
+            <h2 className="hero-headline">Find the job that's right for you.</h2>
+            <p className="hero-sub">AI-powered job matching and one-click autofill — so you can apply faster and smarter.</p>
+            <div className="hero-ctas">
+              <button className="hero-cta-primary" onClick={() => setShowAuthModal(true)}>Sign up free</button>
+              <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" className="hero-cta-secondary">Add to Chrome — Free</a>
+            </div>
+          </div>
+          <div className="hero-right" aria-hidden="true">
+            <svg viewBox="0 0 420 320" fill="none" xmlns="http://www.w3.org/2000/svg" className="hero-illustration">
+              <rect x="40" y="60" width="340" height="200" rx="16" fill="#e8f0fe"/>
+              <rect x="64" y="88" width="120" height="12" rx="6" fill="#4285f4"/>
+              <rect x="64" y="108" width="80" height="8" rx="4" fill="#b0c4f8"/>
+              <rect x="64" y="128" width="200" height="8" rx="4" fill="#d0dafb"/>
+              <rect x="64" y="144" width="160" height="8" rx="4" fill="#d0dafb"/>
+              <rect x="64" y="170" width="88" height="32" rx="8" fill="#0a66c2"/>
+              <rect x="64" y="170" width="88" height="32" rx="8" fill="#0a66c2"/>
+              <rect x="164" y="170" width="88" height="32" rx="8" fill="#e8f0fe" stroke="#0a66c2" strokeWidth="1.5"/>
+              <circle cx="330" cy="100" r="28" fill="#fff" stroke="#d0dafb" strokeWidth="2"/>
+              <rect x="318" y="92" width="24" height="16" rx="4" fill="#4285f4"/>
+              <rect x="318" y="112" width="24" height="6" rx="3" fill="#b0c4f8"/>
+            </svg>
+          </div>
+        </div>
+      )}
+
       {/* Search Bar */}
       {activeTab === 'jobs' && <>
       <div className="search-section">
