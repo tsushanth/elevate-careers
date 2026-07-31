@@ -544,7 +544,30 @@ app.get('/jobs/personalized', async (req, res) => {
       let idx = startIdx;
       if (pref.remote) clauses.push(`j.remote = true`);
       if (pref.salary_min) { clauses.push(`(j.salary_min IS NULL OR j.salary_min >= $${idx})`); params.push(pref.salary_min); idx++; }
-      if (pref.location) { clauses.push(`EXISTS (SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id AND (jlf.city ILIKE $${idx} OR jlf.region ILIKE $${idx} OR jlf.country ILIKE $${idx}))`); params.push(`%${pref.location}%`); idx++; }
+      if (pref.location) {
+        const loc = pref.location.trim().toLowerCase();
+        const wantsUS = ['usa', 'us', 'u.s.', 'u.s.a.', 'united states', 'united states of america'].includes(loc);
+        if (wantsUS) {
+          // "remote: true" doesn't capture WHERE remote is valid from — jobs
+          // like "Remote - Bengaluru" (country: India) were passing through
+          // as remote for a US-based user. Country data is too inconsistent
+          // for a positive "is this the US" match (that was the earlier bug:
+          // requiring literal "USA" dropped 31 companies to 4), so this
+          // excludes only jobs with a clear NON-US signal instead — jobs with
+          // no location data, or an unspecified/ambiguous country, still pass.
+          clauses.push(`(
+            NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
+            OR EXISTS (
+              SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
+                AND (jlf.country IS NULL OR jlf.country ~* '(usa|us|united states)')
+                AND jlf.city !~* '(bengaluru|bangalore|mumbai|hyderabad|pune|delhi|chennai|noida|gurgaon|gurugram)'
+            )
+          )`);
+        } else {
+          clauses.push(`EXISTS (SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id AND (jlf.city ILIKE $${idx} OR jlf.region ILIKE $${idx} OR jlf.country ILIKE $${idx}))`);
+          params.push(`%${pref.location}%`); idx++;
+        }
+      }
       if ((pref.excluded_companies || []).length) { clauses.push(`c.name NOT ILIKE ANY($${idx}::text[])`); params.push(pref.excluded_companies); idx++; }
       if ((pref.excluded_titles || []).length) { clauses.push(`j.title != ALL($${idx}::text[])`); params.push(pref.excluded_titles); idx++; }
       return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
