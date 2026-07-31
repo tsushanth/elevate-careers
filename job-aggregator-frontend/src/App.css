@@ -126,9 +126,9 @@
   }
 
   .hero-cta-google {
-    background: #fff;
-    color: #3c4043;
-    border: 1.5px solid #dadce0;
+    background: #0a66c2;
+    color: #fff;
+    border: none;
     border-radius: 9999px;
     padding: 13px 28px;
     font-size: 16px;
@@ -145,7 +145,7 @@
   }
 
   .hero-cta-google:hover {
-    background: #f8f9fa;
+    background: #004182;
     box-shadow: 0 1px 3px rgba(0,0,0,0.12);
   }
 
