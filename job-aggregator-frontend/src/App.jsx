@@ -47,6 +47,14 @@ function App() {
     try { return parseInt(sessionStorage.getItem('sa_totalCount'), 10) || 0; } catch { return 0; }
   });
   const [session, setSession] = useState(null);
+  // supabase.auth.getSession() resolves asynchronously, so `session` starts
+  // as null even for a signed-in user for a brief moment. Without this flag,
+  // the fetch effect below fired immediately on that still-unresolved null,
+  // hit the unauthenticated (non-personalized) /jobs endpoint, and overwrote
+  // the cached personalized list — invisible before caching was added (both
+  // states were hidden behind the loading spinner), but visible as a flash
+  // of the wrong list now that a cached list is shown immediately.
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState('jobs');
@@ -78,9 +86,11 @@ function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      setSessionChecked(true);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      setSessionChecked(true);
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -98,9 +108,10 @@ function App() {
   }, [dismissMenuJobId]);
 
   useEffect(() => {
+    if (!sessionChecked) return; // wait for the real session before fetching
     setPage(0);
     fetchJobs(0);
-  }, [filters, session]);
+  }, [filters, session, sessionChecked]);
 
   const fetchJobs = async (pageNum = page) => {
     // Guard against out-of-order responses: if session/filters change quickly
