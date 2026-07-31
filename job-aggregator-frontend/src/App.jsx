@@ -273,12 +273,20 @@ function App() {
                 </button>
               </div>
             ) : (
-              <button
-                className="nav-signin"
-                onClick={() => setShowAuthModal(true)}
-              >
-                Sign In
-              </button>
+              <div className="nav-auth-btns">
+                <button
+                  className="nav-signin"
+                  onClick={() => setShowAuthModal(true)}
+                >
+                  Sign In
+                </button>
+                <button
+                  className="nav-join"
+                  onClick={() => setShowAuthModal(true)}
+                >
+                  Join free
+                </button>
+              </div>
             )}
           </nav>
         </div>

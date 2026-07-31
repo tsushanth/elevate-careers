@@ -685,10 +685,17 @@
     white-space: nowrap;
   }
 
+  .nav-auth-btns {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
   .nav-signin,
-  .nav-signout {
+  .nav-signout,
+  .nav-join {
     padding: 6px 16px;
-    border-radius: 16px;
+    border-radius: 9999px;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -696,12 +703,22 @@
   }
 
   .nav-signin {
+    background: transparent;
+    color: #0a66c2;
+    border: 1.5px solid #0a66c2;
+  }
+
+  .nav-signin:hover {
+    background: #eef3f8;
+  }
+
+  .nav-join {
     background: #0a66c2;
     color: white;
     border: none;
   }
 
-  .nav-signin:hover {
+  .nav-join:hover {
     background: #004182;
   }
 
