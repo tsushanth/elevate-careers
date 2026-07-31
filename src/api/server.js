@@ -181,6 +181,27 @@ app.post('/ingest/report-org', async (req, res) => {
   }
 });
 
+// Read-only queue listing for the cron machine to drive its own ingestion
+// loop. Ingestion iteration used to live here on the API as a fire-and-forget
+// setImmediate loop, which meant every unrelated API deploy killed it mid-run
+// — only 35 of 5,126 discovered companies had ever actually been attempted.
+// Moving the loop to the persistent cron machine (which API deploys don't
+// touch) fixes that; this endpoint just hands it the ordered work list.
+app.get('/ingest/queue', async (req, res) => {
+  try {
+    const { secret, limit = 3000 } = req.query;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    const { rows } = await db.query(
+      `SELECT provider, org FROM discovered_company WHERE enabled = true ORDER BY last_ingested_at ASC NULLS FIRST LIMIT $1`,
+      [limit]
+    );
+    res.json({ ok: true, companies: rows });
+  } catch (e) {
+    logger.error({ error: e }, 'Ingest queue error');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Sync all companies — from discovered_company table + companies.json fallback
 app.post('/ingest/sync-all', async (req, res) => {
   try {
@@ -250,8 +271,18 @@ app.post('/ingest/sync', async (req, res) => {
         const adapter = getAdapter(provider);
         const rawJobs = await adapter.fetchJobs(org);
         const results = await normalizer.processJobs(rawJobs, provider, org);
+        await db.query(
+          `UPDATE discovered_company SET last_ingested_at = now() WHERE provider = $1 AND org = $2`,
+          [provider, org]
+        ).catch(() => {});
         logger.info({ org, provider, fetched: rawJobs.length, ...results }, 'Sync ingest complete');
       } catch (e) {
+        // Still mark as attempted so a permanently-broken org doesn't block
+        // the front of the queue forever — it'll be retried, just not first.
+        await db.query(
+          `UPDATE discovered_company SET last_ingested_at = now() WHERE provider = $1 AND org = $2`,
+          [provider, org]
+        ).catch(() => {});
         logger.error({ error: e, org, provider }, 'Sync ingest background error');
       }
     });

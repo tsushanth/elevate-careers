@@ -17,10 +17,23 @@ BOOTSTRAP=$(curl -sf --max-time 30 -X POST "$API/ingest/bootstrap-discovery" \
 sleep 60
 
 echo "Step 2: Ingesting jobs for all discovered companies..."
-SYNC=$(curl -sf -X POST "$API/ingest/sync-all" \
-  -H 'Content-Type: application/json' \
-  -d "{\"secret\":\"$SECRET\"}")
-echo "Sync: $SYNC"
+# The loop runs HERE, on the cron machine, not as a background task inside the
+# API process — that used to mean every unrelated API deploy killed ingestion
+# mid-run. This machine is untouched by API deploys, so it survives them.
+QUEUE=$(curl -sf --max-time 30 "$API/ingest/queue?secret=$SECRET&limit=3000")
+COUNT=$(echo "$QUEUE" | jq -r '.companies | length' 2>/dev/null)
+echo "Queue: $COUNT companies to ingest"
+
+echo "$QUEUE" | jq -r '.companies[] | "\(.provider) \(.org)"' 2>/dev/null | while read -r provider org; do
+  [ -z "$org" ] && continue
+  echo "Ingesting $provider/$org..."
+  curl -sf --max-time 20 -X POST "$API/ingest/sync" \
+    -H 'Content-Type: application/json' \
+    -d "{\"provider\":\"$provider\",\"org\":\"$org\",\"secret\":\"$SECRET\"}" \
+    >/dev/null || echo "  → failed, continuing"
+  sleep 2
+done
+echo "Sync loop complete $(date)"
 
 echo "Step 3: Scraping jobs via JobSpy (Indeed + LinkedIn + Glassdoor)..."
 JOBSPY=$(curl -sf --max-time 120 -X POST "$API/ingest/jobspy" \
