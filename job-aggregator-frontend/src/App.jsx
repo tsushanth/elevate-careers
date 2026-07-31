@@ -503,8 +503,8 @@ function App() {
                     <div className="job-location">
                       <MapPin size={14} />
                       <span>
-                        {job.locations && job.locations.length > 0
-                          ? `${job.locations[0].city || ''} ${job.locations[0].country || ''}`
+                        {(job.cities?.[0] || job.countries?.[0])
+                          ? [job.cities?.[0], job.countries?.[0]].filter(Boolean).join(', ')
                           : 'Remote'}
                         {job.remote && ' (Remote)'}
                       </span>
@@ -572,8 +572,8 @@ function App() {
 
             <div className="job-detail-meta">
               <span>
-                {selectedJob.locations && selectedJob.locations.length > 0
-                  ? `${selectedJob.locations[0].city || ''}, ${selectedJob.locations[0].country || ''}`
+                {(selectedJob.cities?.[0] || selectedJob.countries?.[0])
+                  ? [selectedJob.cities?.[0], selectedJob.countries?.[0]].filter(Boolean).join(', ')
                   : 'Location not specified'}
               </span>
               <span>•</span>
