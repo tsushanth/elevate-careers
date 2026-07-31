@@ -41,7 +41,10 @@ export function stripRemoteQualifier(s) {
   return s.replace(/[\s,(-]*remote\)?\s*$/i, '').trim();
 }
 
+const ACRONYM_DISPLAY = { uk: 'UK', uae: 'UAE' };
+
 function titleCase(s) {
+  if (ACRONYM_DISPLAY[s]) return ACRONYM_DISPLAY[s];
   return s.replace(/\b\w/g, c => c.toUpperCase());
 }
 
