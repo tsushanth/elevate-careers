@@ -344,7 +344,7 @@ function App() {
         <div className="hero-wrapper">
         <div className="hero-section">
           <div className="hero-left">
-            <h1 className="hero-headline">Find the job that's right for you.</h1>
+            <h1 className="hero-headline">Find the job that's right for you</h1>
             <p className="hero-sub">AI-powered job matching and one-click autofill — so you can apply faster and smarter.</p>
             <div className="hero-ctas">
               <button className="hero-cta-google" onClick={() => setShowAuthModal(true)}>
