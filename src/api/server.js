@@ -10,6 +10,7 @@ import { enqueueJob } from '../services/queue.js';
 import { createClient } from '@supabase/supabase-js';
 
 import { recomputeSignals } from '../services/signals.js';
+import { normalizeCompanyName, normalizeTitle } from '../services/normalizer.js';
 
 let _supabase = null;
 function getSupabase() {
@@ -564,12 +565,16 @@ app.get('/jobs/personalized', async (req, res) => {
     const { limit = 50, offset = 0, show_applied = 'false' } = req.query;
     const hideApplied = show_applied !== 'true';
 
-    // Fetch applied job URLs for this user to exclude them
+    // Fetch applied jobs for this user to exclude them. Prefer job_id (resolved
+    // once at apply time, stable) over URL matching (apply_url can drift on
+    // re-ingestion, silently un-hiding an applied job) — URL matching is kept
+    // only as a fallback for older rows where job_id couldn't be backfilled.
     const { data: appliedRows } = await sb.from('job_applications')
-      .select('job_url')
+      .select('job_id, job_url')
       .eq('user_id', user.id);
-    const appliedUrls = (appliedRows || []).map(r => r.job_url).filter(Boolean);
-    const appliedCount = appliedUrls.length;
+    const appliedJobIds = (appliedRows || []).map(r => r.job_id).filter(Boolean);
+    const appliedUrls = (appliedRows || []).filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
+    const appliedCount = (appliedRows || []).length;
 
     // Load user preferences for filtering
     const { data: prefRow } = await sb.from('apply_preferences')
@@ -609,21 +614,44 @@ app.get('/jobs/personalized', async (req, res) => {
           params.push(`%${pref.location}%`); idx++;
         }
       }
-      if ((pref.excluded_companies || []).length) { clauses.push(`c.name NOT ILIKE ANY($${idx}::text[])`); params.push(pref.excluded_companies); idx++; }
-      if ((pref.excluded_titles || []).length) { clauses.push(`j.title != ALL($${idx}::text[])`); params.push(pref.excluded_titles); idx++; }
+      // Matched against company.name_normalized / a normalized job title, not
+      // the raw strings — a company re-ingested under a new domain gets a
+      // slightly different name_normalized only if it's genuinely a
+      // different company; the same company always normalizes the same way,
+      // so a dismissed company can't silently reappear via a new domain
+      // variant (see normalizeCompanyName in services/normalizer.js).
+      if ((pref.excluded_companies || []).length) {
+        clauses.push(`c.name_normalized != ALL($${idx}::text[])`);
+        params.push(pref.excluded_companies.map(normalizeCompanyName)); idx++;
+      }
+      if ((pref.excluded_titles || []).length) {
+        clauses.push(`lower(trim(regexp_replace(j.title, '\\s+', ' ', 'g'))) != ALL($${idx}::text[])`);
+        params.push(pref.excluded_titles.map(normalizeTitle)); idx++;
+      }
       return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
     };
 
-    // Build exclusion clause. Compares URLs with query string + trailing slash
-    // stripped, since the extension appends tracking params (e.g. ?gh_src=...)
-    // when a user applies, which would defeat an exact-string match against
-    // the plain apply_url the ingestion pipeline stores.
-    const excludeClause = (paramIdx) => hideApplied && appliedUrls.length > 0
-      ? `AND NOT EXISTS (
-          SELECT 1 FROM unnest($${paramIdx}::text[]) au(url)
-          WHERE rtrim(split_part(j.apply_url, '?', 1), '/') = rtrim(split_part(au.url, '?', 1), '/')
-        )`
-      : '';
+    // Build exclusion clause for applied jobs. Prefers matching by j.id
+    // (stable, resolved once at apply time) and only falls back to the
+    // URL-string comparison for legacy rows that have no job_id — apply_url
+    // can drift on re-ingestion, so a pure URL match silently un-hides
+    // applied jobs over time (see job_id backfill in the migration).
+    const excludeClause = (paramIdx) => {
+      if (!hideApplied) return '';
+      const idClause = appliedJobIds.length > 0 ? `j.id = ANY($${paramIdx}::bigint[])` : null;
+      const urlClause = appliedUrls.length > 0
+        ? `EXISTS (
+            SELECT 1 FROM unnest($${paramIdx + (idClause ? 1 : 0)}::text[]) au(url)
+            WHERE rtrim(split_part(j.apply_url, '?', 1), '/') = rtrim(split_part(au.url, '?', 1), '/')
+          )`
+        : null;
+      const inner = [idClause, urlClause].filter(Boolean);
+      return inner.length ? `AND NOT (${inner.join(' OR ')})` : '';
+    };
+    const excludeClauseParams = [
+      ...(appliedJobIds.length > 0 ? [appliedJobIds] : []),
+      ...(appliedUrls.length > 0 ? [appliedUrls] : []),
+    ];
 
     // Build title search query:
     // 1. apply_preferences.keywords is the explicit user intent ("software engineer", "backend")
@@ -654,7 +682,7 @@ app.get('/jobs/personalized', async (req, res) => {
 
     if (allPhrases.length > 0) {
       const tsQuery = allPhrases.join(' | ');
-      const extraParams = hideApplied && appliedUrls.length > 0 ? [appliedUrls] : [];
+      const extraParams = excludeClauseParams;
       const pf = buildPrefFilters(4 + extraParams.length);
       const result = await db.query(`
         SELECT
@@ -692,7 +720,7 @@ app.get('/jobs/personalized', async (req, res) => {
     // just because they don't happen to match the (currently small) job corpus.
     const hasExplicitPrefs = prefPhrases.length > 0 || pref.remote || pref.location || pref.salary_min;
     if (jobs.length < 10 && !hasExplicitPrefs) {
-      const extraParams = hideApplied && appliedUrls.length > 0 ? [appliedUrls] : [];
+      const extraParams = excludeClauseParams;
       const fallbackExclude = excludeClause(3);
       const fpf = buildPrefFilters(3 + extraParams.length);
       const result = await db.query(`
@@ -1284,12 +1312,14 @@ async function runAutoApplyScheduler() {
         const profile = profileResult.rows[0]?.autofill_data;
         if (!profile || Object.keys(profile).length === 0) continue;
 
-        // Get already-applied URLs
+        // Get already-applied jobs — prefer job_id (stable) over job_url
+        // (drifts on re-ingestion), same reasoning as /jobs/personalized.
         const appliedResult = await db.query(
-          `SELECT job_url FROM job_applications WHERE user_id=$1`,
+          `SELECT job_id, job_url FROM job_applications WHERE user_id=$1`,
           [prefs.user_id]
         );
-        const appliedUrls = appliedResult.rows.map(r => r.job_url);
+        const appliedJobIds = appliedResult.rows.map(r => r.job_id).filter(Boolean);
+        const appliedUrls = appliedResult.rows.filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
 
         // Derive keywords from past application job titles
         const titlesResult = await db.query(
@@ -1314,14 +1344,19 @@ async function runAutoApplyScheduler() {
 
         if (prefs.remote) { jobQuery += ` AND j.remote = true`; }
         if (prefs.salary_min) { jobQuery += ` AND (j.salary_min IS NULL OR j.salary_min >= $${pidx})`; queryParams.push(prefs.salary_min); pidx++; }
+        if (appliedJobIds.length) {
+          jobQuery += ` AND j.id != ALL($${pidx}::bigint[])`;
+          queryParams.push(appliedJobIds);
+          pidx++;
+        }
         if (appliedUrls.length) {
           jobQuery += ` AND j.apply_url NOT IN (${appliedUrls.map((_, i) => `$${pidx + i}`).join(',')})`;
           queryParams.push(...appliedUrls);
           pidx += appliedUrls.length;
         }
         if ((prefs.excluded_companies || []).length) {
-          jobQuery += ` AND c.name NOT ILIKE ANY($${pidx}::text[])`;
-          queryParams.push(prefs.excluded_companies);
+          jobQuery += ` AND c.name_normalized != ALL($${pidx}::text[])`;
+          queryParams.push(prefs.excluded_companies.map(normalizeCompanyName));
           pidx++;
         }
 
