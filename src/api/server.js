@@ -559,7 +559,7 @@ app.get('/jobs/personalized', async (req, res) => {
             NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
             OR EXISTS (
               SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
-                AND (jlf.country IS NULL OR jlf.country ~* '(usa|us|united states)')
+                AND (jlf.country IS NULL OR jlf.country ~* '\y(usa|us|united states)\y')
                 AND jlf.city !~* '(bengaluru|bangalore|mumbai|hyderabad|pune|delhi|chennai|noida|gurgaon|gurugram)'
             )
           )`);
