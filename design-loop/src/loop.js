@@ -20,9 +20,35 @@ const args = Object.fromEntries(
 const MAX_ITERATIONS = Number(args.iterations ?? 20);
 const NO_DEPLOY = Boolean(args['no-deploy']);
 
+const TEST_LOGIN = process.env.DESIGN_LOOP_TEST_EMAIL && process.env.DESIGN_LOOP_TEST_PASSWORD
+  ? { email: process.env.DESIGN_LOOP_TEST_EMAIL, password: process.env.DESIGN_LOOP_TEST_PASSWORD }
+  : null;
+
 const PAGES = [
-  { label: 'home', ourUrl: 'https://www.simplyappl.ai/', refUrl: 'https://www.linkedin.com/', sourceHint: 'job-aggregator-frontend/src/App.jsx' },
+  {
+    label: 'home-hero',
+    ourUrl: 'https://www.simplyappl.ai/', refUrl: 'https://www.linkedin.com/',
+    sourceHint: 'job-aggregator-frontend/src/App.jsx',
+  },
+  {
+    label: 'job-listing',
+    ourUrl: 'https://www.simplyappl.ai/', refUrl: 'https://www.linkedin.com/jobs/',
+    sourceHint: 'job-aggregator-frontend/src/App.jsx',
+    ourCaptureOpts: { scrollTo: 900 },
+  },
+  // Applications tab requires a logged-in session — only included when test
+  // credentials are provided via DESIGN_LOOP_TEST_EMAIL/PASSWORD (see README).
+  ...(TEST_LOGIN ? [{
+    label: 'applications-tab',
+    ourUrl: 'https://www.simplyappl.ai/', refUrl: 'https://www.linkedin.com/jobs/',
+    sourceHint: 'job-aggregator-frontend/src/ApplicationsTab.jsx',
+    ourCaptureOpts: { login: TEST_LOGIN, postLoginTab: 'applications' },
+  }] : []),
 ];
+
+if (!TEST_LOGIN) {
+  console.warn('DESIGN_LOOP_TEST_EMAIL/PASSWORD not set — skipping the logged-in Applications tab page.');
+}
 
 const PER_GAP_STAGNATION = 3; // consecutive near-zero-delta attempts before marking a gap exhausted
 const PER_GAP_DELTA_THRESHOLD = 1; // "near-zero" means delta <= this
@@ -36,31 +62,34 @@ async function main() {
   const logPath = path.join(RUNS_DIR, 'log.jsonl');
   const backlogPath = new URL('../feature-backlog.json', import.meta.url).pathname;
 
-  const gapMemory = {}; // id -> { attempts, deltas: [], status }
+  const gapMemory = {}; // "page::gapId" -> { attempts, deltas: [], status }
   const backlog = await loadJson(backlogPath, []);
-  let bestScore = null;
+  const bestScoreByPage = {};
   const scoreHistory = [];
 
   for (let iter = 1; iter <= MAX_ITERATIONS; iter++) {
     const iterDir = path.join(RUNS_DIR, String(iter));
     await mkdir(iterDir, { recursive: true });
-    console.log(`\n=== iteration ${iter}/${MAX_ITERATIONS} ===`);
+
+    // rotate through pages so no single page hogs every iteration
+    const page = PAGES[(iter - 1) % PAGES.length];
+    console.log(`\n=== iteration ${iter}/${MAX_ITERATIONS} — page: ${page.label} ===`);
 
     // 1. capture (desktop viewport only for the tight loop; mobile can be added per-page)
-    const page = PAGES[0];
-    const ourShot = await capture(page.ourUrl, 'desktop', path.join(iterDir, 'ours.png'));
+    const ourShot = await capture(page.ourUrl, 'desktop', path.join(iterDir, 'ours.png'), page.ourCaptureOpts);
     const refShot = await capture(page.refUrl, 'desktop', path.join(iterDir, 'ref.png'));
 
     if (!ourShot || !refShot) {
       console.error('capture failed for this iteration, skipping (consider wiring cached reference fallback)');
-      await log(logPath, { iter, outcome: 'capture-failed' });
+      await log(logPath, { iter, page: page.label, outcome: 'capture-failed' });
       continue;
     }
 
     // 2. judge
+    const pagePrefix = `${page.label}::`;
     const excludeIds = Object.entries(gapMemory)
-      .filter(([, m]) => m.status === 'exhausted' || m.status === 'did-not-land')
-      .map(([id]) => id);
+      .filter(([key, m]) => key.startsWith(pagePrefix) && (m.status === 'exhausted' || m.status === 'did-not-land'))
+      .map(([key]) => key.slice(pagePrefix.length));
     const judgment = await judgePage({
       pageLabel: page.label,
       ourShot,
@@ -75,22 +104,23 @@ async function main() {
     await writeFile(backlogPath, JSON.stringify(backlog, null, 2));
 
     const scoreBefore = judgment.score;
-    if (bestScore === null) bestScore = scoreBefore;
+    if (bestScoreByPage[page.label] === undefined) bestScoreByPage[page.label] = scoreBefore;
 
-    // 3. select highest-priority non-exhausted gap
+    // 3. select highest-priority non-exhausted gap (scoped to this page)
     const candidates = (judgment.gaps || [])
-      .filter((g) => (gapMemory[g.id]?.status ?? 'open') === 'open')
+      .filter((g) => (gapMemory[pagePrefix + g.id]?.status ?? 'open') === 'open')
       .sort((a, b) => b.priority - a.priority);
     const gap = candidates[0];
 
     if (!gap) {
-      console.log('no open gaps left to attempt; stopping.');
-      await log(logPath, { iter, outcome: 'no-gaps', score: scoreBefore });
-      break;
+      console.log(`no open gaps left for ${page.label}; moving on next rotation.`);
+      await log(logPath, { iter, page: page.label, outcome: 'no-gaps', score: scoreBefore });
+      continue;
     }
+    const gapKey = pagePrefix + gap.id;
 
-    gapMemory[gap.id] ??= { attempts: 0, deltas: [], status: 'open' };
-    gapMemory[gap.id].attempts++;
+    gapMemory[gapKey] ??= { attempts: 0, deltas: [], status: 'open' };
+    gapMemory[gapKey].attempts++;
 
     // 4. patch
     const preBuildHash = await tryHash();
@@ -100,7 +130,7 @@ async function main() {
     } catch (err) {
       console.error(`patch failed: ${err.message}`);
       await exec('git', ['checkout', '--', '.'], { cwd: REPO_DIR }).catch(() => {});
-      await log(logPath, { iter, gap: gap.id, outcome: 'patch-error', error: err.message });
+      await log(logPath, { iter, page: page.label, gap: gap.id, outcome: 'patch-error', error: err.message });
       continue;
     }
 
@@ -109,8 +139,8 @@ async function main() {
     if (!buildResult.ok) {
       console.error('build failed, reverting patch');
       await exec('git', ['checkout', '--', '.'], { cwd: REPO_DIR }).catch(() => {});
-      gapMemory[gap.id].status = 'build-failed';
-      await log(logPath, { iter, gap: gap.id, outcome: 'build-failed', error: buildResult.error });
+      gapMemory[gapKey].status = 'build-failed';
+      await log(logPath, { iter, page: page.label, gap: gap.id, outcome: 'build-failed', error: buildResult.error });
       continue;
     }
 
@@ -118,21 +148,21 @@ async function main() {
     const postBuildHash = await tryHash();
     if (preBuildHash && postBuildHash && preBuildHash === postBuildHash) {
       console.log(`gap ${gap.id}: patch built but produced identical output (no-op)`);
-      if (gapMemory[gap.id].attempts >= NOOP_RETRY_CAP) {
-        gapMemory[gap.id].status = 'did-not-land';
+      if (gapMemory[gapKey].attempts >= NOOP_RETRY_CAP) {
+        gapMemory[gapKey].status = 'did-not-land';
       }
       await exec('git', ['checkout', '--', '.'], { cwd: REPO_DIR }).catch(() => {});
-      await log(logPath, { iter, gap: gap.id, outcome: 'no-op', attempts: gapMemory[gap.id].attempts });
+      await log(logPath, { iter, page: page.label, gap: gap.id, outcome: 'no-op', attempts: gapMemory[gapKey].attempts });
       continue;
     }
 
     // commit the patch
     await exec('git', ['add', '-A', 'job-aggregator-frontend'], { cwd: REPO_DIR });
-    await exec('git', ['commit', '-m', `design-loop: ${gap.id} — ${patchResult.summary}`], { cwd: REPO_DIR });
+    await exec('git', ['commit', '-m', `design-loop: ${page.label}/${gap.id} — ${patchResult.summary}`], { cwd: REPO_DIR });
 
     if (NO_DEPLOY) {
       console.log('--no-deploy set, stopping after first successful patch for inspection.');
-      await log(logPath, { iter, gap: gap.id, outcome: 'dry-run-patched', summary: patchResult.summary });
+      await log(logPath, { iter, page: page.label, gap: gap.id, outcome: 'dry-run-patched', summary: patchResult.summary });
       break;
     }
 
@@ -143,42 +173,43 @@ async function main() {
     } catch (err) {
       console.error(`deploy failed: ${err.message}, reverting`);
       await revertLastCommit().catch((e) => console.error('revert also failed:', e.message));
-      gapMemory[gap.id].status = 'deploy-failed';
-      await log(logPath, { iter, gap: gap.id, outcome: 'deploy-failed', error: err.message });
+      gapMemory[gapKey].status = 'deploy-failed';
+      await log(logPath, { iter, page: page.label, gap: gap.id, outcome: 'deploy-failed', error: err.message });
       continue;
     }
 
     // 8. re-capture + re-score
-    const ourShotAfter = await capture(page.ourUrl, 'desktop', path.join(iterDir, 'ours-after.png'));
+    const ourShotAfter = await capture(page.ourUrl, 'desktop', path.join(iterDir, 'ours-after.png'), page.ourCaptureOpts);
     const judgmentAfter = ourShotAfter
       ? await judgePage({ pageLabel: page.label, ourShot: ourShotAfter, refShot, sourceHint: page.sourceHint, excludeGapIds: excludeIds })
       : null;
     const scoreAfter = judgmentAfter?.score ?? scoreBefore;
     const delta = scoreAfter - scoreBefore;
-    gapMemory[gap.id].deltas.push(delta);
+    gapMemory[gapKey].deltas.push(delta);
     scoreHistory.push(delta);
 
-    // 9. regression guard
+    // 9. regression guard (per-page best score — scores aren't comparable across pages)
+    const bestScore = bestScoreByPage[page.label];
     if (scoreAfter < bestScore - REGRESSION_THRESHOLD) {
-      console.warn(`regression detected (score ${scoreAfter} vs best ${bestScore}), reverting`);
+      console.warn(`regression detected on ${page.label} (score ${scoreAfter} vs best ${bestScore}), reverting`);
       await revertLastCommit();
-      gapMemory[gap.id].status = 'regressed';
-      await log(logPath, { iter, gap: gap.id, outcome: 'regressed', scoreBefore, scoreAfter, delta, deployMs: deployResult.ms });
+      gapMemory[gapKey].status = 'regressed';
+      await log(logPath, { iter, page: page.label, gap: gap.id, outcome: 'regressed', scoreBefore, scoreAfter, delta, deployMs: deployResult.ms });
       continue;
     }
-    bestScore = Math.max(bestScore, scoreAfter);
+    bestScoreByPage[page.label] = Math.max(bestScore, scoreAfter);
 
     // 10a. per-gap stagnation
-    const recentDeltas = gapMemory[gap.id].deltas.slice(-PER_GAP_STAGNATION);
+    const recentDeltas = gapMemory[gapKey].deltas.slice(-PER_GAP_STAGNATION);
     if (recentDeltas.length >= PER_GAP_STAGNATION && recentDeltas.every((d) => d <= PER_GAP_DELTA_THRESHOLD)) {
-      gapMemory[gap.id].status = 'exhausted';
-      console.log(`gap ${gap.id} exhausted after ${PER_GAP_STAGNATION} near-zero attempts`);
+      gapMemory[gapKey].status = 'exhausted';
+      console.log(`gap ${gap.id} on ${page.label} exhausted after ${PER_GAP_STAGNATION} near-zero attempts`);
     } else {
-      gapMemory[gap.id].status = 'open'; // still improving or too early to judge, may be re-selected if still top priority next round
+      gapMemory[gapKey].status = 'open'; // still improving or too early to judge, may be re-selected if still top priority next round
     }
 
     await log(logPath, {
-      iter, gap: gap.id, outcome: 'deployed', summary: patchResult.summary,
+      iter, page: page.label, gap: gap.id, outcome: 'deployed', summary: patchResult.summary,
       scoreBefore, scoreAfter, delta, deployMs: deployResult.ms,
     });
 
