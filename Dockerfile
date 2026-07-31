@@ -1,7 +1,17 @@
 # Use official Node.js LTS image
-FROM node:20-slim
+FROM node:22-slim AS base
 
-# Create app directory
+# ── Stage 1: build React frontend ──────────────────────────────────────────
+FROM base AS frontend
+WORKDIR /frontend
+COPY job-aggregator-frontend/package*.json ./
+RUN npm install
+COPY job-aggregator-frontend/ ./
+RUN npm run build
+
+# ── Stage 2: build backend ─────────────────────────────────────────────────
+FROM base AS backend
+
 WORKDIR /usr/src/app
 
 # Install dependencies for native modules
@@ -24,6 +34,9 @@ RUN npm install --production --no-package-lock
 
 # Copy application code
 COPY . .
+
+# Copy built frontend into expected location
+COPY --from=frontend /frontend/build ./job-aggregator-frontend/build
 
 # Create non-root user
 RUN useradd -m -u 1001 appuser && \

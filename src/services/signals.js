@@ -2,7 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 
 let _sb = null;
 function getSB() {
-  if (!_sb) _sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  if (!_sb) _sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false }, realtime: { enabled: false },
+  });
   return _sb;
 }
 

@@ -14,7 +14,8 @@ const router = express.Router();
 // Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false }, realtime: { enabled: false } }
 );
 
 // Middleware to verify auth token
