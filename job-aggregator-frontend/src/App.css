@@ -135,12 +135,33 @@
 
   .hero-right {
     flex: 0 0 340px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 420px;
+    position: relative;
+  }
+
+  .hero-right::before {
+    content: '';
+    position: absolute;
+    width: 420px;
+    height: 420px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 55% 45%, #e8f0fe 0%, #dce6fd 45%, #c9d8fb 100%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 0;
   }
 
   .hero-illustration {
     width: 100%;
     height: auto;
     display: block;
+    position: relative;
+    z-index: 1;
+    max-height: 420px;
   }
 
   @media (max-width: 768px) {
