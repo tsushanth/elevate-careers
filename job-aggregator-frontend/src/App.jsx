@@ -336,18 +336,122 @@ function App() {
             </div>
           </div>
           <div className="hero-right" aria-hidden="true">
-            <svg viewBox="0 0 420 320" fill="none" xmlns="http://www.w3.org/2000/svg" className="hero-illustration">
-              <rect x="40" y="60" width="340" height="200" rx="16" fill="#e8f0fe"/>
-              <rect x="64" y="88" width="120" height="12" rx="6" fill="#4285f4"/>
-              <rect x="64" y="108" width="80" height="8" rx="4" fill="#b0c4f8"/>
-              <rect x="64" y="128" width="200" height="8" rx="4" fill="#d0dafb"/>
-              <rect x="64" y="144" width="160" height="8" rx="4" fill="#d0dafb"/>
-              <rect x="64" y="170" width="88" height="32" rx="8" fill="#0a66c2"/>
-              <rect x="64" y="170" width="88" height="32" rx="8" fill="#0a66c2"/>
-              <rect x="164" y="170" width="88" height="32" rx="8" fill="#e8f0fe" stroke="#0a66c2" strokeWidth="1.5"/>
-              <circle cx="330" cy="100" r="28" fill="#fff" stroke="#d0dafb" strokeWidth="2"/>
-              <rect x="318" y="92" width="24" height="16" rx="4" fill="#4285f4"/>
-              <rect x="318" y="112" width="24" height="6" rx="3" fill="#b0c4f8"/>
+            <svg viewBox="0 0 520 400" fill="none" xmlns="http://www.w3.org/2000/svg" className="hero-illustration">
+              {/* Background */}
+              <rect width="520" height="400" rx="24" fill="#f0f4ff"/>
+
+              {/* Bookshelf on the left wall */}
+              <rect x="28" y="60" width="14" height="160" rx="3" fill="#c8a96e"/>
+              <rect x="26" y="58" width="18" height="6" rx="2" fill="#b8925a"/>
+              <rect x="30" y="70" width="10" height="28" rx="2" fill="#e07b54"/>
+              <rect x="30" y="102" width="10" height="22" rx="2" fill="#4285f4"/>
+              <rect x="30" y="128" width="10" height="30" rx="2" fill="#34a853"/>
+              <rect x="30" y="162" width="10" height="20" rx="2" fill="#fbbc04"/>
+              <rect x="30" y="186" width="10" height="26" rx="2" fill="#9c5de0"/>
+
+              {/* Desk surface */}
+              <rect x="60" y="248" width="400" height="14" rx="5" fill="#c8a96e"/>
+              <rect x="80" y="262" width="8" height="80" rx="3" fill="#b8925a"/>
+              <rect x="432" y="262" width="8" height="80" rx="3" fill="#b8925a"/>
+
+              {/* Laptop base */}
+              <rect x="150" y="210" width="200" height="126" rx="6" fill="#2d3748"/>
+              <rect x="155" y="215" width="190" height="116" rx="4" fill="#1a202c"/>
+              {/* Laptop screen content */}
+              <rect x="163" y="222" width="174" height="102" rx="3" fill="#0f172a"/>
+              {/* Browser chrome */}
+              <rect x="163" y="222" width="174" height="14" rx="3" fill="#1e293b"/>
+              <circle cx="172" cy="229" r="3" fill="#fc8181"/>
+              <circle cx="182" cy="229" r="3" fill="#f6ad55"/>
+              <circle cx="192" cy="229" r="3" fill="#68d391"/>
+              <rect x="200" y="224" width="110" height="10" rx="5" fill="#2d3748"/>
+              {/* Job listing rows on screen */}
+              <rect x="168" y="242" width="80" height="6" rx="3" fill="#60a5fa"/>
+              <rect x="168" y="252" width="55" height="4" rx="2" fill="#475569"/>
+              <rect x="168" y="260" width="40" height="12" rx="4" fill="#0a66c2"/>
+              <rect x="212" y="260" width="40" height="12" rx="4" fill="#1e293b" opacity="0.8"/>
+              <rect x="168" y="278" width="80" height="6" rx="3" fill="#a78bfa"/>
+              <rect x="168" y="288" width="55" height="4" rx="2" fill="#475569"/>
+              <rect x="168" y="296" width="40" height="12" rx="4" fill="#0a66c2"/>
+              <rect x="168" y="310" width="80" height="6" rx="3" fill="#34d399"/>
+              <rect x="168" y="320" width="50" height="4" rx="2" fill="#475569"/>
+              {/* Laptop hinge & keyboard */}
+              <rect x="150" y="334" width="200" height="10" rx="3" fill="#4a5568"/>
+              <rect x="180" y="338" width="140" height="4" rx="2" fill="#2d3748"/>
+
+              {/* Coffee mug */}
+              <rect x="380" y="220" width="36" height="40" rx="6" fill="#fff" stroke="#e2e8f0" strokeWidth="2"/>
+              <path d="M416 234 Q430 234 430 244 Q430 254 416 254" stroke="#e2e8f0" strokeWidth="2" fill="none"/>
+              <rect x="384" y="224" width="28" height="8" rx="3" fill="#fde68a" opacity="0.7"/>
+              {/* Steam lines */}
+              <path d="M390 218 Q392 212 390 206" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+              <path d="M398 216 Q400 210 398 204" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+              <path d="M406 218 Q408 212 406 206" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+
+              {/* Notepad */}
+              <rect x="90" y="220" width="52" height="66" rx="4" fill="#fff" stroke="#e2e8f0" strokeWidth="1.5"/>
+              <rect x="96" y="228" width="38" height="3" rx="1.5" fill="#cbd5e1"/>
+              <rect x="96" y="235" width="30" height="3" rx="1.5" fill="#cbd5e1"/>
+              <rect x="96" y="242" width="34" height="3" rx="1.5" fill="#cbd5e1"/>
+              <rect x="96" y="249" width="24" height="3" rx="1.5" fill="#cbd5e1"/>
+              <rect x="96" y="256" width="32" height="3" rx="1.5" fill="#bfdbfe"/>
+              <rect x="96" y="263" width="20" height="3" rx="1.5" fill="#bfdbfe"/>
+              {/* Pencil */}
+              <rect x="148" y="274" width="6" height="32" rx="2" transform="rotate(-20 148 274)" fill="#fbbc04"/>
+              <polygon points="148,274 154,274 151,265" fill="#f87171"/>
+
+              {/* Person sitting at desk */}
+              {/* Chair back */}
+              <rect x="222" y="300" width="56" height="70" rx="8" fill="#4a5568"/>
+              <rect x="230" y="308" width="40" height="54" rx="6" fill="#64748b"/>
+              {/* Body / torso */}
+              <ellipse cx="250" cy="296" rx="30" ry="36" fill="#fbbf24"/>
+              {/* Shirt */}
+              <ellipse cx="250" cy="310" rx="28" ry="22" fill="#0a66c2"/>
+              {/* Head */}
+              <circle cx="250" cy="258" r="26" fill="#fde68a"/>
+              {/* Hair */}
+              <ellipse cx="250" cy="238" rx="26" ry="12" fill="#92400e"/>
+              <ellipse cx="224" cy="248" rx="6" ry="12" fill="#92400e"/>
+              <ellipse cx="276" cy="248" rx="6" ry="12" fill="#92400e"/>
+              {/* Eyes */}
+              <circle cx="241" cy="258" r="3.5" fill="#1e293b"/>
+              <circle cx="259" cy="258" r="3.5" fill="#1e293b"/>
+              <circle cx="242" cy="257" r="1.2" fill="#fff"/>
+              <circle cx="260" cy="257" r="1.2" fill="#fff"/>
+              {/* Smile */}
+              <path d="M243 267 Q250 273 257 267" stroke="#92400e" strokeWidth="2" fill="none" strokeLinecap="round"/>
+              {/* Arms reaching to keyboard */}
+              <path d="M222 306 Q190 320 180 334" stroke="#fde68a" strokeWidth="14" strokeLinecap="round" fill="none"/>
+              <path d="M278 306 Q310 320 320 334" stroke="#fde68a" strokeWidth="14" strokeLinecap="round" fill="none"/>
+
+              {/* Floating badge: "New Match!" */}
+              <rect x="340" y="130" width="110" height="40" rx="10" fill="#fff" stroke="#0a66c2" strokeWidth="1.5"/>
+              <circle cx="358" cy="150" r="8" fill="#0a66c2"/>
+              <text x="356" y="154" fontSize="9" fill="#fff" textAnchor="middle" fontFamily="sans-serif" fontWeight="bold">✓</text>
+              <rect x="372" y="142" width="68" height="7" rx="3.5" fill="#0a66c2"/>
+              <rect x="372" y="153" width="48" height="5" rx="2.5" fill="#bfdbfe"/>
+
+              {/* Floating badge: "Applied!" */}
+              <rect x="56" y="130" width="90" height="36" rx="10" fill="#fff" stroke="#34a853" strokeWidth="1.5"/>
+              <circle cx="74" cy="148" r="7" fill="#34a853"/>
+              <text x="72" y="152" fontSize="8" fill="#fff" textAnchor="middle" fontFamily="sans-serif" fontWeight="bold">✓</text>
+              <rect x="86" y="141" width="50" height="6" rx="3" fill="#34a853"/>
+              <rect x="86" y="151" width="36" height="5" rx="2.5" fill="#bbf7d0"/>
+
+              {/* Stars / sparkles decoration */}
+              <circle cx="460" cy="80" r="5" fill="#fbbc04"/>
+              <circle cx="472" cy="62" r="3" fill="#fde68a"/>
+              <circle cx="448" cy="65" r="3.5" fill="#fbbf24" opacity="0.7"/>
+              <circle cx="62" cy="52" r="4" fill="#a78bfa" opacity="0.8"/>
+              <circle cx="48" cy="40" r="2.5" fill="#c4b5fd"/>
+              <circle cx="76" cy="38" r="3" fill="#818cf8" opacity="0.6"/>
+
+              {/* Wall clock */}
+              <circle cx="460" cy="160" r="28" fill="#fff" stroke="#e2e8f0" strokeWidth="2"/>
+              <circle cx="460" cy="160" r="2.5" fill="#374151"/>
+              <line x1="460" y1="160" x2="460" y2="140" stroke="#374151" strokeWidth="2" strokeLinecap="round"/>
+              <line x1="460" y1="160" x2="474" y2="166" stroke="#374151" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
         </div>
