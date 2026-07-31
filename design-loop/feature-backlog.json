@@ -162,5 +162,25 @@
   {
     "name": "5-item icon nav",
     "description": "LinkedIn has 5 navigable sections with icons above text labels; we have 2, making our nav feel sparse."
+  },
+  {
+    "name": "Terms/Privacy consent line",
+    "description": "LinkedIn shows a small legal consent sentence between the CTA buttons linking to User Agreement, Privacy Policy, and Cookie Policy."
+  },
+  {
+    "name": "Multi-category explore section",
+    "description": "LinkedIn's below-fold section shows topic category pills (Career, Finance, Soft Skills…) as a content discovery entry point, not a job-results card. We show a job results card that is empty, which reads as broken rather than as a feature."
+  },
+  {
+    "name": "Professional illustration asset",
+    "description": "LinkedIn uses a high-quality editorial-style flat illustration with warm tones and a realistic human figure. Our cartoon-style character in a lavender circle reads as lower-fidelity."
+  },
+  {
+    "name": "Legal/Terms line",
+    "description": "LinkedIn shows a consent/legal line below the CTA buttons on the logged-out hero; we have no equivalent"
+  },
+  {
+    "name": "'New to platform? Join' row",
+    "description": "LinkedIn has a dedicated 'New to LinkedIn? Join now' row as a tertiary CTA; we lack this pattern"
   }
 ]
