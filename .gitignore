@@ -1,2 +1,3 @@
 *.xcuserstate
-*.yaml
+*.yamlextension/dist/.DS_Store
+**/.DS_Store
