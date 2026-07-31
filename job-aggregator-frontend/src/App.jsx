@@ -326,6 +326,7 @@ function App() {
 
       {/* Hero Section — unauthenticated only */}
       {activeTab === 'jobs' && !session && (
+        <div className="hero-wrapper">
         <div className="hero-section">
           <div className="hero-left">
             <h1 className="hero-headline">Find the job that's right for you.</h1>
@@ -454,6 +455,7 @@ function App() {
               <line x1="460" y1="160" x2="474" y2="166" stroke="#374151" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
+        </div>
         </div>
       )}
 

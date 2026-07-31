@@ -64,14 +64,18 @@
   }
   
   /* Hero Section */
+  .hero-wrapper {
+    background-color: #ffffff;
+    width: 100%;
+  }
+
   .hero-section {
     display: flex;
     align-items: center;
     max-width: 1128px;
-    margin: 40px auto 24px;
-    padding: 0 24px;
+    margin: 0 auto;
+    padding: 40px 24px 24px;
     gap: 48px;
-    background-color: #ffffff;
   }
 
   .hero-left {
