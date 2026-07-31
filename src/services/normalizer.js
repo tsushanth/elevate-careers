@@ -8,12 +8,10 @@ const turndownService = new TurndownService();
 export class NormalizerService {
   
   async processJobs(jobs, provider, org) {
-    const results = {
-      created: 0,
-      updated: 0,
-      skipped: 0,
-      errors: [],
-    };
+    const results = { created: 0, updated: 0, skipped: 0, expired: 0, errors: [] };
+
+    // Track which external_ids are currently live in this fetch
+    const liveIds = new Set(jobs.map(j => j.external_id).filter(Boolean));
 
     for (const rawJob of jobs) {
       try {
@@ -25,6 +23,26 @@ export class NormalizerService {
       }
     }
 
+    // Mark jobs from this org that are no longer in the feed as inactive
+    if (liveIds.size > 0) {
+      try {
+        const domain = `${org}.${provider === 'greenhouse' ? 'greenhouse' : provider === 'lever' ? 'lever' : provider === 'ashby' ? 'ashbyhq' : provider}.io`;
+        const expired = await db.query(`
+          UPDATE job SET is_active = false
+          WHERE company_id IN (SELECT id FROM company WHERE domain ILIKE $1)
+            AND provider = $2
+            AND external_id IS NOT NULL
+            AND external_id != ALL($3)
+            AND is_active = true
+          RETURNING id
+        `, [`%${org}%`, provider, [...liveIds]]);
+        results.expired = expired.rowCount;
+        if (expired.rowCount > 0) logger.info({ org, provider, expired: expired.rowCount }, 'Marked jobs inactive');
+      } catch (e) {
+        logger.warn({ error: e.message }, 'Could not mark expired jobs');
+      }
+    }
+
     return results;
   }
 
@@ -33,7 +51,7 @@ export class NormalizerService {
     const dedupeKey = this.generateDedupeKey(rawJob);
     
     // Get or create company
-    const company = await this.getOrCreateCompany(rawJob.company_domain || `${org}.${provider}.io`);
+    const company = await this.getOrCreateCompany(rawJob.company_domain || `${org}.${provider}.io`, provider, org);
     
     // Convert HTML to Markdown
     const descriptionMd = this.htmlToMarkdown(rawJob.description);
@@ -74,24 +92,33 @@ export class NormalizerService {
     return crypto.createHash('sha1').update(keyString).digest('hex');
   }
 
-  async getOrCreateCompany(domain) {
+  async getOrCreateCompany(domain, provider, org) {
     const result = await db.query(
       'SELECT * FROM company WHERE domain = $1',
       [domain]
     );
-    
+
     if (result.rows.length > 0) {
       return result.rows[0];
     }
-    
-    // Extract company name from domain
-    const name = domain.split('.')[0].replace(/-/g, ' ');
-    
+
+    // Prefer the real display name discovered from GitHub datasets (e.g.
+    // "Q-CTRL", "Bumble Inc") over slugifying the domain, which just turns
+    // "bumbleinc.greenhouse.io" into "bumbleinc" — not a company name.
+    let name = domain.split('.')[0].replace(/-/g, ' ');
+    if (provider && org) {
+      const discovered = await db.query(
+        'SELECT name FROM discovered_company WHERE provider = $1 AND org = $2 AND name IS NOT NULL',
+        [provider, org]
+      );
+      if (discovered.rows[0]?.name) name = discovered.rows[0].name;
+    }
+
     const insert = await db.query(
       'INSERT INTO company (name, domain) VALUES ($1, $2) RETURNING *',
       [name, domain]
     );
-    
+
     return insert.rows[0];
   }
 
