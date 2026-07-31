@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import TurndownService from 'turndown';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
-import { matchCountryOrRegion } from './geo.js';
+import { resolveLocationToken } from './geo.js';
 
 const turndownService = new TurndownService();
 
@@ -284,19 +284,20 @@ export class NormalizerService {
 
     const parts = locationString.split(',').map(s => s.trim());
 
-    // Many ATS postings (mostly Lever) give a bare country/region name with
-    // no comma at all — e.g. "Canada", "India (Remote)", "LATAM". Without
-    // this check the whole string lands in `city` and `country` stays null,
-    // which the US-location feed filter treats as "no clear non-US signal"
-    // and lets through. Only try this when there's no comma (parts.length
-    // === 1) — a genuine "City, Country" pair should keep using the
-    // comma-split path below.
+    // Many ATS postings (mostly Lever) give a bare country/region/city name
+    // with no comma at all, sometimes noise words and other separators
+    // mixed in — e.g. "Canada", "India (Remote)", "LATAM", "Remote - US",
+    // "SG - Singapore". Without this check the whole string lands in `city`
+    // and `country` stays null, which the US-location feed filter treats as
+    // "no clear non-US signal" and lets through. Only try this when there's
+    // no comma (parts.length === 1) — a genuine "City, Country" pair should
+    // keep using the comma-split path below, unchanged.
     if (parts.length === 1) {
-      const match = matchCountryOrRegion(parts[0]);
+      const match = resolveLocationToken(parts[0]);
       if (match) {
-        return match.type === 'country'
-          ? { city: null, region: null, country: match.value }
-          : { city: null, region: match.value, country: null };
+        if (match.type === 'country') return { city: null, region: null, country: match.value };
+        if (match.type === 'region') return { city: null, region: match.value, country: null };
+        return { city: match.value, region: null, country: match.country }; // city
       }
     }
 

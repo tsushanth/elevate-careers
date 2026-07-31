@@ -11,7 +11,7 @@
 //   node scripts/backfill-job-locations.js --apply     # actually updates
 
 import { db } from '../src/db/index.js';
-import { matchCountryOrRegion } from '../src/services/geo.js';
+import { resolveLocationToken } from '../src/services/geo.js';
 
 const apply = process.argv.includes('--apply');
 
@@ -22,18 +22,20 @@ async function main() {
   `);
 
   const toFix = rows
-    .map(r => ({ ...r, match: matchCountryOrRegion(r.city) }))
+    .map(r => ({ ...r, match: resolveLocationToken(r.city) }))
     .filter(r => r.match);
 
   if (toFix.length === 0) {
-    console.log(`Checked ${rows.length} rows with no region/country — none matched a known country/region name.`);
+    console.log(`Checked ${rows.length} rows with no region/country — none matched a known country/region/city name.`);
     return;
   }
 
-  console.log(`${toFix.length} of ${rows.length} rows match a known bare country/region name:\n`);
+  console.log(`${toFix.length} of ${rows.length} rows match a known bare country/region/city name:\n`);
   const counts = {};
   for (const r of toFix) {
-    const key = `${r.city} -> ${r.match.type}:${r.match.value}`;
+    const key = r.match.type === 'city'
+      ? `${r.city} -> city:${r.match.value}, country:${r.match.country}`
+      : `${r.city} -> ${r.match.type}:${r.match.value}`;
     counts[key] = (counts[key] || 0) + 1;
   }
   for (const [key, n] of Object.entries(counts).sort((a, b) => b[1] - a[1])) {
@@ -50,8 +52,11 @@ async function main() {
   for (const r of toFix) {
     if (r.match.type === 'country') {
       await db.query(`UPDATE job_location SET country = $1, city = NULL WHERE id = $2`, [r.match.value, r.id]);
-    } else {
+    } else if (r.match.type === 'region') {
       await db.query(`UPDATE job_location SET region = $1, city = NULL WHERE id = $2`, [r.match.value, r.id]);
+    } else {
+      // city match — populate both, so the display keeps a real city name
+      await db.query(`UPDATE job_location SET city = $1, country = $2 WHERE id = $3`, [r.match.value, r.match.country, r.id]);
     }
     updated++;
   }
