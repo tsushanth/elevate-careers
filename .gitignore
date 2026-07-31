@@ -6,3 +6,5 @@ node_modules/
 *.zip
 debug-shots/
 *.mjs.log
+design-loop/runs/
+design-loop/node_modules/
