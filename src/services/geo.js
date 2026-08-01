@@ -20,6 +20,9 @@
 const COUNTRY_SYNONYMS = {
   canada: 'Canada', mexico: 'Mexico', brazil: 'Brazil', colombia: 'Colombia',
   argentina: 'Argentina', chile: 'Chile', peru: 'Peru', uruguay: 'Uruguay',
+  guatemala: 'Guatemala', 'costa rica': 'Costa Rica', panama: 'Panama',
+  ecuador: 'Ecuador', bolivia: 'Bolivia', 'dominican republic': 'Dominican Republic',
+  honduras: 'Honduras', 'el salvador': 'El Salvador', nicaragua: 'Nicaragua', paraguay: 'Paraguay',
   india: 'India', china: 'China', japan: 'Japan',
   'south korea': 'South Korea', korea: 'South Korea',
   singapore: 'Singapore', vietnam: 'Vietnam', thailand: 'Thailand',
@@ -100,7 +103,8 @@ const CITY_COUNTRY = {
   kyiv: 'Ukraine', kiev: 'Ukraine', sofia: 'Bulgaria', belgrade: 'Serbia',
   zagreb: 'Croatia', athens: 'Greece', vienna: 'Austria',
   // Middle East
-  'tel aviv': 'Israel', 'tel-aviv': 'Israel',
+  'tel aviv': 'Israel', 'tel-aviv': 'Israel', 'kfar saba': 'Israel', jerusalem: 'Israel',
+  haifa: 'Israel', 'petah tikva': 'Israel', 'herzliya': 'Israel',
   dubai: 'UAE', 'abu dhabi': 'UAE', doha: 'Qatar',
   riyadh: 'Saudi Arabia', jeddah: 'Saudi Arabia',
   istanbul: 'Turkey', ankara: 'Turkey', cairo: 'Egypt',
@@ -134,6 +138,11 @@ const CITY_COUNTRY = {
   'rio de janeiro': 'Brazil', 'buenos aires': 'Argentina',
   'bogota': 'Colombia', 'bogotá': 'Colombia', medellin: 'Colombia', 'medellín': 'Colombia',
   santiago: 'Chile', lima: 'Peru', montevideo: 'Uruguay',
+  'guatemala city': 'Guatemala', 'santo domingo': 'Dominican Republic',
+  quito: 'Ecuador', 'la paz': 'Bolivia', asuncion: 'Paraguay', 'asunción': 'Paraguay',
+  // NOTE: "San Jose"/"Panama City" deliberately excluded — collide with
+  // real US cities (San Jose, CA; Panama City, FL), same false-positive
+  // risk as the Georgia exclusion above.
 };
 
 // Matches "India (Remote)", "Remote - Canada", "United States | Remote",
