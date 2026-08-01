@@ -717,40 +717,34 @@
       fields.forEach(addRow);
       setStatus(`${fields.length} fields found`);
       const jobDesc = getJobDescription();
+      // No identity/contact/location/salary/background/resume defaults \u2014
+      // this file is a stale, disconnected copy predating the src/->dist/
+      // build pipeline that used to hardcode the founder's real identity,
+      // bio, and resume as the fallback used directly on live job
+      // application forms. See src/mount.js for the same fix in the
+      // actual shipped code.
       const DEFAULT_PROFILE = {
-        firstName: "Sushanth",
-        lastName: "Tiruvaipati",
-        email: "t.sushanth@gmail.com",
-        phone: "+1 425-628-4887",
-        city: "San Jose",
-        state: "California",
-        country: "United States",
-        postalCode: "95101",
-        linkedin: "https://www.linkedin.com/in/tsushanth",
-        github: "https://github.com/tsushanth",
-        portfolio: "https://kreativekoala.llc",
-        educationLevel: "Master's Degree",
-        schoolName: "Carnegie Mellon University",
-        fieldOfStudy: "Information Networking",
-        graduationYear: "2011",
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        city: "",
+        state: "",
+        country: "",
+        postalCode: "",
+        linkedin: "",
+        github: "",
+        portfolio: "",
+        educationLevel: "",
+        schoolName: "",
+        fieldOfStudy: "",
+        graduationYear: "",
         workAuth: "Yes",
         sponsorship: "No",
-        salary: "150000",
+        salary: "",
         heardAbout: "LinkedIn",
-        background: `Sushanth Tiruvaipati is a software engineer with 10+ years at Google and an indie developer who has shipped 70+ iOS/Android apps generating real revenue. At Google he worked across Ads, Cloud AI, Play, and YouTube on large-scale distributed systems. Strong in TypeScript, Swift, Kotlin, Python, Go, C++, and cloud infrastructure. Located in Bay Area, CA, open to relocation. Compensation floor $150k base.`,
-        resume: `SUSHANTH TIRUVAIPATI
-Bay Area, CA \xB7 t.sushanth@gmail.com \xB7 425-628-4887 \xB7 linkedin.com/in/tsushanth
-
-EXPERIENCE
-Software Engineer \xB7 Google | Sep 2015 \u2013 Present
-- Large-scale distributed systems across Ads, Cloud AI, Play, YouTube
-Founder & Sole Engineer \xB7 KreativeKoala Solutions LLC | 2021 \u2013 Present
-- Built and shipped 70+ iOS/Android apps end-to-end
-Software Development Engineer \xB7 Microsoft | Nov 2012 \u2013 Feb 2015
-Software Development Engineer \xB7 Amazon | Oct 2011 \u2013 Oct 2012
-
-EDUCATION
-Carnegie Mellon University \u2014 M.S., Information Networking \xB7 2011`
+        background: "",
+        resume: "",
       };
       let profile;
       try {

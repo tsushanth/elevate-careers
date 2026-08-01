@@ -166,8 +166,6 @@
     }
   }
   function main() {
-    const RESUME_URL = chrome.runtime.getURL("assets/resume.pdf");
-    const COVER_URL = chrome.runtime.getURL("assets/cover_letter.pdf");
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const fire = (el, t) => el.dispatchEvent(new Event(t, { bubbles: true }));
     async function getToken() {
@@ -513,13 +511,6 @@
       if (!el.files?.length)
         throw new Error("attach blocked by browser");
     }
-    async function attachFile(el, assetUrl, filename) {
-      const res = await fetch(assetUrl);
-      if (!res.ok)
-        throw new Error(`fetch ${res.status}`);
-      const blob = await res.blob();
-      await attachFileObj(el, new File([blob], filename, { type: "application/pdf" }));
-    }
     function isOpenEnded(field) {
       if (field.key)
         return false;
@@ -676,7 +667,7 @@
     }
     async function fillStructured(field, profile) {
       const { el, key, type } = field;
-      const raw = profile[key] ?? (key === "currentCompany" ? "Google" : null) ?? (key === "fullName" ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || null : null);
+      const raw = profile[key] ?? (key === "fullName" ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || null : null);
       const value = raw === "" || raw == null ? null : raw;
       if (value == null)
         throw new Error("no data for " + key);
@@ -1154,24 +1145,25 @@
       setStatus(`${fields.length} fields found`);
       const jobDesc = getJobDescription();
       const DEFAULT_PROFILE = {
-        firstName: "Sushanth",
-        lastName: "Tiruvaipati",
-        email: "t.sushanth@gmail.com",
-        phone: "+1 425-628-4887",
-        city: "Milpitas",
-        state: "California",
-        country: "United States",
-        postalCode: "95035",
-        linkedin: "https://www.linkedin.com/in/tsushanth/",
-        github: "https://github.com/tsushanth",
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        pronouns: "",
+        city: "",
+        state: "",
+        country: "",
+        postalCode: "",
+        linkedin: "",
+        github: "",
         portfolio: "",
-        educationLevel: "Bachelor's Degree",
+        educationLevel: "",
         schoolName: "",
-        fieldOfStudy: "Computer Science",
+        fieldOfStudy: "",
         graduationYear: "",
         workAuth: "Yes",
         sponsorship: "No",
-        salary: "150000",
+        salary: "",
         heardAbout: "LinkedIn",
         background: "",
         resume: ""
@@ -1235,16 +1227,14 @@
             field._link.style.display = "inline";
             filled++;
           } else if (isCoverLetterField(field)) {
-            setRow(field, "filling", "attaching cover letter\u2026");
             const { coverLetterPdfDataUrl } = await chrome.storage.local.get("coverLetterPdfDataUrl");
-            if (coverLetterPdfDataUrl) {
-              const res = await fetch(coverLetterPdfDataUrl);
-              const blob = await res.blob();
-              const name = `${profile.firstName || "Cover"}_${profile.lastName || "Letter"}_CoverLetter.pdf`.replace(/\s+/g, "_");
-              await attachFileObj(field.el, new File([blob], name, { type: "application/pdf" }));
-            } else {
-              await attachFile(field.el, COVER_URL, "CoverLetter.pdf");
-            }
+            if (!coverLetterPdfDataUrl)
+              throw new Error("No cover letter uploaded \u2014 add one in extension settings");
+            setRow(field, "filling", "attaching cover letter\u2026");
+            const res = await fetch(coverLetterPdfDataUrl);
+            const blob = await res.blob();
+            const name = `${profile.firstName || "Cover"}_${profile.lastName || "Letter"}_CoverLetter.pdf`.replace(/\s+/g, "_");
+            await attachFileObj(field.el, new File([blob], name, { type: "application/pdf" }));
             setRow(field, "done", "\u{1F4C4} cover letter attached");
             filled++;
           } else if (isAgreementField(field) || field._contextLabel && AGREE_RE.test(field._contextLabel) && field.type === "checkbox") {
