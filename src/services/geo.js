@@ -106,7 +106,7 @@ const CITY_COUNTRY = {
   // Eastern Europe
   warsaw: 'Poland', krakow: 'Poland', 'kraków': 'Poland',
   prague: 'Czech Republic', budapest: 'Hungary', bucharest: 'Romania',
-  kyiv: 'Ukraine', kiev: 'Ukraine', lviv: 'Ukraine', sofia: 'Bulgaria', belgrade: 'Serbia',
+  kyiv: 'Ukraine', kiev: 'Ukraine', lviv: 'Ukraine', minsk: 'Belarus', sofia: 'Bulgaria', belgrade: 'Serbia',
   zagreb: 'Croatia', athens: 'Greece', vienna: 'Austria',
   // Middle East
   'tel aviv': 'Israel', 'tel-aviv': 'Israel', 'kfar saba': 'Israel', jerusalem: 'Israel',
