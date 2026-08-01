@@ -88,6 +88,13 @@ async function saveProfile() {
 
 document.getElementById('save').addEventListener('click', saveProfile);
 
+document.getElementById('clear-cache').addEventListener('click', async () => {
+  await chrome.storage.local.remove(['answerCache', 'learnedAnswers']);
+  const toast = document.getElementById('clear-cache-toast');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3500);
+});
+
 // ── PDF upload handlers ───────────────────────────────────────────────────────
 async function handlePdfUpload(inputId, storageKey, labelId) {
   const input = document.getElementById(inputId);
