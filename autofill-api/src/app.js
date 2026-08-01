@@ -153,8 +153,15 @@ export function createApp({ legacyToken, claudeClient } = {}) {
     const { question, jobDescription, profile } = await c.req.json().catch(() => ({}));
     if (!question) return c.json({ error: 'question required' }, 400);
 
-    const answer = await askClaude(claudeClient, question, jobDescription, profile || {});
-    return c.json({ answer, usage: { count: usage.count, limit: usage.limit } });
+    const t0 = Date.now();
+    try {
+      const answer = await askClaude(claudeClient, question, jobDescription, profile || {});
+      console.log(`[copilot/answer] ok provider=${process.env.ANSWER_PROVIDER || 'api'} q="${question.slice(0, 60)}" ms=${Date.now() - t0} answer_len=${answer?.length ?? 0}`);
+      return c.json({ answer, usage: { count: usage.count, limit: usage.limit } });
+    } catch (e) {
+      console.error(`[copilot/answer] FAILED provider=${process.env.ANSWER_PROVIDER || 'api'} q="${question.slice(0, 60)}" ms=${Date.now() - t0} error=${e.message}`);
+      throw e;
+    }
   });
 
   app.post('/copilot/answer/batch', async c => {
@@ -302,10 +309,13 @@ ${prof.resume || ''}`;
   // To flip back: `flyctl secrets set ANSWER_PROVIDER=api -a elevate-careers-api`
   // (or unset it — "api" is the default).
   if (process.env.ANSWER_PROVIDER === 'self-hosted') {
+    const t0 = Date.now();
     try {
-      return await askSelfHosted(systemPrompt, userContent);
+      const answer = await askSelfHosted(systemPrompt, userContent);
+      console.log(`[askSelfHosted] ok ms=${Date.now() - t0}`);
+      return answer;
     } catch (e) {
-      console.error('[askClaude] self-hosted provider failed, falling back to API:', e.message);
+      console.error(`[askSelfHosted] FAILED ms=${Date.now() - t0} error=${e.message} — falling back to API`);
     }
   }
 
