@@ -62,6 +62,10 @@ const REGION_SYNONYMS = {
   anz: 'ANZ', 'australia and new zealand': 'ANZ',
   cee: 'CEE',
   'european union': 'EU', eu: 'EU',
+  // Continents — unlike "Global"/"Hybrid"/"Anywhere" these unambiguously
+  // exclude the US, so they're safe to treat as a non-US signal.
+  asia: 'ASIA', europe: 'EUROPE', africa: 'AFRICA', oceania: 'OCEANIA',
+  'south america': 'SOUTH_AMERICA',
 };
 
 export const REGION_NAMES = Object.keys(REGION_SYNONYMS);
@@ -86,7 +90,7 @@ const CITY_COUNTRY = {
   paris: 'France', lyon: 'France', marseille: 'France', toulouse: 'France',
   // Germany
   berlin: 'Germany', munich: 'Germany', hamburg: 'Germany', frankfurt: 'Germany', cologne: 'Germany',
-  stuttgart: 'Germany', dusseldorf: 'Germany', 'düsseldorf': 'Germany', leipzig: 'Germany',
+  stuttgart: 'Germany', dusseldorf: 'Germany', 'düsseldorf': 'Germany', leipzig: 'Germany', bochum: 'Germany',
   // Switzerland
   zurich: 'Switzerland', 'zürich': 'Switzerland', geneva: 'Switzerland', basel: 'Switzerland',
   // Spain / Portugal / Italy
@@ -95,14 +99,14 @@ const CITY_COUNTRY = {
   milan: 'Italy', rome: 'Italy',
   // Netherlands / Belgium
   amsterdam: 'Netherlands', rotterdam: 'Netherlands', 'the hague': 'Netherlands',
-  brussels: 'Belgium', antwerp: 'Belgium',
+  brussels: 'Belgium', antwerp: 'Belgium', bruges: 'Belgium',
   // Nordics
   stockholm: 'Sweden', gothenburg: 'Sweden',
   copenhagen: 'Denmark', helsinki: 'Finland', oslo: 'Norway',
   // Eastern Europe
   warsaw: 'Poland', krakow: 'Poland', 'kraków': 'Poland',
   prague: 'Czech Republic', budapest: 'Hungary', bucharest: 'Romania',
-  kyiv: 'Ukraine', kiev: 'Ukraine', sofia: 'Bulgaria', belgrade: 'Serbia',
+  kyiv: 'Ukraine', kiev: 'Ukraine', lviv: 'Ukraine', sofia: 'Bulgaria', belgrade: 'Serbia',
   zagreb: 'Croatia', athens: 'Greece', vienna: 'Austria',
   // Middle East
   'tel aviv': 'Israel', 'tel-aviv': 'Israel', 'kfar saba': 'Israel', jerusalem: 'Israel',
@@ -117,7 +121,7 @@ const CITY_COUNTRY = {
   pune: 'India', delhi: 'India', 'new delhi': 'India', chennai: 'India',
   noida: 'India', gurgaon: 'India', gurugram: 'India', kolkata: 'India',
   // China / Taiwan / Hong Kong
-  shanghai: 'China', beijing: 'China', shenzhen: 'China', guangzhou: 'China', hangzhou: 'China', chengdu: 'China',
+  shanghai: 'China', beijing: 'China', shenzhen: 'China', guangzhou: 'China', hangzhou: 'China', chengdu: 'China', suzhou: 'China',
   taipei: 'Taiwan',
   // Japan / Korea
   tokyo: 'Japan', osaka: 'Japan', yokohama: 'Japan',
@@ -205,7 +209,7 @@ export function resolveLocationToken(raw) {
 // false-positive-risk non-US signal since these almost never appear in
 // English titles by coincidence. "(H/F)"/"(F/H)" = French "Homme/Femme";
 // "(M/W/D)"/"(W/M/D)"/"(M/F/D)" = German "Mann/Frau/Divers".
-const MARKET_MARKERS = ['h/f', 'f/h', 'm/w/d', 'w/m/d', 'm/f/d'];
+const MARKET_MARKERS = ['h/f', 'f/h', 'm/w/d', 'w/m/d', 'm/f/d', 'f/m/d', 'd/m/w', 'd/f/m'];
 
 // For the title-text signal — a regex alternation of all names, \y-bounded
 // (Postgres word-boundary; NOT \b, which is a backspace escape in Postgres's
