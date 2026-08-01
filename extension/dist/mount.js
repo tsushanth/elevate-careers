@@ -282,7 +282,7 @@
       setCached(label, value);
     }
     const LABEL_TAGS = /* @__PURE__ */ new Set(["LABEL", "LEGEND", "SPAN", "P", "DIV", "H1", "H2", "H3", "H4", "DT", "LI"]);
-    const SKIP_EEOC = /gender|lgbtq|race|ethnic|hispanic|latino|veteran|disability|pronouns|sexual|transgender/i;
+    const SKIP_EEOC = /gender|lgbtq|race|ethnic|hispanic|latino|veteran|disability|sexual|transgender/i;
     const AGREE_RE = /i agree|i consent|i acknowledge|i certify|terms|privacy policy|by (checking|selecting|clicking)/i;
     function cleanText(t) {
       return (t || "").replace(/\s+/g, " ").replace(/^Q\.\s*/i, "").replace(/\s*Question\b.*$/i, "").replace(/\s*Required\b.*$/i, "").replace(/[*:]+$/, "").trim();
@@ -349,6 +349,7 @@
       { re: /linkedin/i, key: "linkedin" },
       { re: /github/i, key: "github" },
       { re: /website|portfolio/i, key: "portfolio" },
+      { re: /\bfull name\b|^name$|your name/i, key: "fullName" },
       { re: /first name|given name|forename/i, key: "firstName" },
       { re: /last name|surname|family name/i, key: "lastName" },
       { re: /\bemail\b/i, key: "email" },
@@ -604,17 +605,25 @@
       el.focus();
       nativeSet(el, "");
       fire(el, "input");
+      let typed = "";
       for (const ch of String(value)) {
-        nativeSet(el, el.value + ch);
+        typed += ch;
+        nativeSet(el, typed);
         fire(el, "input");
         await sleep(delay);
       }
       fire(el, "change");
+      await sleep(50);
+      if (el.value !== typed) {
+        nativeSet(el, typed);
+        fire(el, "input");
+        fire(el, "change");
+      }
       el.blur();
     }
     async function fillStructured(field, profile) {
       const { el, key, type } = field;
-      const raw = profile[key] ?? (key === "currentCompany" ? "Google" : null);
+      const raw = profile[key] ?? (key === "currentCompany" ? "Google" : null) ?? (key === "fullName" ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim() || null : null);
       const value = raw === "" || raw == null ? null : raw;
       if (value == null)
         throw new Error("no data for " + key);

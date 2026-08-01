@@ -178,7 +178,10 @@ function saveLearnedAnswer(label, value) {
 
 // ── Label extraction (Simplify-style: walk up DOM) ───────────────────────────
 const LABEL_TAGS = new Set(['LABEL','LEGEND','SPAN','P','DIV','H1','H2','H3','H4','DT','LI']);
-const SKIP_EEOC  = /gender|lgbtq|race|ethnic|hispanic|latino|veteran|disability|pronouns|sexual|transgender/i;
+// Pronouns deliberately excluded — unlike race/veteran-status/disability/etc,
+// it's not an EEOC-protected self-identification category the same way, and
+// the profile has a real preference to fill it with rather than skip it.
+const SKIP_EEOC  = /gender|lgbtq|race|ethnic|hispanic|latino|veteran|disability|sexual|transgender/i;
 const AGREE_RE   = /i agree|i consent|i acknowledge|i certify|terms|privacy policy|by (checking|selecting|clicking)/i;
 
 function cleanText(t) {
@@ -264,6 +267,7 @@ const KEYWORD_RULES = [
   { re: /linkedin/i,                                                      key: 'linkedin' },
   { re: /github/i,                                                        key: 'github' },
   { re: /website|portfolio/i,                                             key: 'portfolio' },
+  { re: /\bfull name\b|^name$|your name/i,                                 key: 'fullName' },
   { re: /first name|given name|forename/i,                                key: 'firstName' },
   { re: /last name|surname|family name/i,                                 key: 'lastName' },
   { re: /\bemail\b/i,                                                     key: 'email' },
@@ -519,18 +523,37 @@ async function typeIn(el, value, delay = 12) {
   el.focus();
   nativeSet(el, '');
   fire(el, 'input');
+  // Track the intended string locally instead of reading el.value back each
+  // keystroke — on a React-controlled field, the page's own re-render can
+  // reset/clobber the DOM value mid-typing, and re-reading el.value builds
+  // the rest of the string on top of that corrupted value. Only the tail
+  // typed after the last reset used to survive (e.g. a full LinkedIn URL
+  // ending up as just "hanth/").
+  let typed = '';
   for (const ch of String(value)) {
-    nativeSet(el, el.value + ch);
+    typed += ch;
+    nativeSet(el, typed);
     fire(el, 'input');
     await sleep(delay);
   }
   fire(el, 'change');
+  // Belt-and-suspenders: verify what actually landed and do one repair pass
+  // if a reset still won the race, instead of relying on the user noticing
+  // and manually re-running autofill.
+  await sleep(50);
+  if (el.value !== typed) {
+    nativeSet(el, typed);
+    fire(el, 'input');
+    fire(el, 'change');
+  }
   el.blur();
 }
 
 async function fillStructured(field, profile) {
   const { el, key, type } = field;
-  const raw = profile[key] ?? (key === 'currentCompany' ? 'Google' : null);
+  const raw = profile[key]
+    ?? (key === 'currentCompany' ? 'Google' : null)
+    ?? (key === 'fullName' ? `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() || null : null);
   const value = (raw === '' || raw == null) ? null : raw;
   if (value == null) throw new Error('no data for ' + key);
 
