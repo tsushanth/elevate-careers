@@ -194,6 +194,35 @@ function cleanText(t) {
     .trim();
 }
 
+// Finds the shared question text for a radio group (e.g. "Pronouns"), as
+// opposed to extractLabel() on a single radio, which finds that ONE
+// option's own text ("She/her"). Tries <fieldset><legend> first, then
+// walks up from the group's container looking for a heading that precedes
+// it, then falls back to the shared `name` attribute.
+function groupLabelFor(inputs) {
+  for (const el of inputs) {
+    const fieldset = el.closest('fieldset');
+    const legend = fieldset?.querySelector('legend');
+    if (legend) {
+      const t = cleanText(legend.textContent);
+      if (t) return t;
+    }
+  }
+  const anchor = inputs[0];
+  const container = anchor.closest('div, section, fieldset') || anchor.parentElement;
+  let node = container?.parentElement;
+  for (let depth = 0; depth < 5 && node; depth++, node = node.parentElement) {
+    for (const child of node.children) {
+      if (child === container || child.contains(anchor)) break;
+      if (LABEL_TAGS.has(child.tagName)) {
+        const t = cleanText(child.textContent);
+        if (t && t.length < 200) return t;
+      }
+    }
+  }
+  return (anchor.name || '').replace(/[_-]/g, ' ').trim() || null;
+}
+
 function extractLabel(el) {
   // 1. <label for="id">
   if (el.id) {
@@ -268,6 +297,7 @@ const KEYWORD_RULES = [
   { re: /github/i,                                                        key: 'github' },
   { re: /website|portfolio/i,                                             key: 'portfolio' },
   { re: /\bfull name\b|^name$|your name/i,                                 key: 'fullName' },
+  { re: /pronoun/i,                                                       key: 'pronouns' },
   { re: /first name|given name|forename/i,                                key: 'firstName' },
   { re: /last name|surname|family name/i,                                 key: 'lastName' },
   { re: /\bemail\b/i,                                                     key: 'email' },
@@ -459,6 +489,31 @@ function fieldsFromDoc(doc) {
       return { el, label: label || '(Unlabeled)', key, type };
     });
 
+    // Merge same-name radio inputs into one logical field. Previously each
+    // radio (e.g. "She/her", "He/him", "Ze/hir"...) became its own field
+    // with no `key` and type 'radio', so every option showed up separately
+    // as an unfillable "unknown" row instead of one pickable question.
+    const radiosByName = new Map();
+    for (const f of fields) {
+      if (f.type !== 'radio' || !f.el.name) continue;
+      if (!radiosByName.has(f.el.name)) radiosByName.set(f.el.name, []);
+      radiosByName.get(f.el.name).push(f);
+    }
+    for (const [, group] of radiosByName) {
+      if (group.length < 2) continue;
+      const groupLabel = groupLabelFor(group.map(f => f.el)) || group[0].label;
+      const merged = {
+        el: group[0].el,
+        label: groupLabel,
+        key: matchKey(groupLabel),
+        type: 'radio-group',
+        radioOptions: group.map(f => ({ el: f.el, text: f.label })),
+      };
+      const firstIdx = fields.indexOf(group[0]);
+      for (const f of group) fields.splice(fields.indexOf(f), 1);
+      fields.splice(firstIdx, 0, merged);
+    }
+
     // Also scan for custom div/span dropdowns (Greenhouse work-auth, location, etc.)
     // Exclude elements that are already inside a native select or that ARE an input/select
     const nativeEls = new Set(fields.map(f => f.el));
@@ -564,6 +619,13 @@ async function fillStructured(field, profile) {
     nativeSelectSet(el, pick.el.value);
     fire(el, 'input');
     fire(el, 'change');
+    return;
+  }
+
+  if (type === 'radio-group') {
+    const pick = fuzzyPickOption(field.radioOptions, value);
+    if (!pick) throw new Error(`no option for "${value}"`);
+    if (!pick.el.checked) pick.el.click();
     return;
   }
 
