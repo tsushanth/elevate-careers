@@ -873,7 +873,7 @@ app.get('/jobs', async (req, res) => {
       params.push(salary_min);
     }
     
-    query += ` GROUP BY j.id, c.name, c.domain`;
+    query += ` GROUP BY j.id, c.name, c.domain, c.logo_domain`;
     query += ` ORDER BY j.posted_at DESC NULLS LAST`;
     
     paramCount++;
@@ -1128,7 +1128,7 @@ app.get('/companies/:slug/jobs', async (req, res) => {
           lower(regexp_replace(c.name, '[^a-zA-Z0-9]+', '-', 'g')) = $1
           OR c.domain ILIKE $1 || '.%'
         )
-      GROUP BY j.id, c.name, c.domain
+      GROUP BY j.id, c.name, c.domain, c.logo_domain
       ORDER BY j.posted_at DESC NULLS LAST
       LIMIT $2 OFFSET $3
     `, [slug, limit, offset]);
@@ -1160,7 +1160,7 @@ app.get('/jobs/:id', async (req, res) => {
       LEFT JOIN job_version jv ON j.current_version_id = jv.id
       LEFT JOIN job_location jl ON j.id = jl.job_id
       WHERE j.id = $1
-      GROUP BY j.id, c.name, c.domain, jv.description_md, jv.skills
+      GROUP BY j.id, c.name, c.domain, c.logo_domain, jv.description_md, jv.skills
     `, [id]);
     
     if (result.rows.length === 0) {
