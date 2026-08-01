@@ -662,8 +662,20 @@
         nativeSet(el, typed);
         fire(el, "input");
         fire(el, "change");
+        await sleep(50);
       }
       el.blur();
+      await sleep(80);
+      if (el.value !== typed) {
+        el.focus();
+        nativeSet(el, typed);
+        fire(el, "input");
+        fire(el, "change");
+        el.blur();
+        await sleep(80);
+      }
+      if (el.value !== typed)
+        throw new Error(`value did not stick after typing (site cleared it on blur)`);
     }
     async function fillStructured(field, profile) {
       const { el, key, type } = field;

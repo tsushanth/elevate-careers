@@ -591,16 +591,34 @@ async function typeIn(el, value, delay = 12) {
     await sleep(delay);
   }
   fire(el, 'change');
-  // Belt-and-suspenders: verify what actually landed and do one repair pass
-  // if a reset still won the race, instead of relying on the user noticing
-  // and manually re-running autofill.
   await sleep(50);
   if (el.value !== typed) {
     nativeSet(el, typed);
     fire(el, 'input');
     fire(el, 'change');
+    await sleep(50);
   }
+
+  // Some sites (URL fields especially) validate/reset the value ON BLUR,
+  // not on input/change — e.g. Applied Intuition's LinkedIn/GitHub fields
+  // silently cleared to empty after blur despite typing + the check above
+  // both succeeding beforehand. Checking only pre-blur can't catch that,
+  // since blur happens after. Verify again post-blur and do one more
+  // repair-and-reblur cycle before giving up.
   el.blur();
+  await sleep(80);
+  if (el.value !== typed) {
+    el.focus();
+    nativeSet(el, typed);
+    fire(el, 'input');
+    fire(el, 'change');
+    el.blur();
+    await sleep(80);
+  }
+
+  // If it's STILL wrong, the status must say so — a field silently left
+  // empty while the UI claims "filled" is worse than an honest failure.
+  if (el.value !== typed) throw new Error(`value did not stick after typing (site cleared it on blur)`);
 }
 
 async function fillStructured(field, profile) {
