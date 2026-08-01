@@ -305,20 +305,46 @@ ${prof.resume || ''}`;
   // free, ~4-8s per answer vs Haiku's ~2-3s, evaluated 2026-08-01. Falls
   // back to the Anthropic API automatically if the self-hosted call fails,
   // so a flaky box never breaks autofill outright.
-  // To flip: `flyctl secrets set ANSWER_PROVIDER=self-hosted -a elevate-careers-api`
-  // To flip back: `flyctl secrets set ANSWER_PROVIDER=api -a elevate-careers-api`
+  // To flip: `flyctl secrets set ANSWER_PROVIDER=self-hosted -a elevate-autofill-api`
+  // To flip back: `flyctl secrets set ANSWER_PROVIDER=api -a elevate-autofill-api`
   // (or unset it — "api" is the default).
-  if (process.env.ANSWER_PROVIDER === 'self-hosted') {
+  const reqId = Math.random().toString(36).slice(2, 8);
+  const shadowCompare = process.env.SHADOW_COMPARE === 'true';
+  const usingSelfHosted = process.env.ANSWER_PROVIDER === 'self-hosted';
+
+  // Only the primary (flag-selected) provider is awaited/returned — it alone
+  // determines latency and content actually seen by the extension. The other
+  // provider, when SHADOW_COMPARE is on, runs in the background purely for
+  // side-by-side log comparison and never affects the response.
+  if (shadowCompare) {
+    const other = usingSelfHosted
+      ? askViaApi(client, systemPrompt, userContent)
+      : askSelfHosted(systemPrompt, userContent);
+    const otherLabel = usingSelfHosted ? 'api' : 'self-hosted';
+    const t0 = Date.now();
+    other
+      .then(answer => console.log(`[shadow:${otherLabel}] id=${reqId} ok ms=${Date.now() - t0} answer="${answer.slice(0, 200)}"`))
+      .catch(e => console.error(`[shadow:${otherLabel}] id=${reqId} FAILED ms=${Date.now() - t0} error=${e.message}`));
+  }
+
+  if (usingSelfHosted) {
     const t0 = Date.now();
     try {
       const answer = await askSelfHosted(systemPrompt, userContent);
-      console.log(`[askSelfHosted] ok ms=${Date.now() - t0}`);
+      console.log(`[primary:self-hosted] id=${reqId} ok ms=${Date.now() - t0} answer="${answer.slice(0, 200)}"`);
       return answer;
     } catch (e) {
-      console.error(`[askSelfHosted] FAILED ms=${Date.now() - t0} error=${e.message} — falling back to API`);
+      console.error(`[primary:self-hosted] id=${reqId} FAILED ms=${Date.now() - t0} error=${e.message} — falling back to API`);
     }
   }
 
+  const t0 = Date.now();
+  const answer = await askViaApi(client, systemPrompt, userContent);
+  console.log(`[primary:api] id=${reqId} ok ms=${Date.now() - t0} answer="${answer.slice(0, 200)}"`);
+  return answer;
+}
+
+async function askViaApi(client, systemPrompt, userContent) {
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
