@@ -52,9 +52,12 @@ else {
 
 function main() {
 
-// Asset URLs — only safe to call inside the extension context
-const RESUME_URL = chrome.runtime.getURL('assets/resume.pdf');
-const COVER_URL  = chrome.runtime.getURL('assets/cover_letter.pdf');
+// No bundled resume/cover-letter asset URLs — those pointed at the
+// founder's own real documents (name, contact info, and for the cover
+// letter, visa/work-authorization status) and were silently attached to
+// any user's application who hadn't uploaded their own. See the
+// isCoverLetterField branch and /resume/tailor for the replacement
+// behavior: fail clearly instead of substituting someone else's identity.
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -435,13 +438,6 @@ async function attachFileObj(el, file) {
   if (!el.files?.length) throw new Error('attach blocked by browser');
 }
 
-async function attachFile(el, assetUrl, filename) {
-  const res  = await fetch(assetUrl);
-  if (!res.ok) throw new Error(`fetch ${res.status}`);
-  const blob = await res.blob();
-  await attachFileObj(el, new File([blob], filename, { type: 'application/pdf' }));
-}
-
 // ── Open-ended detection ─────────────────────────────────────────────────────
 function isOpenEnded(field) {
   if (field.key) return false;
@@ -610,7 +606,6 @@ async function typeIn(el, value, delay = 12) {
 async function fillStructured(field, profile) {
   const { el, key, type } = field;
   const raw = profile[key]
-    ?? (key === 'currentCompany' ? 'Google' : null)
     ?? (key === 'fullName' ? `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() || null : null);
   const value = (raw === '' || raw == null) ? null : raw;
   if (value == null) throw new Error('no data for ' + key);
@@ -1147,13 +1142,18 @@ async function run(dryRun) {
 
   const jobDesc = getJobDescription();
 
+  // No identity/contact/location/salary defaults — those were the founder's
+  // own real data, hardcoded here and used directly on live job application
+  // forms for ANY user with no saved profile yet (no review step, unlike
+  // the options-page prefill). Only genuinely generic, non-identifying
+  // smart-defaults belong here. See also: the MASTER_RESUME fix.
   const DEFAULT_PROFILE = {
-    firstName:'Sushanth',lastName:'Tiruvaipati',
-    email:'t.sushanth@gmail.com',phone:'+1 425-628-4887',
-    city:'Milpitas',state:'California',country:'United States',postalCode:'95035',
-    linkedin:'https://www.linkedin.com/in/tsushanth/',github:'https://github.com/tsushanth',portfolio:'',
-    educationLevel:"Bachelor's Degree",schoolName:'',fieldOfStudy:'Computer Science',graduationYear:'',
-    workAuth:'Yes',sponsorship:'No',salary:'150000',heardAbout:'LinkedIn',
+    firstName:'',lastName:'',
+    email:'',phone:'',pronouns:'',
+    city:'',state:'',country:'',postalCode:'',
+    linkedin:'',github:'',portfolio:'',
+    educationLevel:'',schoolName:'',fieldOfStudy:'',graduationYear:'',
+    workAuth:'Yes',sponsorship:'No',salary:'',heardAbout:'LinkedIn',
     background:'',resume:'',
   };
 
@@ -1214,16 +1214,18 @@ async function run(dryRun) {
         field._link.style.display = 'inline';
         filled++;
       } else if (isCoverLetterField(field)) {
-        setRow(field, 'filling', 'attaching cover letter…');
+        // No fallback to the bundled asset — COVER_URL pointed at the
+        // founder's own real cover letter (name, contact info, and visa/
+        // work-authorization status), silently attached to any user's
+        // application who hadn't uploaded their own yet. Fail clearly
+        // instead, same principle as the resume-tailor fix.
         const { coverLetterPdfDataUrl } = await chrome.storage.local.get('coverLetterPdfDataUrl');
-        if (coverLetterPdfDataUrl) {
-          const res = await fetch(coverLetterPdfDataUrl);
-          const blob = await res.blob();
-          const name = `${profile.firstName || 'Cover'}_${profile.lastName || 'Letter'}_CoverLetter.pdf`.replace(/\s+/g, '_');
-          await attachFileObj(field.el, new File([blob], name, { type: 'application/pdf' }));
-        } else {
-          await attachFile(field.el, COVER_URL, 'CoverLetter.pdf');
-        }
+        if (!coverLetterPdfDataUrl) throw new Error('No cover letter uploaded — add one in extension settings');
+        setRow(field, 'filling', 'attaching cover letter…');
+        const res = await fetch(coverLetterPdfDataUrl);
+        const blob = await res.blob();
+        const name = `${profile.firstName || 'Cover'}_${profile.lastName || 'Letter'}_CoverLetter.pdf`.replace(/\s+/g, '_');
+        await attachFileObj(field.el, new File([blob], name, { type: 'application/pdf' }));
         setRow(field, 'done', '📄 cover letter attached');
         filled++;
       } else if (isAgreementField(field) || (field._contextLabel && AGREE_RE.test(field._contextLabel) && field.type === 'checkbox')) {

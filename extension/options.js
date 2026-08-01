@@ -7,42 +7,27 @@ const FIELDS = [
   'background','resume',
 ];
 
+// No identity/contact/location/salary/background/resume defaults — this
+// file is a stale, disconnected copy predating the src/->dist/ build
+// pipeline (build.js never touches it) that used to hardcode the
+// founder's real identity, bio, and full resume text as the default
+// profile for anyone whose local storage was empty. See src/options.js
+// and src/mount.js for the same fix in the actual shipped code.
 const DEFAULT = {
-  firstName: 'Sushanth', lastName: 'Tiruvaipati',
-  email: 't.sushanth@gmail.com', phone: '+1 425-628-4887',
-  city: 'San Jose', state: 'California', country: 'United States', postalCode: '95101',
-  linkedin: 'https://www.linkedin.com/in/tsushanth',
-  github: 'https://github.com/tsushanth',
-  portfolio: 'https://kreativekoala.llc',
-  educationLevel: "Master's Degree",
-  schoolName: 'Carnegie Mellon University',
-  fieldOfStudy: 'Information Networking',
-  graduationYear: '2011',
+  firstName: '', lastName: '',
+  email: '', phone: '',
+  city: '', state: '', country: '', postalCode: '',
+  linkedin: '',
+  github: '',
+  portfolio: '',
+  educationLevel: '',
+  schoolName: '',
+  fieldOfStudy: '',
+  graduationYear: '',
   workAuth: 'Yes', sponsorship: 'No',
-  salary: '150000', heardAbout: 'LinkedIn',
-  background: `Sushanth Tiruvaipati is a software engineer with 10+ years at Google and an indie developer who has shipped 70+ iOS/Android apps generating real revenue. At Google he worked across Ads, Cloud AI, Play, and YouTube on large-scale distributed systems. As a solo founder he built apps in AI transcription, podcast/radio, fitness, and developer tools — all shipped end-to-end. Strong in TypeScript, Swift, Kotlin, Python, Go, C++, and cloud infrastructure (GCP, Fly.io, Supabase, Kubernetes). Located in Bay Area, CA, open to relocation. Compensation floor $150k base.`,
-  resume: `SUSHANTH TIRUVAIPATI
-Bay Area, CA · t.sushanth@gmail.com · 425-628-4887 · linkedin.com/in/tsushanth
-
-EXPERIENCE
-Software Engineer · Google | Sep 2015 – Present
-- Large-scale distributed systems across Ads (conversion attribution), Cloud AI (Contact Center AI), Play (Search Ranking), YouTube (data pipelines)
-- Led team of 5 engineers; DMA/GDPR compliance; C++ · Python · Java · TensorFlow · Spanner · Go
-
-Founder & Sole Engineer · KreativeKoala Solutions LLC | 2021 – Present
-- Built and ship 70+ iOS/Android apps end-to-end with real revenue
-- Deep LLM integration (Anthropic, OpenAI); AI agent infra with Kubernetes + Ray
-
-Software Development Engineer · Microsoft | Nov 2012 – Feb 2015
-Software Development Engineer · Amazon | Oct 2011 – Oct 2012
-
-EDUCATION
-Carnegie Mellon University — M.S., Information Networking · 2011
-Indian Institute of Information Technology — B.Tech., IT · 2008
-
-SKILLS
-Python · Java · Swift · Kotlin · TypeScript · C/C++ · SQL · Go
-Kubernetes · Docker · GCP · AWS · TensorFlow · React · Node.js`,
+  salary: '', heardAbout: 'LinkedIn',
+  background: '',
+  resume: '',
 };
 
 // ── SW bridge ─────────────────────────────────────────────────────────────────

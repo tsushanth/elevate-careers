@@ -7,15 +7,18 @@ const FIELDS = [
   'background','resume',
 ];
 
+// No identity/contact/location/salary defaults — those were the founder's
+// own real data, prefilled into every new user's profile form. Only
+// genuinely generic, non-identifying smart-defaults belong here.
 const DEFAULT = {
-  firstName: 'Sushanth', lastName: 'Tiruvaipati',
-  email: 't.sushanth@gmail.com', phone: '+1 425-628-4887', pronouns: '',
-  city: 'Milpitas', state: 'California', country: 'United States', postalCode: '95035',
-  linkedin: 'https://www.linkedin.com/in/tsushanth/', github: 'https://github.com/tsushanth', portfolio: '',
-  educationLevel: "Bachelor's Degree",
-  schoolName: '', fieldOfStudy: 'Computer Science', graduationYear: '',
+  firstName: '', lastName: '',
+  email: '', phone: '', pronouns: '',
+  city: '', state: '', country: '', postalCode: '',
+  linkedin: '', github: '', portfolio: '',
+  educationLevel: '',
+  schoolName: '', fieldOfStudy: '', graduationYear: '',
   workAuth: 'Yes', sponsorship: 'No',
-  salary: '150000', heardAbout: 'LinkedIn',
+  salary: '', heardAbout: 'LinkedIn',
   background: '',
   resume: '',
 };

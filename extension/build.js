@@ -15,7 +15,6 @@ await esbuild.build({
 
 // Copy other files
 mkdirSync('dist', { recursive: true });
-mkdirSync('dist/assets', { recursive: true });
 copyFileSync('src/detect.js',      'dist/detect.js');
 copyFileSync('src/detect-ats.js', 'dist/detect-ats.js');
 copyFileSync('src/discover.js', 'dist/discover.js');
@@ -23,7 +22,8 @@ copyFileSync('src/sw.js', 'dist/sw.js');
 copyFileSync('src/options.js', 'dist/options.js');
 copyFileSync('src/options.html', 'dist/options.html');
 copyFileSync('src/manifest.json', 'dist/manifest.json');
-copyFileSync('src/assets/resume.pdf', 'dist/assets/resume.pdf');
-copyFileSync('src/assets/cover_letter.pdf', 'dist/assets/cover_letter.pdf');
+// No bundled resume.pdf/cover_letter.pdf — those were the founder's own
+// real documents, shipped inside the extension and silently attached to
+// any user's application who hadn't uploaded their own. See mount.js.
 
 console.log('✅ Build complete!');

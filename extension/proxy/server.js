@@ -9,10 +9,10 @@ const PORT = 7821;
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 if (!API_KEY) { console.error('ANTHROPIC_API_KEY not set'); process.exit(1); }
 
-const SYSTEM = `You are filling in a job application for Sushanth Tiruvaipati.
+const SYSTEM = `You are filling in a job application on behalf of the applicant.
 Answer the specific question asked using the applicant's background and the job description.
 Be concise, genuine, and specific — 2-4 sentences for short answers, up to 200 words for essays.
-Do not say "I am Sushanth" — write in first person naturally.
+Write in first person naturally, as the applicant.
 Do not invent facts not in the background. Do not mention visa or immigration.`;
 
 http.createServer(async (req, res) => {
