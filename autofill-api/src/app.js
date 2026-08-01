@@ -188,8 +188,20 @@ export function createApp({ legacyToken, claudeClient } = {}) {
       return c.json({ error: 'free_limit_reached', count: usage.count, limit: usage.limit }, 402);
     }
 
-    const { jobDescription, jobTitle, resumeText } = await c.req.json().catch(() => ({}));
+    const { jobDescription, jobTitle, profile } = await c.req.json().catch(() => ({}));
     if (!jobDescription) return c.json({ error: 'jobDescription required' }, 400);
+
+    // resumeText previously came from a top-level `resumeText` field that no
+    // client ever actually sent (the extension nests it under `profile`,
+    // per apiCall() in mount.js) — meaning this always fell through to a
+    // hardcoded MASTER_RESUME fallback containing the founder's own real
+    // name/contact info/work history, for every user, on every tailor. Fixed
+    // to read the resume text from where it's actually sent, and to fail
+    // clearly instead of silently substituting someone else's identity.
+    const resumeText = profile?.resume;
+    if (!resumeText) {
+      return c.json({ error: 'no_resume', message: 'Add your resume text in the extension settings before tailoring.' }, 400);
+    }
 
     const pdfBytes = await tailorResume(claudeClient, jobDescription, jobTitle || '', resumeText);
     const b64 = Buffer.from(pdfBytes).toString('base64');
@@ -208,57 +220,13 @@ export function createApp({ legacyToken, claudeClient } = {}) {
 }
 
 // ── Claude helpers ────────────────────────────────────────────────────────────
-const MASTER_RESUME = `SUSHANTH TIRUVAIPATI
-Bay Area, CA · t.sushanth@gmail.com · 425-628-4887 · linkedin.com/in/tsushanth · github.com/tsushanth
-
-EXPERIENCE
-
-Software Engineer · Google  |  Sep 2015 – Present
-Delivering high-impact projects across Ads, Cloud, Play, and YouTube, with experience leading teams and mentoring engineers.
-
-Ads — Dynamic Display Ads & Conversion Tracking  [ C++ · Python · SQL · TensorFlow · Spanner · Borg ]
-- Lead conversion attribution systems that model how users interact with ads across Shopping, Search, Gmail, and YouTube to improve ad relevance and bidding accuracy.
-- Drove unification of conversion tracking signals across Google's ad surfaces, enabling consistent measurement and attribution at scale.
-- Led a team of 5 engineers researching proprietary and experimental user-attribution methodologies.
-- Ensured ad systems remained compliant with evolving privacy regulations including the EU Digital Markets Act (DMA).
-
-Google Cloud — Contact Center AI (CCAI)  [ Java · Python · TensorFlow · NLP · gRPC ]
-- Part of the Cloud AI organization building AI-powered vertical solutions for enterprise customers.
-- Contributed to Contact Center AI, a platform transforming the contact-center industry with conversational AI and NLU.
-- Built topic-modeling solutions that automatically extract and summarize key topics from customer conversations at scale.
-
-Google Play — Search Ranking  [ C++ · Python · TensorFlow · MapReduce · A/B experimentation ]
-- Worked on prefix search ranking for the Google Play Store, improving relevance and quality of real-time query results.
-- Developed and iterated on ranking models balancing user-intent signals, app quality, and engagement metrics.
-
-YouTube — Data & ML (Promo Performance)  [ Java · Python · SQL · Hadoop · MapReduce · Dataflow ]
-- Built and maintained large-scale data pipelines for analyzing promotional campaign performance.
-
-Founder & Sole Engineer · KreativeKoala Solutions LLC  |  2021 – Present
-Solo-operator mobile portfolio of 70+ shipped apps with active users and revenue across App Store and Google Play.
-
-- Designed, built, and operate 70+ iOS / Android apps end-to-end — UI, backend, payments, ASO, App Store / Play Store compliance, growth analytics.
-- Shipped deep LLM integration (Anthropic, OpenAI) into multiple consumer apps — Audexa, ScribeAI, MeetingMind.
-- Operate a unified PaywallKit + RatingKit cross-app SDK with server-driven A/B testing across the portfolio.
-- Built production AI app-generation pipeline: orchestrates Claude Code CLI as a build engine with sandboxed per-project workers.
-
-EARLIER EXPERIENCE
-Member of Technical Staff · VMware  |  Mar 2015 – Sep 2015
-Software Development Engineer · Microsoft  |  Nov 2012 – Feb 2015
-Software Development Engineer · Amazon  |  Oct 2011 – Oct 2012
-
-EDUCATION
-Carnegie Mellon University — M.S., Information Networking  |  2009 – 2011
-Indian Institute of Information Technology — B.Tech., Information Technology  |  2004 – 2008
-
-SKILLS
-Languages: Python · Java · Swift · Kotlin · TypeScript/JavaScript · C/C++ · SQL · Go
-AI/ML: LLM integration (Anthropic, OpenAI) · TensorFlow · NLP · Ranking models · Ray
-Infrastructure: Kubernetes · Docker · Google Cloud · AWS · Hadoop · Dataflow · gRPC
-Mobile: iOS (Swift, SwiftUI) · Android (Kotlin, Jetpack Compose) · App Store/Play Store`;
-
 async function tailorResume(client, jobDescription, jobTitle, customResumeText) {
-  const resumeToUse = customResumeText || MASTER_RESUME;
+  // No MASTER_RESUME fallback — that was a hardcoded copy of the founder's
+  // own real resume (name, email, phone, work history) that every user's
+  // "Tailor Resume" silently fell back to. Callers must always pass a real
+  // resume text; the /resume/tailor route enforces this before calling here.
+  if (!customResumeText) throw new Error('no resume text provided');
+  const resumeToUse = customResumeText;
 
   const msg = await client.messages.create({
     model: 'claude-sonnet-4-5',

@@ -190,8 +190,10 @@
       });
       if (res.status === 401)
         throw new Error("Session expired \u2014 open \u2699 to sign in again");
-      if (!res.ok)
-        throw new Error(`API ${res.status}`);
+      if (!res.ok) {
+        const body2 = await res.json().catch(() => null);
+        throw new Error(body2?.message || body2?.error || `API ${res.status}`);
+      }
       return res.json();
     }
     (async function pingExtensionInstall() {
