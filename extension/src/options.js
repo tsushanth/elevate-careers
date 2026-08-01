@@ -1,5 +1,5 @@
 const FIELDS = [
-  'firstName','lastName','email','phone',
+  'firstName','lastName','email','phone','pronouns',
   'city','state','country','postalCode',
   'linkedin','github','portfolio',
   'educationLevel','schoolName','fieldOfStudy','graduationYear',
@@ -9,7 +9,7 @@ const FIELDS = [
 
 const DEFAULT = {
   firstName: 'Sushanth', lastName: 'Tiruvaipati',
-  email: 't.sushanth@gmail.com', phone: '+1 425-628-4887',
+  email: 't.sushanth@gmail.com', phone: '+1 425-628-4887', pronouns: '',
   city: 'Milpitas', state: 'California', country: 'United States', postalCode: '95035',
   linkedin: 'https://www.linkedin.com/in/tsushanth/', github: 'https://github.com/tsushanth', portfolio: '',
   educationLevel: "Bachelor's Degree",
