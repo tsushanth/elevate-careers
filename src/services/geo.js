@@ -198,6 +198,13 @@ export function resolveLocationToken(raw) {
   return null;
 }
 
+// Gendered-hiring suffixes legally required (or near-universal) on job
+// titles in certain non-English markets — an unusually reliable, low-
+// false-positive-risk non-US signal since these almost never appear in
+// English titles by coincidence. "(H/F)"/"(F/H)" = French "Homme/Femme";
+// "(M/W/D)"/"(W/M/D)"/"(M/F/D)" = German "Mann/Frau/Divers".
+const MARKET_MARKERS = ['h/f', 'f/h', 'm/w/d', 'w/m/d', 'm/f/d'];
+
 // For the title-text signal — a regex alternation of all names, \y-bounded
 // (Postgres word-boundary; NOT \b, which is a backspace escape in Postgres's
 // POSIX ARE regex dialect, unlike JS — verified directly, see server.js).
@@ -205,7 +212,7 @@ export function resolveLocationToken(raw) {
 // in a title (an ALLOW, not a non-US marker), plus "uk"/"korea" are too
 // short/ambiguous as bare title substrings.
 export function nonUsTitleRegex() {
-  const names = [...COUNTRY_NAMES, ...REGION_NAMES, ...Object.keys(CITY_COUNTRY)]
+  const names = [...COUNTRY_NAMES, ...REGION_NAMES, ...Object.keys(CITY_COUNTRY), ...MARKET_MARKERS]
     .filter(n => !['uk', 'korea', 'us', 'usa', 'united states'].includes(n))
     .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   return `\\y(${names.join('|')})\\y`;
