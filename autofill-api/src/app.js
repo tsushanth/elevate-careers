@@ -293,6 +293,22 @@ ${prof.resume || ''}`;
     ? `Job description context:\n${jobDescription.slice(0, 1500)}\n\nQuestion to answer: ${question}`
     : `Question to answer: ${question}`;
 
+  // Feature flag: ANSWER_PROVIDER=self-hosted routes through a self-hosted
+  // Qwen2.5-7B (Ollama, on the Hetzner box) instead of the Anthropic API —
+  // free, ~4-8s per answer vs Haiku's ~2-3s, evaluated 2026-08-01. Falls
+  // back to the Anthropic API automatically if the self-hosted call fails,
+  // so a flaky box never breaks autofill outright.
+  // To flip: `flyctl secrets set ANSWER_PROVIDER=self-hosted -a elevate-careers-api`
+  // To flip back: `flyctl secrets set ANSWER_PROVIDER=api -a elevate-careers-api`
+  // (or unset it — "api" is the default).
+  if (process.env.ANSWER_PROVIDER === 'self-hosted') {
+    try {
+      return await askSelfHosted(systemPrompt, userContent);
+    } catch (e) {
+      console.error('[askClaude] self-hosted provider failed, falling back to API:', e.message);
+    }
+  }
+
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
@@ -301,6 +317,29 @@ ${prof.resume || ''}`;
   });
 
   return msg.content[0].text.trim();
+}
+
+async function askSelfHosted(system, question) {
+  const url = process.env.SELF_HOSTED_ANSWER_URL;
+  const secret = process.env.SELF_HOSTED_ANSWER_SECRET;
+  if (!url || !secret) throw new Error('SELF_HOSTED_ANSWER_URL/SECRET not configured');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ system, question }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`self-hosted answer service returned ${res.status}`);
+    const json = await res.json();
+    if (!json.answer) throw new Error('self-hosted answer service returned no answer');
+    return json.answer;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function buildPdf(text) {
