@@ -26,12 +26,6 @@
   "background": { "service_worker": "sw.js", "type": "module" },
   "options_page": "options.html",
   "action": { "default_title": "Inject Autofill" },
-  "web_accessible_resources": [
-    {
-      "resources": ["assets/resume.pdf", "assets/cover_letter.pdf"],
-      "matches": ["<all_urls>"]
-    }
-  ],
   "content_scripts": [
     {
       "matches": ["https://simplyappl.ai/*", "https://www.simplyappl.ai/*"],
