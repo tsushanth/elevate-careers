@@ -61,6 +61,7 @@ const REGION_SYNONYMS = {
   benelux: 'BENELUX',
   anz: 'ANZ', 'australia and new zealand': 'ANZ',
   cee: 'CEE',
+  'european union': 'EU', eu: 'EU',
 };
 
 export const REGION_NAMES = Object.keys(REGION_SYNONYMS);
@@ -85,6 +86,7 @@ const CITY_COUNTRY = {
   paris: 'France', lyon: 'France', marseille: 'France', toulouse: 'France',
   // Germany
   berlin: 'Germany', munich: 'Germany', hamburg: 'Germany', frankfurt: 'Germany', cologne: 'Germany',
+  stuttgart: 'Germany', dusseldorf: 'Germany', 'düsseldorf': 'Germany', leipzig: 'Germany',
   // Switzerland
   zurich: 'Switzerland', 'zürich': 'Switzerland', geneva: 'Switzerland', basel: 'Switzerland',
   // Spain / Portugal / Italy
