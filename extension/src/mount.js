@@ -76,7 +76,10 @@ async function apiCall(path, body, profile) {
     ...(body ? { body: JSON.stringify({ ...body, profile }) } : {}),
   });
   if (res.status === 401) throw new Error('Session expired — open ⚙ to sign in again');
-  if (!res.ok) throw new Error(`API ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.message || body?.error || `API ${res.status}`);
+  }
   return res.json();
 }
 
