@@ -287,6 +287,32 @@
     function cleanText(t) {
       return (t || "").replace(/\s+/g, " ").replace(/^Q\.\s*/i, "").replace(/\s*Question\b.*$/i, "").replace(/\s*Required\b.*$/i, "").replace(/[*:]+$/, "").trim();
     }
+    function groupLabelFor(inputs) {
+      for (const el of inputs) {
+        const fieldset = el.closest("fieldset");
+        const legend = fieldset?.querySelector("legend");
+        if (legend) {
+          const t = cleanText(legend.textContent);
+          if (t)
+            return t;
+        }
+      }
+      const anchor = inputs[0];
+      const container = anchor.closest("div, section, fieldset") || anchor.parentElement;
+      let node = container?.parentElement;
+      for (let depth = 0; depth < 5 && node; depth++, node = node.parentElement) {
+        for (const child of node.children) {
+          if (child === container || child.contains(anchor))
+            break;
+          if (LABEL_TAGS.has(child.tagName)) {
+            const t = cleanText(child.textContent);
+            if (t && t.length < 200)
+              return t;
+          }
+        }
+      }
+      return (anchor.name || "").replace(/[_-]/g, " ").trim() || null;
+    }
     function extractLabel(el) {
       if (el.id) {
         const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
@@ -350,6 +376,7 @@
       { re: /github/i, key: "github" },
       { re: /website|portfolio/i, key: "portfolio" },
       { re: /\bfull name\b|^name$|your name/i, key: "fullName" },
+      { re: /pronoun/i, key: "pronouns" },
       { re: /first name|given name|forename/i, key: "firstName" },
       { re: /last name|surname|family name/i, key: "lastName" },
       { re: /\bemail\b/i, key: "email" },
@@ -541,6 +568,30 @@
           }
           return { el, label: label || "(Unlabeled)", key, type };
         });
+        const radiosByName = /* @__PURE__ */ new Map();
+        for (const f of fields) {
+          if (f.type !== "radio" || !f.el.name)
+            continue;
+          if (!radiosByName.has(f.el.name))
+            radiosByName.set(f.el.name, []);
+          radiosByName.get(f.el.name).push(f);
+        }
+        for (const [, group] of radiosByName) {
+          if (group.length < 2)
+            continue;
+          const groupLabel = groupLabelFor(group.map((f) => f.el)) || group[0].label;
+          const merged = {
+            el: group[0].el,
+            label: groupLabel,
+            key: matchKey(groupLabel),
+            type: "radio-group",
+            radioOptions: group.map((f) => ({ el: f.el, text: f.label }))
+          };
+          const firstIdx = fields.indexOf(group[0]);
+          for (const f of group)
+            fields.splice(fields.indexOf(f), 1);
+          fields.splice(firstIdx, 0, merged);
+        }
         const nativeEls = new Set(fields.map((f) => f.el));
         for (const el of doc.querySelectorAll(CUSTOM_DD_SEL)) {
           if (nativeEls.has(el))
@@ -635,6 +686,14 @@
         nativeSelectSet(el, pick.el.value);
         fire(el, "input");
         fire(el, "change");
+        return;
+      }
+      if (type === "radio-group") {
+        const pick = fuzzyPickOption(field.radioOptions, value);
+        if (!pick)
+          throw new Error(`no option for "${value}"`);
+        if (!pick.el.checked)
+          pick.el.click();
         return;
       }
       if (type === "checkbox" || type === "radio") {
