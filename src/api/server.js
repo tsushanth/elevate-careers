@@ -689,13 +689,19 @@ app.get('/jobs/personalized', async (req, res) => {
       .single();
 
     // Build tsquery from preference keywords:
-    // Each phrase ("software engineer") becomes word1 & word2 (AND within phrase).
-    // Multiple phrases are joined with | (OR between phrases).
-    // This prevents "software | engineer" from matching unrelated PM/management roles.
+    // Each phrase ("software engineer") becomes word1 <-> word2 — Postgres's
+    // phrase/adjacency operator, requiring the words to appear next to each
+    // other in that order, not just independently anywhere in the job's
+    // title+description. Multiple phrases are joined with | (OR between
+    // phrases). Previously used `&` (plain AND, order/adjacency-agnostic),
+    // which let a job satisfy "software & engineer" from unrelated text —
+    // e.g. a company's own boilerplate ("Full Spectrum Software...") plus
+    // an "Electrical Engineering" job title matched "Software Engineer"
+    // even though the role has nothing to do with software.
     // Signal keywords are only used when the user has set NO explicit preferences.
     const prefPhrases = (pref.keywords || [])
       .map(phrase => phrase.trim().split(/[\s,]+/)
-        .map(w => w.replace(/[^a-z0-9]/gi, '')).filter(Boolean).join(' & '))
+        .map(w => w.replace(/[^a-z0-9]/gi, '')).filter(Boolean).join(' <-> '))
       .filter(Boolean);
     const signalKeywords = prefPhrases.length === 0 ? (signals?.keywords || []) : [];
     const signalPhrases = signalKeywords
@@ -703,7 +709,7 @@ app.get('/jobs/personalized', async (req, res) => {
 
     const allPhrases = [...new Set([...prefPhrases, ...signalPhrases])];
     // Flatten individual words for the hasAnyPrefs check
-    const allKeywords = allPhrases.flatMap(p => p.split(' & '));
+    const allKeywords = allPhrases.flatMap(p => p.split(' <-> '));
 
     let jobs = [];
 
