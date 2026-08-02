@@ -291,10 +291,17 @@ async function extractResumeData(messages) {
 
     const extraction = await getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 600,
+      max_tokens: 4096,
       system: `Extract resume information and return ONLY valid JSON with this structure:
 {"personalInfo":{"name":"","email":"","phone":"","location":""},"education":[{"school":"","degree":"","field":"","graduationYear":""}],"experience":[{"company":"","position":"","duration":"","responsibilities":[]}],"skills":[]}
-Only include fields that were mentioned. Return valid JSON only, no markdown.`,
+Only include fields that were mentioned. Return valid JSON only, no markdown.
+
+If the user pasted a full resume or a long block of work history, parse it
+into ONE SEPARATE experience entry per job (own company/position/duration),
+each with its own list of concise responsibility bullets. Never collapse
+multiple jobs into a single entry, never use a placeholder like "See resume"
+as a position/company, and never dump raw pasted text verbatim into a single
+responsibility — always break it into short, individual bullet points.`,
       messages: [{ role: 'user', content: `Extract resume data:\n\n${conversationText}` }],
     });
 
@@ -412,7 +419,9 @@ RULES:
 4. Keep the same core information - don't add fake details
 5. Format responsibilities as clear, concise bullet points
 6. Expand abbreviated or vague descriptions
-7. Return ONLY valid JSON with the same structure
+7. Keep EVERY experience entry from the original data — never drop, merge, or
+   summarize multiple jobs into one. Each company/role stays its own entry.
+8. Return ONLY valid JSON with the same structure
 
 Original Resume Data:
 ${JSON.stringify(resumeData, null, 2)}
@@ -427,7 +436,7 @@ Return enhanced JSON in this exact structure:
 
     const enhancement = await getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
+      max_tokens: 4096,
       system: 'You are a professional resume writer. Enhance resume content to be more professional and impactful. Return only valid JSON, no markdown.',
       messages: [{ role: 'user', content: enhancementPrompt }],
     });
@@ -644,30 +653,56 @@ router.post('/resume/tailor', requireAuth, async (req, res) => {
   try {
     const { jobDescription, jobTitle, profile } = req.body;
     if (!profile) return res.status(400).json({ error: 'profile required' });
+    if (!profile.resume) {
+      return res.status(400).json({ error: 'no_resume', message: 'Add your resume text in the extension settings before tailoring.' });
+    }
 
     const { generateResumePDF } = await import('../utils/pdf-generator.js');
 
-    // Build resume data from extension profile
-    const resumeData = {
-      personalInfo: {
-        name: `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
-        email: profile.email || '',
-        phone: profile.phone || '',
-        location: [profile.city, profile.state].filter(Boolean).join(', '),
-      },
-      education: [{
-        school: profile.schoolName,
-        degree: profile.educationLevel,
-        field: profile.fieldOfStudy,
-        graduationYear: profile.graduationYear,
-      }],
-      experience: profile.resume ? [{
-        position: 'See resume',
-        company: '',
-        responsibilities: [profile.resume.slice(0, 600)],
-      }] : [],
-      skills: (profile.background || '').split(/[,\.]\s+/).slice(0, 12).filter(s => s.length > 2),
+    const basePersonalInfo = {
+      name: `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
+      email: profile.email || '',
+      phone: profile.phone || '',
+      location: [profile.city, profile.state].filter(Boolean).join(', '),
     };
+    const baseEducation = (profile.schoolName || profile.educationLevel) ? [{
+      school: profile.schoolName,
+      degree: profile.educationLevel,
+      field: profile.fieldOfStudy,
+      graduationYear: profile.graduationYear,
+    }] : [];
+
+    const tailorPrompt = `You are a professional resume writer. Parse the candidate's raw resume text below into fully structured JSON, then lightly tailor the emphasis (which bullets/skills are surfaced first, wording of bullets) toward the target job — without inventing any experience, employer, title, or skill that isn't already present in the raw text.
+
+RULES:
+1. Parse EVERY job/employer in the raw resume into its own separate entry in "experience" — never collapse multiple jobs into one entry, never use a placeholder like "See resume" as a position or company.
+2. Break each job's content into several short, concrete bullet points — never paste a large block of raw text as a single bullet.
+3. Keep all factual details (companies, titles, dates, technologies) truthful and unchanged — only rewrite wording/order for clarity and relevance to the target job.
+4. Surface skills and bullets most relevant to the target job first, but still include the candidate's other real experience — don't drop employers just because they're less relevant.
+5. Return ONLY valid JSON, no markdown, in exactly this structure:
+{"personalInfo":{"name":"","email":"","phone":"","location":""},"education":[{"school":"","degree":"","field":"","graduationYear":""}],"experience":[{"company":"","position":"","duration":"","responsibilities":[]}],"skills":[]}
+
+Candidate's known contact/education info (use this, don't re-derive from the resume text unless it's missing here):
+${JSON.stringify({ personalInfo: basePersonalInfo, education: baseEducation })}
+
+Target job title: ${jobTitle || '(not specified)'}
+Target job description:
+${(jobDescription || '').slice(0, 3000)}
+
+Candidate's raw resume text:
+${profile.resume.slice(0, 8000)}`;
+
+    const tailored = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      system: 'You are a professional resume writer. Return only valid JSON, no markdown, no commentary.',
+      messages: [{ role: 'user', content: tailorPrompt }],
+    });
+
+    const rawJson = tailored.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
+    const resumeData = JSON.parse(rawJson);
+    resumeData.personalInfo = { ...basePersonalInfo, ...resumeData.personalInfo };
+    if (!resumeData.education?.length) resumeData.education = baseEducation;
 
     const pdfBuffer = await generateResumePDF(resumeData);
     const pdf = pdfBuffer.toString('base64');
@@ -677,6 +712,7 @@ router.post('/resume/tailor', requireAuth, async (req, res) => {
     incrementAiUsage(req.user.id);
     res.json({ pdf, filename });
   } catch (e) {
+    console.error('[resume/tailor]', e);
     res.status(500).json({ error: e.message });
   }
 });
