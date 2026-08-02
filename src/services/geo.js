@@ -125,7 +125,7 @@ const CITY_COUNTRY = {
   taipei: 'Taiwan',
   // Japan / Korea
   tokyo: 'Japan', osaka: 'Japan', yokohama: 'Japan',
-  seoul: 'South Korea', busan: 'South Korea',
+  seoul: 'South Korea', busan: 'South Korea', pangyo: 'South Korea', incheon: 'South Korea',
   // SE Asia
   singapore: 'Singapore', jakarta: 'Indonesia', manila: 'Philippines',
   'kuala lumpur': 'Malaysia', bangkok: 'Thailand',
