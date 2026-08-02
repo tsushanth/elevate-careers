@@ -813,6 +813,7 @@ router.post('/job-fit', requireAuth, async (req, res) => {
       const completion = await getAnthropic().messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 200,
+        temperature: 0, // same job + same profile should score the same every time, not swing wildly between calls
         system: 'You are scoring how well a candidate\'s background fits a job posting. Return ONLY valid JSON, no markdown: {"fitScore": <integer 0-100>, "summary": "<one short sentence on the biggest gap or strength>"}. Be realistic — a generic/unrelated background should score low, don\'t default to a generous middle score.',
         messages: [{
           role: 'user',
