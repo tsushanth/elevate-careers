@@ -18,7 +18,7 @@
 // which synonym a given ATS listing used ("UK" vs "United Kingdom" both ->
 // "UK"; "USA"/"US"/"United States" all -> "United States").
 const COUNTRY_SYNONYMS = {
-  canada: 'Canada', mexico: 'Mexico', brazil: 'Brazil', colombia: 'Colombia',
+  canada: 'Canada', mexico: 'Mexico', brazil: 'Brazil', brasil: 'Brazil', colombia: 'Colombia',
   argentina: 'Argentina', chile: 'Chile', peru: 'Peru', uruguay: 'Uruguay',
   guatemala: 'Guatemala', 'costa rica': 'Costa Rica', panama: 'Panama',
   ecuador: 'Ecuador', bolivia: 'Bolivia', 'dominican republic': 'Dominican Republic',
@@ -105,6 +105,7 @@ const CITY_COUNTRY = {
   copenhagen: 'Denmark', helsinki: 'Finland', oslo: 'Norway',
   // Eastern Europe
   warsaw: 'Poland', krakow: 'Poland', 'kraków': 'Poland',
+  vilnius: 'Lithuania', kaunas: 'Lithuania',
   prague: 'Czech Republic', budapest: 'Hungary', bucharest: 'Romania',
   kyiv: 'Ukraine', kiev: 'Ukraine', lviv: 'Ukraine', minsk: 'Belarus', sofia: 'Bulgaria', belgrade: 'Serbia',
   zagreb: 'Croatia', athens: 'Greece', vienna: 'Austria',
@@ -154,7 +155,7 @@ const CITY_COUNTRY = {
 // Matches "India (Remote)", "Remote - Canada", "United States | Remote",
 // "US > Arizona > Phoenix" etc. — splits on every separator these ATS
 // listings actually use and drops noise tokens that carry no location info.
-const SEPARATOR_RE = /[,|>]|(?<=\S)\s*-\s*(?=\S)|[()]/g;
+const SEPARATOR_RE = /[,|>/]|(?<=\S)\s*-\s*(?=\S)|[()]/g;
 const NOISE_WORDS = ['remote', 'hybrid', 'onsite', 'on-site', 'anywhere', 'global', 'flexible'];
 const NOISE_TOKENS = new Set(NOISE_WORDS);
 // Catches noise words with no strong separator at all ("US Remote",
