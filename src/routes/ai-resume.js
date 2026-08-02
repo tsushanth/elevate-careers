@@ -1236,16 +1236,22 @@ router.get('/skills/ai-opportunities', requireAuth, async (req, res) => {
       [AI_TITLE_REGEX, windowDays]
     );
 
+    // Skill names may contain regex metacharacters ("C++" has a bare
+    // trailing quantifier with nothing to repeat, which Postgres rejects
+    // outright) — escape before building the match pattern, keep the
+    // original display name separate via a zipped multi-array unnest.
+    const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const skillPatterns = AI_OPPORTUNITY_SKILL_VOCAB.map(escapeRe);
     const skillCountsResult = await db.query(
       `SELECT skill, COUNT(*) AS n
        FROM (
          SELECT j.id, jv.description_md
          FROM job j JOIN job_version jv ON jv.id = j.current_version_id
          WHERE j.posted_at > now() - ($2 || ' days')::interval AND j.is_active = true AND j.title ~* $1
-       ) ai_jobs, unnest($3::text[]) AS skill
-       WHERE description_md ~* ('\\y' || skill || '\\y')
+       ) ai_jobs, unnest($3::text[], $4::text[]) AS u(skill, pattern)
+       WHERE description_md ~* ('\\y' || pattern || '\\y')
        GROUP BY skill ORDER BY n DESC LIMIT 15`,
-      [AI_TITLE_REGEX, windowDays, AI_OPPORTUNITY_SKILL_VOCAB]
+      [AI_TITLE_REGEX, windowDays, AI_OPPORTUNITY_SKILL_VOCAB, skillPatterns]
     );
 
     const slugs = [...new Set(skillCountsResult.rows.map(r => skillToSlug(r.skill)))];
