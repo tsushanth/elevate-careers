@@ -40,8 +40,12 @@ async function loadProfile(token) {
   const stored = await chrome.storage.local.get('profile');
   let serverProfile = null;
 
-  // Pull from server if we have a token and no local profile yet
-  if (token && !stored.profile) {
+  // Always prefer the server copy when signed in — it's the source of
+  // truth (saveProfile below pushes every save there). A local-only cache
+  // check here meant a profile fixed/edited directly in the database (or
+  // on another device) would never reach this browser, since the browser
+  // already had *some* local profile cached from before.
+  if (token) {
     try {
       const r = await fetch('https://elevate-careers-api.fly.dev/api/ai-resume/profile/sync', {
         headers: { Authorization: `Bearer ${token}` },
