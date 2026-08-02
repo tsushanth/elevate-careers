@@ -123,9 +123,25 @@ async function loadGapPath() {
     ul.style.cssText = 'margin:0;padding-left:18px;';
     for (const s of data.skills) {
       const li = document.createElement('li');
-      li.style.cssText = 'margin-bottom:6px;font-size:12.5px;color:#334155;';
+      li.style.cssText = 'margin-bottom:8px;font-size:12.5px;color:#334155;';
       const pct = Number.isFinite(s.missingInPct) ? ` — missing in ${s.missingInPct}% of jobs seen` : '';
-      li.textContent = `${s.skill}${pct}`;
+      const skillLine = document.createElement('div');
+      skillLine.textContent = `${s.skill}${pct}`;
+      li.appendChild(skillLine);
+      if (s.certifications?.length) {
+        const certLine = document.createElement('div');
+        certLine.style.cssText = 'margin-top:2px;font-size:11.5px;color:#6366f1;';
+        certLine.textContent = 'Certifications: ';
+        s.certifications.forEach((c, i) => {
+          if (i > 0) certLine.appendChild(document.createTextNode(' · '));
+          const a = document.createElement('a');
+          a.href = c.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.textContent = `${c.name} (${c.provider})`;
+          a.style.color = '#6366f1';
+          certLine.appendChild(a);
+        });
+        li.appendChild(certLine);
+      }
       ul.appendChild(li);
     }
     results.appendChild(ul);
