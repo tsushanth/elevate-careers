@@ -50,12 +50,12 @@ function getApplyQueue() {
 router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT keywords, remote, location, salary_min, excluded_companies, excluded_titles, daily_limit, enabled, auto_apply_similar
+      `SELECT keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar
        FROM apply_preferences WHERE user_id = $1 LIMIT 1`,
       [req.user.id]
     );
     if (!result.rows.length) {
-      return res.json({ keywords: [], remote: false, location: '', salary_min: null, excluded_companies: [], excluded_titles: [], daily_limit: 10, enabled: false, auto_apply_similar: false });
+      return res.json({ keywords: [], remote: false, location: '', salary_min: null, excluded_companies: [], excluded_titles: [], excluded_locations: [], daily_limit: 10, enabled: false, auto_apply_similar: false });
     }
     res.json(result.rows[0]);
   } catch (e) {
@@ -66,15 +66,15 @@ router.get('/', requireAuth, async (req, res) => {
 
 // POST /api/preferences — upsert user preferences
 router.post('/', requireAuth, async (req, res) => {
-  const { keywords = [], remote = false, location = '', salary_min = null, excluded_companies = [], excluded_titles = [], daily_limit = 10, enabled = false, auto_apply_similar = false } = req.body;
+  const { keywords = [], remote = false, location = '', salary_min = null, excluded_companies = [], excluded_titles = [], excluded_locations = [], daily_limit = 10, enabled = false, auto_apply_similar = false } = req.body;
   try {
     await db.query(
-      `INSERT INTO apply_preferences (user_id, keywords, remote, location, salary_min, excluded_companies, excluded_titles, daily_limit, enabled, auto_apply_similar, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+      `INSERT INTO apply_preferences (user_id, keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
        ON CONFLICT (user_id) DO UPDATE SET
          keywords=$2, remote=$3, location=$4, salary_min=$5,
-         excluded_companies=$6, excluded_titles=$7, daily_limit=$8, enabled=$9, auto_apply_similar=$10, updated_at=NOW()`,
-      [req.user.id, keywords, remote, location || null, salary_min || null, excluded_companies, excluded_titles, daily_limit, enabled, auto_apply_similar]
+         excluded_companies=$6, excluded_titles=$7, excluded_locations=$8, daily_limit=$9, enabled=$10, auto_apply_similar=$11, updated_at=NOW()`,
+      [req.user.id, keywords, remote, location || null, salary_min || null, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -94,7 +94,7 @@ router.get('/suggested', requireAuth, async (req, res) => {
 
     // Get user preferences for filters + explicit keywords
     const prefsResult = await db.query(
-      `SELECT remote, salary_min, location, excluded_companies, excluded_titles, keywords FROM apply_preferences WHERE user_id=$1 LIMIT 1`,
+      `SELECT remote, salary_min, location, excluded_companies, excluded_titles, excluded_locations, keywords FROM apply_preferences WHERE user_id=$1 LIMIT 1`,
       [req.user.id]
     );
     const prefs = prefsResult.rows[0] || {};
@@ -172,6 +172,14 @@ router.get('/suggested', requireAuth, async (req, res) => {
     if ((prefs.excluded_titles || []).length) {
       jobQuery += ` AND lower(trim(regexp_replace(j.title, '\\s+', ' ', 'g'))) != ALL($${pidx}::text[])`;
       queryParams.push(prefs.excluded_titles.map(normalizeTitle));
+      pidx++;
+    }
+    if ((prefs.excluded_locations || []).length) {
+      jobQuery += ` AND NOT EXISTS (
+        SELECT 1 FROM job_location xl WHERE xl.job_id = j.id
+          AND (xl.city = ANY($${pidx}::text[]) OR xl.region = ANY($${pidx}::text[]) OR xl.country = ANY($${pidx}::text[]))
+      )`;
+      queryParams.push(prefs.excluded_locations);
       pidx++;
     }
 
