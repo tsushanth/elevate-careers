@@ -866,9 +866,20 @@ router.post('/job-fit', requireAuth, async (req, res) => {
     }
 
     // Location mismatch: a clear non-US place name in the JD, with no
-    // remote/hybrid/relocation language nearby, while the candidate's own
-    // profile location resolves to the US (or is unset — most postings a
-    // US-based user encounters are US roles, so silence isn't a signal).
+    // genuine remote/relocation-assistance language nearby, while the
+    // candidate's own profile location resolves to the US (or is unset —
+    // most postings a US-based user encounters are US roles, so silence
+    // isn't a signal).
+    //
+    // "Hybrid" is deliberately NOT treated as a suppression signal — it
+    // means on-site-plus-WFH within that region, not remote-eligible from
+    // elsewhere (a QuantCo "Europe / Hybrid" posting still requires being
+    // in Europe; "hybrid" appearing anywhere in the JD text was previously
+    // suppressing this check for every hybrid role regardless of location).
+    // Bare "relocat" is also too loose — "relocation to our Berlin office
+    // required" contains "relocat" but means the OPPOSITE: the candidate
+    // must move there, not that the employer relocates people freely.
+    // Only specific relocation-assistance phrasing counts as a real signal.
     //
     // US federal/defense-contractor postings almost universally include an
     // EEO clause citing VEVRAA ("Vietnam Era Veterans' Readjustment
@@ -880,7 +891,8 @@ router.post('/job-fit', requireAuth, async (req, res) => {
     const candidateIsUS = !profileCountry || ['us', 'usa', 'united states', 'u.s.', 'u.s.a.'].includes(profileCountry);
     if (candidateIsUS) {
       const nonUsMatch = jobDescription.match(nonUsTextRegexJs());
-      const mentionsRemoteOrRelocation = /\b(remote|hybrid|relocat|work from anywhere|anywhere in the (us|u\.s\.))\b/i.test(jobDescription);
+      const mentionsRemoteOrRelocation = /\b(fully remote|remote[- ]first|remote[- ]friendly|work from anywhere|anywhere in the (us|u\.s\.)|relocation (assistance|support|package|provided)|we (will |can )?relocate you|visa and relocation)\b/i.test(jobDescription)
+        || /\bremote\b(?!\s*(from|within|in)\b)/i.test(jobDescription);
       const nearVeteranBoilerplate = nonUsMatch &&
         /veteran/i.test(jobDescription.slice(Math.max(0, nonUsMatch.index - 40), nonUsMatch.index + nonUsMatch[0].length + 40));
       if (nonUsMatch && !mentionsRemoteOrRelocation && !nearVeteranBoilerplate) {
