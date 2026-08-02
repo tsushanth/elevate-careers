@@ -717,6 +717,56 @@ ${profile.resume.slice(0, 8000)}`;
   }
 });
 
+// ── Job fit check ─────────────────────────────────────────────────────────────
+// Deterministic hard-blocker phrases in a job posting, only surfaced when the
+// candidate's own profile says they need sponsorship — these almost always
+// mean "US citizens/permanent residents only" in practice, regardless of how
+// good a skills match the role is.
+const CITIZENSHIP_RE = /\b(u\.?s\.?\s*citizen(ship)?|united states citizen(ship)?)\b/i;
+const CLEARANCE_RE = /\b(security clearance|ts\/sci|top secret clearance|active clearance|polygraph)\b/i;
+const NO_SPONSOR_RE = /\b(no(t)?\s+(currently\s+)?(provide|offer)\s+visa sponsorship|unable to sponsor|not able to sponsor|without sponsorship|does not sponsor|do not sponsor|not sponsoring)\b/i;
+
+router.post('/job-fit', requireAuth, async (req, res) => {
+  try {
+    const { jobDescription, jobTitle, profile } = req.body;
+    if (!jobDescription) return res.status(400).json({ error: 'jobDescription required' });
+
+    const needsSponsorship = (profile?.sponsorship || '').trim().toLowerCase() === 'yes';
+    const blockers = [];
+    if (needsSponsorship) {
+      if (CITIZENSHIP_RE.test(jobDescription)) blockers.push('Requires US citizenship');
+      if (CLEARANCE_RE.test(jobDescription)) blockers.push('Requires a security clearance');
+      if (NO_SPONSOR_RE.test(jobDescription)) blockers.push("Employer states they don't sponsor visas");
+    }
+
+    let fitScore = null;
+    let fitSummary = '';
+    try {
+      const completion = await getAnthropic().messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system: 'You are scoring how well a candidate\'s background fits a job posting. Return ONLY valid JSON, no markdown: {"fitScore": <integer 0-100>, "summary": "<one short sentence on the biggest gap or strength>"}. Be realistic — a generic/unrelated background should score low, don\'t default to a generous middle score.',
+        messages: [{
+          role: 'user',
+          content: `Job title: ${jobTitle || '(unknown)'}\nJob description:\n${jobDescription.slice(0, 3000)}\n\nCandidate background:\n${(profile?.background || '').slice(0, 1000)}\n\nCandidate resume:\n${(profile?.resume || '').slice(0, 3000)}`,
+        }],
+      });
+      const raw = completion.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
+      const parsed = JSON.parse(raw);
+      if (Number.isFinite(parsed.fitScore)) fitScore = Math.max(0, Math.min(100, Math.round(parsed.fitScore)));
+      fitSummary = parsed.summary || '';
+    } catch (e) {
+      console.error('[job-fit] scoring failed:', e.message);
+    }
+
+    incrementAiUsage(req.user.id);
+    res.json({ fitScore, fitSummary, blockers });
+  } catch (e) {
+    console.error('[job-fit]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Profile sync from extension ──────────────────────────────────────────────
 // Fetch saved profile for the signed-in user
 router.get('/profile/sync', requireAuth, async (req, res) => {

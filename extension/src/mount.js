@@ -993,10 +993,18 @@ shadow.innerHTML = `
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   :host { font-family: system-ui, sans-serif; }
-  #fab { all:unset; width:52px; height:52px; border-radius:14px; background:#0f172a; border:none;
+  #fab { all:unset; position:relative; width:52px; height:52px; border-radius:14px; background:#0f172a; border:none;
          box-shadow:0 4px 20px rgba(0,0,0,.35); cursor:pointer; font-size:22px;
          display:flex; align-items:center; justify-content:center; }
   #fab:hover { background:#1e293b; box-shadow:0 6px 28px rgba(0,0,0,.45); }
+  #fitBadge { display:none; position:absolute; top:-6px; right:-6px; min-width:20px; height:20px;
+              border-radius:10px; background:#94a3b8; color:#fff; font-size:10px; font-weight:700;
+              align-items:center; justify-content:center; padding:0 4px; border:2px solid #fff; }
+  #fitBadge.good { background:#22c55e; } #fitBadge.mid { background:#f59e0b; }
+  #fitBadge.low { background:#ef4444; } #fitBadge.blocker { background:#dc2626; }
+  #fitLine { display:none; font-size:11px; font-weight:600; color:#334155; flex-basis:100%; order:2; padding:0 0 2px; }
+  #blockerBanner { display:none; background:#fef2f2; color:#991b1b; font-size:11px; line-height:1.4;
+                   padding:6px 12px; border-bottom:1px solid #fecaca; }
   #panel { position:fixed; top:82px; right:20px; width:360px; max-height:72vh;
            background:#fff; border:1px solid #e2e8f0; border-radius:14px;
            box-shadow:0 8px 40px rgba(0,0,0,.18); display:none; flex-direction:column; }
@@ -1017,10 +1025,12 @@ shadow.innerHTML = `
   .btn.primary { background:#0f172a; color:#fff; border-color:#0f172a; }
   .btn.primary:hover { background:#1e293b; }
 </style>
-<button id="fab">⚡</button>
+<button id="fab">⚡<span id="fitBadge"></span></button>
 <div id="panel">
+  <div id="blockerBanner"></div>
   <div id="hdr">
     <strong>Autofill</strong>
+    <span id="fitLine"></span>
     <span id="status">Ready</span>
     <button class="btn" id="rescan" title="Re-scan" style="margin-left:auto;padding:2px 7px;font-size:13px;">↺</button>
     <button class="btn" id="settings" title="Edit profile" style="padding:2px 7px;font-size:13px;">⚙</button>
@@ -1080,6 +1090,54 @@ function autoScan() {
 setTimeout(autoScan, 800);
 setTimeout(autoScan, 2000);
 setTimeout(autoScan, 4000);
+
+// ── Job fit check ────────────────────────────────────────────────────────────
+// Runs once per page load, independent of whether this is a fillable
+// application form yet — the point is to flag a bad fit or a hard blocker
+// (citizenship/clearance/no-sponsorship vs. a profile that needs
+// sponsorship) before the user spends time on the application at all.
+let fitChecked = false;
+function renderJobFit({ fitScore, fitSummary, blockers }) {
+  const badge = $('fitBadge');
+  const banner = $('blockerBanner');
+  const fitLine = $('fitLine');
+
+  if (blockers && blockers.length > 0) {
+    badge.textContent = '!';
+    badge.className = 'blocker';
+    badge.style.display = 'flex';
+    banner.textContent = `⚠ ${blockers.join(' · ')}`;
+    banner.style.display = 'block';
+  }
+
+  if (typeof fitScore === 'number') {
+    if (!blockers?.length) {
+      badge.textContent = String(fitScore);
+      badge.className = fitScore >= 70 ? 'good' : fitScore >= 40 ? 'mid' : 'low';
+      badge.style.display = 'flex';
+    }
+    fitLine.textContent = `${fitScore}% fit${fitSummary ? ' — ' + fitSummary : ''}`;
+    fitLine.style.display = 'block';
+  }
+}
+
+async function checkJobFit() {
+  if (fitChecked) return;
+  const jobDesc = getJobDescription();
+  if (!jobDesc || jobDesc.length < 200) return;
+  fitChecked = true;
+  try {
+    const stored = await chrome.storage.local.get('profile');
+    const profile = stored.profile || {};
+    if (!profile.resume && !profile.background) return; // nothing to score against yet
+    const result = await apiCall('/job-fit', { jobDescription: jobDesc, jobTitle: document.title }, profile);
+    renderJobFit(result);
+  } catch (_) {
+    fitChecked = false; // allow a retry on the next timer if this attempt failed (e.g. slow-loading JD)
+  }
+}
+setTimeout(checkJobFit, 1800);
+setTimeout(checkJobFit, 4500);
 
 // ── Row rendering ─────────────────────────────────────────────────────────────
 function rowHint(field) {
