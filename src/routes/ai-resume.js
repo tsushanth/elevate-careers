@@ -1092,6 +1092,33 @@ router.get('/usage', requireAuth, async (req, res) => {
   }
 });
 
+// Normalizes a free-text skill name (as extracted by the LLM, so spelling/
+// casing/acronym-vs-full-name varies) to the slug used in
+// skill_certifications_catalog. Deliberately conservative — only maps
+// well-known, unambiguous variants. A skill that doesn't normalize to a
+// catalog entry just shows no certification suggestion (see the migration's
+// header comment: silence is safer than a wrong/hallucinated guess).
+const SKILL_SLUG_ALIASES = {
+  k8s: 'kubernetes',
+  'google cloud platform': 'gcp',
+  'ms azure': 'azure',
+  'microsoft azure': 'azure',
+  'aws cloud': 'aws',
+  'amazon web services': 'aws',
+  agile: 'scrum',
+  'scrum master': 'scrum',
+  'pm': 'project management',
+  'sfdc': 'salesforce',
+  'ga4': 'google analytics',
+  'sem': 'google ads',
+  'ml': 'tensorflow',
+  'machine learning': 'tensorflow',
+};
+function skillToSlug(skill) {
+  const cleaned = skill.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  return SKILL_SLUG_ALIASES[cleaned] || cleaned;
+}
+
 // GET /api/ai-resume/skills/gap-path — Phase 1 of the skill-gap-path
 // feature: aggregate every /job-fit signal seen for this user (across their
 // whole job pool, not just one posting) into a ranked list of which missing
@@ -1122,11 +1149,18 @@ router.get('/skills/gap-path', requireAuth, async (req, res) => {
     );
     const totalJobs = parseInt(totalJobsResult.rows[0]?.total || '0', 10);
 
+    const slugs = [...new Set(result.rows.map(r => skillToSlug(r.skill)))];
+    const catalogResult = slugs.length > 0
+      ? await db.query(`SELECT skill_slug, certifications FROM skill_certifications_catalog WHERE skill_slug = ANY($1::text[])`, [slugs])
+      : { rows: [] };
+    const catalogBySlug = Object.fromEntries(catalogResult.rows.map(r => [r.skill_slug, r.certifications]));
+
     const skills = result.rows.map(r => ({
       skill: r.skill,
       missingCount: parseInt(r.missing_count, 10),
       matchedCount: parseInt(r.matched_count, 10),
       missingInPct: totalJobs > 0 ? Math.round((parseInt(r.missing_jobs, 10) / totalJobs) * 100) : null,
+      certifications: catalogBySlug[skillToSlug(r.skill)] || [],
     }));
 
     res.json({ totalJobsSeen: totalJobs, skills });
