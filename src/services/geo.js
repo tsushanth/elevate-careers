@@ -156,7 +156,17 @@ const CITY_COUNTRY = {
 // "US > Arizona > Phoenix" etc. — splits on every separator these ATS
 // listings actually use and drops noise tokens that carry no location info.
 const SEPARATOR_RE = /[,|>/]|(?<=\S)\s*-\s*(?=\S)|[()]/g;
-const NOISE_WORDS = ['remote', 'hybrid', 'onsite', 'on-site', 'anywhere', 'global', 'flexible'];
+// Some ATS postings (e.g. a Lever `categories.location` bug seen on Peak's
+// board) put the employment-type/commitment value where the location
+// should be ("Full-time" as the entire location string) — garbage data at
+// the source, not a real place name. Treat these as noise too so they don't
+// get stored as a fake city.
+const NOISE_WORDS = [
+  'remote', 'hybrid', 'onsite', 'on-site', 'anywhere', 'global', 'flexible',
+  'full-time', 'full time', 'fulltime', 'part-time', 'part time', 'parttime',
+  'contract', 'contractor', 'temporary', 'temp', 'internship', 'intern',
+  'permanent', 'freelance', 'co-op',
+];
 const NOISE_TOKENS = new Set(NOISE_WORDS);
 // Catches noise words with no strong separator at all ("US Remote",
 // "Canada Remote") — strip as a whole word from within a token, not just
