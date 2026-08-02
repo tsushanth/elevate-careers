@@ -673,15 +673,17 @@ router.post('/resume/tailor', requireAuth, async (req, res) => {
       graduationYear: profile.graduationYear,
     }] : [];
 
-    const tailorPrompt = `You are a professional resume writer. Parse the candidate's raw resume text below into fully structured JSON, then lightly tailor the emphasis (which bullets/skills are surfaced first, wording of bullets) toward the target job — without inventing any experience, employer, title, or skill that isn't already present in the raw text.
+    const tailorPrompt = `You are a professional resume writer optimizing for both a human reader and an ATS (applicant tracking system) that does literal/fuzzy keyword matching — not semantic understanding. Parse the candidate's raw resume text below into fully structured JSON, then lightly tailor the emphasis (which bullets/skills are surfaced first, wording of bullets) toward the target job — without inventing any experience, employer, title, or skill that isn't already present in the raw text.
 
 RULES:
 1. Parse EVERY job/employer in the raw resume into its own separate entry in "experience" — never collapse multiple jobs into one entry, never use a placeholder like "See resume" as a position or company.
 2. Break each job's content into several short, concrete bullet points — never paste a large block of raw text as a single bullet.
 3. Keep all factual details (companies, titles, dates, technologies) truthful and unchanged — only rewrite wording/order for clarity and relevance to the target job.
 4. Surface skills and bullets most relevant to the target job first, but still include the candidate's other real experience — don't drop employers just because they're less relevant.
-5. Return ONLY valid JSON, no markdown, in exactly this structure:
-{"personalInfo":{"name":"","email":"","phone":"","location":""},"education":[{"school":"","degree":"","field":"","graduationYear":""}],"experience":[{"company":"","position":"","duration":"","responsibilities":[]}],"skills":[]}
+5. ATS keyword matching: identify the specific hard skills, tools, and technologies the job description asks for. For each one the candidate genuinely has (per the raw resume text), use the JD's EXACT wording/acronym in the tailored resume — e.g. if the JD says "CI/CD" and the resume says "continuous integration," write "CI/CD" in the output, since ATS keyword matching is literal, not semantic. Never substitute a skill the candidate doesn't actually have.
+6. Also return two extra top-level arrays (not used in the PDF, just for reporting): "matchedKeywords" — JD-required terms the candidate genuinely has and that now appear verbatim in the tailored resume; "missingKeywords" — JD-required terms the candidate's real background does not support, so they were correctly NOT added.
+7. Return ONLY valid JSON, no markdown, in exactly this structure:
+{"personalInfo":{"name":"","email":"","phone":"","location":""},"education":[{"school":"","degree":"","field":"","graduationYear":""}],"experience":[{"company":"","position":"","duration":"","responsibilities":[]}],"skills":[],"matchedKeywords":[],"missingKeywords":[]}
 
 Candidate's known contact/education info (use this, don't re-derive from the resume text unless it's missing here):
 ${JSON.stringify({ personalInfo: basePersonalInfo, education: baseEducation })}
@@ -696,6 +698,7 @@ ${profile.resume.slice(0, 8000)}`;
     const tailored = await getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
+      temperature: 0,
       system: 'You are a professional resume writer. Return only valid JSON, no markdown, no commentary.',
       messages: [{ role: 'user', content: tailorPrompt }],
     });
@@ -704,6 +707,25 @@ ${profile.resume.slice(0, 8000)}`;
     const resumeData = JSON.parse(rawJson);
     resumeData.personalInfo = { ...basePersonalInfo, ...resumeData.personalInfo };
     if (!resumeData.education?.length) resumeData.education = baseEducation;
+    const matchedKeywords = resumeData.matchedKeywords || [];
+    const missingKeywords = resumeData.missingKeywords || [];
+    const requiredKeywords = [...new Set([...matchedKeywords, ...missingKeywords])];
+    const atsMatchRate = requiredKeywords.length > 0
+      ? Math.round((matchedKeywords.length / requiredKeywords.length) * 100)
+      : null;
+
+    // Baseline: does each JD-required term literally appear in the
+    // candidate's ORIGINAL, untouched resume text? Deterministic (no AI
+    // call) so it's a true before/after comparison, not two independent LLM
+    // judgments that could disagree on their own — this is what shows the
+    // actual lift tailoring produced.
+    const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const baselineMatched = requiredKeywords.filter(kw =>
+      new RegExp(`\\b${escapeRe(kw)}\\b`, 'i').test(profile.resume)
+    );
+    const baselineMatchRate = requiredKeywords.length > 0
+      ? Math.round((baselineMatched.length / requiredKeywords.length) * 100)
+      : null;
 
     const pdfBuffer = await generateResumePDF(resumeData);
     const pdf = pdfBuffer.toString('base64');
@@ -711,7 +733,7 @@ ${profile.resume.slice(0, 8000)}`;
     const filename = `${(profile.firstName || 'Resume')}_${safeTitle}.pdf`;
 
     incrementAiUsage(req.user.id);
-    res.json({ pdf, filename });
+    res.json({ pdf, filename, atsMatchRate, baselineMatchRate, matchedKeywords, missingKeywords });
   } catch (e) {
     console.error('[resume/tailor]', e);
     res.status(500).json({ error: e.message });

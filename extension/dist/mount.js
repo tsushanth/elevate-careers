@@ -1284,10 +1284,16 @@
             skipped++;
           } else if (isResumeField(field)) {
             setRow(field, "filling", "\u{1F916} tailoring resume\u2026");
-            const { pdf, filename: apiFilename } = await apiCall("/resume/tailor", { jobDescription: jobDesc, jobTitle: document.title }, profile);
+            const { pdf, filename: apiFilename, atsMatchRate, baselineMatchRate, missingKeywords } = await apiCall("/resume/tailor", { jobDescription: jobDesc, jobTitle: document.title }, profile);
             const filename = apiFilename || `${profile.firstName || "Resume"}_${profile.lastName || "Resume"}_Resume.pdf`.replace(/\s+/g, "_");
             await attachPdfB64(field.el, pdf, filename);
-            setRow(field, "done", "\u{1F4C4} attached \u2014 \u2197 view");
+            let atsNote = "";
+            if (Number.isFinite(atsMatchRate)) {
+              const lift = Number.isFinite(baselineMatchRate) ? ` (was ${baselineMatchRate}%, ${atsMatchRate >= baselineMatchRate ? "+" : ""}${atsMatchRate - baselineMatchRate}pt)` : "";
+              const missingNote = missingKeywords?.length ? ` \xB7 missing: ${missingKeywords.slice(0, 4).join(", ")}` : "";
+              atsNote = ` \xB7 ${atsMatchRate}% ATS match${lift}${missingNote}`;
+            }
+            setRow(field, "done", `\u{1F4C4} attached \u2014 \u2197 view${atsNote}`);
             const bytes = Uint8Array.from(atob(pdf), (c) => c.charCodeAt(0));
             const blobUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
             field._link.href = blobUrl;
