@@ -102,6 +102,68 @@ document.getElementById('clear-cache').addEventListener('click', async () => {
   setTimeout(() => toast.classList.remove('show'), 3500);
 });
 
+// ── Resume audit (job-independent formatting/quality check) ───────────────────
+document.getElementById('audit-resume').addEventListener('click', async () => {
+  const btn = document.getElementById('audit-resume');
+  const status = document.getElementById('audit-status');
+  const results = document.getElementById('audit-results');
+  const resumeText = document.getElementById('resume').value.trim();
+
+  if (!resumeText) {
+    status.textContent = 'Add resume text first.';
+    return;
+  }
+
+  btn.disabled = true;
+  status.textContent = 'Checking…';
+  results.style.display = 'none';
+
+  try {
+    const res = await sw('GET_TOKEN');
+    const token = res?.token;
+    if (!token) throw new Error('Not signed in');
+
+    const r = await fetch('https://elevate-careers-api.fly.dev/api/ai-resume/resume/audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ profile: { resume: resumeText } }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || data?.error || `API ${r.status}`);
+
+    status.textContent = '';
+    results.innerHTML = '';
+    if (Number.isFinite(data.overallScore)) {
+      const scoreDiv = document.createElement('div');
+      scoreDiv.style.cssText = 'font-weight:700;font-size:15px;margin-bottom:8px;';
+      scoreDiv.textContent = `Overall score: ${data.overallScore}/100`;
+      results.appendChild(scoreDiv);
+    }
+    const findings = data.findings || [];
+    if (findings.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'font-size:12.5px;color:#475569;';
+      empty.textContent = 'No issues found.';
+      results.appendChild(empty);
+    } else {
+      const ul = document.createElement('ul');
+      ul.style.cssText = 'margin:0;padding-left:18px;';
+      for (const f of findings) {
+        const li = document.createElement('li');
+        li.style.cssText = `margin-bottom:6px;color:${f.severity === 'warn' ? '#b45309' : '#475569'};font-size:12.5px;`;
+        li.textContent = `${f.severity === 'warn' ? '⚠' : 'ℹ'} ${f.text}`;
+        ul.appendChild(li);
+      }
+      results.appendChild(ul);
+    }
+    results.style.display = 'block';
+  } catch (e) {
+    status.textContent = `Failed: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ── PDF upload handlers ───────────────────────────────────────────────────────
 async function handlePdfUpload(inputId, storageKey, labelId) {
   const input = document.getElementById(inputId);

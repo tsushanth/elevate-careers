@@ -740,6 +740,90 @@ ${profile.resume.slice(0, 8000)}`;
   }
 });
 
+// ── Standalone resume quality/formatting audit ───────────────────────────────
+// Job-independent — checks the resume on its own merits (Rezi/Jobscan-style
+// "resume checker"), separate from the per-job ATS keyword match above.
+// Deterministic structural checks run first (no AI, no cost, no variance);
+// the AI pass only judges things that genuinely need language understanding
+// (weak verbs, vague/cliché phrasing, missing quantification).
+const WEAK_OPENERS_RE = /^(responsible for|worked on|helped (with|to)|involved in|tasked with|duties included)\b/i;
+const HAS_NUMBER_RE = /\d/;
+const CLICHE_RE = /\b(team player|hard[- ]?worker|self[- ]?starter|detail[- ]?oriented|go[- ]?getter|synerg(y|istic)|results?[- ]?driven|thought leader|passionate about)\b/i;
+
+function runStructuralAudit(resumeText) {
+  const findings = [];
+  const lines = resumeText.split('\n').map(l => l.trim());
+  const bulletLines = lines.filter(l => /^[-•*]/.test(l));
+
+  if (bulletLines.length === 0) {
+    findings.push({ severity: 'warn', text: 'No bullet points detected — ATS parsers and recruiters both expect "- " or "• " prefixed bullets under each role, not paragraph blocks.' });
+  }
+
+  const weakOpeners = bulletLines.filter(l => WEAK_OPENERS_RE.test(l.replace(/^[-•*]\s*/, '')));
+  if (weakOpeners.length > 0) {
+    findings.push({ severity: 'warn', text: `${weakOpeners.length} bullet(s) open with a weak phrase ("Responsible for", "Worked on", etc.) instead of a strong action verb ("Led", "Built", "Reduced").` });
+  }
+
+  const noNumberBullets = bulletLines.filter(l => !HAS_NUMBER_RE.test(l));
+  if (bulletLines.length > 0 && noNumberBullets.length / bulletLines.length > 0.6) {
+    findings.push({ severity: 'warn', text: `${noNumberBullets.length} of ${bulletLines.length} bullets have no number/metric — quantified impact ("reduced latency 20%", "led a team of 5") scores better with both ATS and human reviewers.` });
+  }
+
+  const longBullets = bulletLines.filter(l => l.length > 220);
+  if (longBullets.length > 0) {
+    findings.push({ severity: 'info', text: `${longBullets.length} bullet(s) are over 220 characters — consider splitting into two bullets for readability.` });
+  }
+
+  const clicheBullets = bulletLines.filter(l => CLICHE_RE.test(l));
+  if (clicheBullets.length > 0) {
+    findings.push({ severity: 'info', text: `${clicheBullets.length} bullet(s) use generic buzzwords ("team player", "results-driven") that carry no ATS keyword value — replace with a concrete skill or outcome.` });
+  }
+
+  if (!/@/.test(resumeText)) findings.push({ severity: 'warn', text: 'No email address detected in the resume text.' });
+  if (!/linkedin\.com/i.test(resumeText)) findings.push({ severity: 'info', text: 'No LinkedIn URL detected — most recruiters check it.' });
+
+  const wordCount = resumeText.split(/\s+/).filter(Boolean).length;
+  if (wordCount < 150) findings.push({ severity: 'warn', text: `Resume text is quite short (${wordCount} words) — likely too thin for a multi-role career history.` });
+  if (wordCount > 1200) findings.push({ severity: 'info', text: `Resume text is long (${wordCount} words) — consider trimming older/less relevant roles.` });
+
+  return findings;
+}
+
+router.post('/resume/audit', requireAuth, async (req, res) => {
+  try {
+    const { profile } = req.body;
+    if (!profile?.resume) {
+      return res.status(400).json({ error: 'no_resume', message: 'Add your resume text before running a check.' });
+    }
+
+    const structuralFindings = runStructuralAudit(profile.resume);
+
+    let aiFindings = [];
+    let overallScore = null;
+    try {
+      const completion = await getAnthropic().messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 800,
+        temperature: 0,
+        system: `You are an ATS/resume quality auditor, similar to Jobscan or Rezi's resume checker. Judge the resume on its own merits — no target job description is provided. Return ONLY valid JSON, no markdown: {"overallScore": <integer 0-100>, "findings": [{"severity": "warn"|"info", "text": "<specific, actionable finding>"}]}. Focus on things a structural/regex check can't catch: vague or unsubstantiated claims, inconsistent verb tense (past roles should be past tense, current role present tense), passive voice, redundant bullets across roles, and unclear seniority/scope. Don't repeat generic formatting advice (bullets, length, etc.) — that's already checked separately. Be specific and cite the actual phrase when possible.`,
+        messages: [{ role: 'user', content: `Resume text:\n${profile.resume.slice(0, 8000)}` }],
+      });
+      const raw = completion.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
+      const parsed = JSON.parse(raw);
+      if (Number.isFinite(parsed.overallScore)) overallScore = Math.max(0, Math.min(100, Math.round(parsed.overallScore)));
+      aiFindings = Array.isArray(parsed.findings) ? parsed.findings : [];
+    } catch (e) {
+      console.error('[resume/audit] AI pass failed:', e.message);
+    }
+
+    incrementAiUsage(req.user.id);
+    res.json({ overallScore, findings: [...structuralFindings, ...aiFindings] });
+  } catch (e) {
+    console.error('[resume/audit]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Job fit check ─────────────────────────────────────────────────────────────
 // Deterministic hard-blocker phrases in a job posting, only surfaced when the
 // candidate's own profile says they need sponsorship — these almost always
