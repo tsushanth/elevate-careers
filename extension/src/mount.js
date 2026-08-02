@@ -1056,6 +1056,8 @@ $('rescan').addEventListener('click', () => {
   list.innerHTML = '';
   setStatus('Scanning…');
   autoScan();
+  fitChecked = false;
+  checkJobFit();
 });
 
 // A "real" application form has at least one anchor field: name, email, phone, or file upload.
@@ -1138,6 +1140,7 @@ async function checkJobFit() {
 }
 setTimeout(checkJobFit, 1800);
 setTimeout(checkJobFit, 4500);
+setTimeout(checkJobFit, 9000);
 
 // ── Row rendering ─────────────────────────────────────────────────────────────
 function rowHint(field) {
