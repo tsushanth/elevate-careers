@@ -1061,6 +1061,8 @@
       list.innerHTML = "";
       setStatus("Scanning\u2026");
       autoScan();
+      fitChecked = false;
+      checkJobFit();
     });
     const APP_ANCHOR = /first.?name|last.?name|email|phone|resume|cover.?letter/i;
     function isApplicationForm(fields) {
@@ -1128,6 +1130,7 @@
     }
     setTimeout(checkJobFit, 1800);
     setTimeout(checkJobFit, 4500);
+    setTimeout(checkJobFit, 9e3);
     function rowHint(field) {
       if (isResumeField(field))
         return "resume PDF";
