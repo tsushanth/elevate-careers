@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
+import { nonUsTextRegexJs } from '../services/geo.js';
 
 const router = express.Router();
 
@@ -726,6 +727,25 @@ const CITIZENSHIP_RE = /\b(u\.?s\.?\s*citizen(ship)?|united states citizen(ship)
 const CLEARANCE_RE = /\b(security clearance|ts\/sci|top secret clearance|active clearance|polygraph)\b/i;
 const NO_SPONSOR_RE = /\b(no(t)?\s+(currently\s+)?(provide|offer)\s+visa sponsorship|unable to sponsor|not able to sponsor|without sponsorship|does not sponsor|do not sponsor|not sponsoring)\b/i;
 
+// Degree requirement vs. the candidate's own highest degree (see the
+// educationLevel <select> in options.html for the exact values this
+// compares against). Rank is by typical hiring-bar strictness, not
+// prestige — an MBA doesn't "beat" a PhD requirement, for example, so
+// each requirement phrase is matched against its own specific rank only.
+const DEGREE_RANK = {
+  "high school diploma": 1, "associate's degree": 2, "bachelor's degree": 3,
+  "master's degree": 4, mba: 4, doctorate: 5,
+};
+const DEGREE_REQUIREMENT_RE = /\b(bachelor'?s?|master'?s?|phd|doctorate|mba)\s+degree\s+(is\s+)?required\b|\brequires?\s+(a\s+)?(bachelor'?s?|master'?s?|phd|doctorate|mba)\s+degree\b|\bmust have\s+(a\s+)?(bachelor'?s?|master'?s?|phd|doctorate|mba)\s+degree\b/i;
+const DEGREE_WORD_RANK = { "bachelor's": 3, bachelors: 3, bachelor: 3, "master's": 4, masters: 4, master: 4, phd: 5, doctorate: 5, mba: 4 };
+
+// A rough "$120,000 - $150,000" / "$120k-$150k" style range in the posting.
+const SALARY_RANGE_RE = /\$\s?([\d,]+)(k)?\s*(?:-|–|to)\s*\$?\s?([\d,]+)(k)?/i;
+function normalizeSalaryAmount(numStr, kFlag) {
+  const n = parseInt(numStr.replace(/,/g, ''), 10);
+  return kFlag ? n * 1000 : n;
+}
+
 router.post('/job-fit', requireAuth, async (req, res) => {
   try {
     const { jobDescription, jobTitle, profile } = req.body;
@@ -737,6 +757,45 @@ router.post('/job-fit', requireAuth, async (req, res) => {
       if (CITIZENSHIP_RE.test(jobDescription)) blockers.push('Requires US citizenship');
       if (CLEARANCE_RE.test(jobDescription)) blockers.push('Requires a security clearance');
       if (NO_SPONSOR_RE.test(jobDescription)) blockers.push("Employer states they don't sponsor visas");
+    }
+
+    // Location mismatch: a clear non-US place name in the JD, with no
+    // remote/hybrid/relocation language nearby, while the candidate's own
+    // profile location resolves to the US (or is unset — most postings a
+    // US-based user encounters are US roles, so silence isn't a signal).
+    const profileCountry = (profile?.country || '').trim().toLowerCase();
+    const candidateIsUS = !profileCountry || ['us', 'usa', 'united states', 'u.s.', 'u.s.a.'].includes(profileCountry);
+    if (candidateIsUS) {
+      const nonUsMatch = jobDescription.match(nonUsTextRegexJs());
+      const mentionsRemoteOrRelocation = /\b(remote|hybrid|relocat|work from anywhere|anywhere in the (us|u\.s\.))\b/i.test(jobDescription);
+      if (nonUsMatch && !mentionsRemoteOrRelocation) {
+        blockers.push(`Location appears to be ${nonUsMatch[1]}, not remote/US-relocatable`);
+      }
+    }
+
+    // Degree requirement vs. candidate's highest degree on file.
+    const candidateDegree = (profile?.educationLevel || '').trim().toLowerCase();
+    const candidateRank = DEGREE_RANK[candidateDegree] ?? null;
+    const degreeMatch = jobDescription.match(DEGREE_REQUIREMENT_RE);
+    if (candidateRank !== null && degreeMatch) {
+      // Group indices: alt1 captures the degree word in group 1; alt2 and
+      // alt3 each have a leading optional "(a )?" group before their degree
+      // word, in groups 4 and 6 respectively.
+      const word = (degreeMatch[1] || degreeMatch[4] || degreeMatch[6] || '').toLowerCase().replace(/'?s$/, "'s");
+      const requiredRank = DEGREE_WORD_RANK[word] ?? DEGREE_WORD_RANK[word.replace(/'s$/, '')];
+      if (requiredRank && requiredRank > candidateRank) {
+        blockers.push(`Requires a ${word} degree`);
+      }
+    }
+
+    // Salary floor: posting's upper bound below the candidate's stated minimum.
+    const candidateMin = parseInt((profile?.salary || '').replace(/[^0-9]/g, ''), 10);
+    const salaryMatch = jobDescription.match(SALARY_RANGE_RE);
+    if (Number.isFinite(candidateMin) && candidateMin > 0 && salaryMatch) {
+      const upper = normalizeSalaryAmount(salaryMatch[3], salaryMatch[4]);
+      if (upper > 0 && upper < candidateMin) {
+        blockers.push(`Posted salary range tops out below your $${candidateMin.toLocaleString()} minimum`);
+      }
     }
 
     let fitScore = null;

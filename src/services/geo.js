@@ -234,3 +234,13 @@ export function nonUsTitleRegex() {
     .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   return `\\y(${names.join('|')})\\y`;
 }
+
+// Same non-US name list as nonUsTitleRegex, but as a real JS RegExp (\b, not
+// Postgres's \y) — for scanning arbitrary page/JD text outside of SQL, e.g.
+// the extension's job-fit location check.
+export function nonUsTextRegexJs() {
+  const names = [...COUNTRY_NAMES, ...REGION_NAMES, ...Object.keys(CITY_COUNTRY), ...MARKET_MARKERS]
+    .filter(n => !['uk', 'korea', 'us', 'usa', 'united states'].includes(n))
+    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`\\b(${names.join('|')})\\b`, 'i');
+}
