@@ -763,12 +763,21 @@ router.post('/job-fit', requireAuth, async (req, res) => {
     // remote/hybrid/relocation language nearby, while the candidate's own
     // profile location resolves to the US (or is unset — most postings a
     // US-based user encounters are US roles, so silence isn't a signal).
+    //
+    // US federal/defense-contractor postings almost universally include an
+    // EEO clause citing VEVRAA ("Vietnam Era Veterans' Readjustment
+    // Assistance Act") or similar "protected veteran"/"Vietnam era veteran"
+    // legal boilerplate — that's a false-positive "Vietnam" match with
+    // nothing to do with job location, so skip any match sitting near the
+    // word "veteran".
     const profileCountry = (profile?.country || '').trim().toLowerCase();
     const candidateIsUS = !profileCountry || ['us', 'usa', 'united states', 'u.s.', 'u.s.a.'].includes(profileCountry);
     if (candidateIsUS) {
       const nonUsMatch = jobDescription.match(nonUsTextRegexJs());
       const mentionsRemoteOrRelocation = /\b(remote|hybrid|relocat|work from anywhere|anywhere in the (us|u\.s\.))\b/i.test(jobDescription);
-      if (nonUsMatch && !mentionsRemoteOrRelocation) {
+      const nearVeteranBoilerplate = nonUsMatch &&
+        /veteran/i.test(jobDescription.slice(Math.max(0, nonUsMatch.index - 40), nonUsMatch.index + nonUsMatch[0].length + 40));
+      if (nonUsMatch && !mentionsRemoteOrRelocation && !nearVeteranBoilerplate) {
         blockers.push(`Location appears to be ${nonUsMatch[1]}, not remote/US-relocatable`);
       }
     }
