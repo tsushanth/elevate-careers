@@ -1003,6 +1003,8 @@ shadow.innerHTML = `
   #fitBadge.good { background:#22c55e; } #fitBadge.mid { background:#f59e0b; }
   #fitBadge.low { background:#ef4444; } #fitBadge.blocker { background:#dc2626; }
   #fitLine { display:none; font-size:11px; font-weight:600; color:#334155; flex-basis:100%; order:2; padding:0 0 2px; }
+  #gapLine { display:none; font-size:10.5px; color:#7c3aed; flex-basis:100%; order:3; padding:0 0 2px; }
+  #gapLine a { color:#7c3aed; }
   #blockerBanner { display:none; background:#fef2f2; color:#991b1b; font-size:11px; line-height:1.4;
                    padding:6px 12px; border-bottom:1px solid #fecaca; }
   #panel { position:fixed; top:82px; right:20px; width:360px; max-height:72vh;
@@ -1031,6 +1033,7 @@ shadow.innerHTML = `
   <div id="hdr">
     <strong>Autofill</strong>
     <span id="fitLine"></span>
+    <span id="gapLine"></span>
     <span id="status">Ready</span>
     <button class="btn" id="rescan" title="Re-scan" style="margin-left:auto;padding:2px 7px;font-size:13px;">↺</button>
     <button class="btn" id="settings" title="Edit profile" style="padding:2px 7px;font-size:13px;">⚙</button>
@@ -1099,10 +1102,11 @@ setTimeout(autoScan, 4000);
 // (citizenship/clearance/no-sponsorship vs. a profile that needs
 // sponsorship) before the user spends time on the application at all.
 let fitChecked = false;
-function renderJobFit({ fitScore, fitSummary, blockers }) {
+function renderJobFit({ fitScore, fitSummary, blockers, missingKeywords }) {
   const badge = $('fitBadge');
   const banner = $('blockerBanner');
   const fitLine = $('fitLine');
+  const gapLine = $('gapLine');
 
   if (blockers && blockers.length > 0) {
     badge.textContent = '!';
@@ -1120,6 +1124,18 @@ function renderJobFit({ fitScore, fitSummary, blockers }) {
     }
     fitLine.textContent = `${fitScore}% fit${fitSummary ? ' — ' + fitSummary : ''}`;
     fitLine.style.display = 'block';
+  }
+
+  if (missingKeywords && missingKeywords.length > 0) {
+    gapLine.textContent = `Missing for this role: ${missingKeywords.slice(0, 5).join(', ')} — `;
+    const link = document.createElement('a');
+    link.href = '#'; link.textContent = 'see certifications ↗';
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' });
+    });
+    gapLine.appendChild(link);
+    gapLine.style.display = 'block';
   }
 }
 
