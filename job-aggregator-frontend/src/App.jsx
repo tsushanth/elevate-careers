@@ -211,9 +211,12 @@ function App() {
         headers: { Authorization: `Bearer ${session.access_token}` },
       }).then(r => r.json());
 
+      const jobLocations = [...(job.cities || []), ...(job.countries || [])];
       const patch = action === 'company'
         ? { excluded_companies: [...new Set([...(current.excluded_companies || []), job.company_name])] }
-        : { excluded_titles: [...new Set([...(current.excluded_titles || []), job.title])] };
+        : action === 'title'
+        ? { excluded_titles: [...new Set([...(current.excluded_titles || []), job.title])] }
+        : { excluded_locations: [...new Set([...(current.excluded_locations || []), ...jobLocations])] };
 
       await fetch(`${API_URL}/api/preferences`, {
         method: 'POST',
@@ -221,7 +224,12 @@ function App() {
         body: JSON.stringify({ ...current, ...patch }),
       });
 
-      removeJobsFromCache(j => action === 'company' ? j.company_name === job.company_name : j.title === job.title);
+      removeJobsFromCache(j => {
+        if (action === 'company') return j.company_name === job.company_name;
+        if (action === 'title') return j.title === job.title;
+        const jLocs = [...(j.cities || []), ...(j.countries || [])];
+        return jLocs.some(l => jobLocations.includes(l));
+      });
     } catch (e) {
       console.error('Failed to dismiss job', e);
     }
@@ -489,6 +497,12 @@ function App() {
                             onClick={() => dismissJob(job, 'title')}
                             style={dismissMenuItemStyle}
                           >Don't show "{job.title}" roles</button>
+                          {(job.cities?.length > 0 || job.countries?.length > 0) && (
+                            <button
+                              onClick={() => dismissJob(job, 'location')}
+                              style={dismissMenuItemStyle}
+                            >Don't show jobs from {job.cities?.[0] || job.countries?.[0]}</button>
+                          )}
                           <button
                             onClick={() => dismissJob(job, 'card')}
                             style={dismissMenuItemStyle}

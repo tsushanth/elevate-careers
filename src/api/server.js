@@ -590,7 +590,7 @@ app.get('/jobs/personalized', async (req, res) => {
 
     // Load user preferences for filtering
     const { data: prefRow } = await sb.from('apply_preferences')
-      .select('keywords, remote, location, salary_min, excluded_companies, excluded_titles')
+      .select('keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations')
       .eq('user_id', user.id)
       .single();
     const pref = prefRow || {};
@@ -652,6 +652,13 @@ app.get('/jobs/personalized', async (req, res) => {
       if ((pref.excluded_titles || []).length) {
         clauses.push(`lower(trim(regexp_replace(j.title, '\\s+', ' ', 'g'))) != ALL($${idx}::text[])`);
         params.push(pref.excluded_titles.map(normalizeTitle)); idx++;
+      }
+      if ((pref.excluded_locations || []).length) {
+        clauses.push(`NOT EXISTS (
+          SELECT 1 FROM job_location xl WHERE xl.job_id = j.id
+            AND (xl.city = ANY($${idx}::text[]) OR xl.region = ANY($${idx}::text[]) OR xl.country = ANY($${idx}::text[]))
+        )`);
+        params.push(pref.excluded_locations); idx++;
       }
       return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
     };
