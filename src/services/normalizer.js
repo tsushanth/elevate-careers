@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import TurndownService from 'turndown';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
-import { resolveLocationToken } from './geo.js';
+import { resolveLocationToken, tokenizeLocation } from './geo.js';
 
 const turndownService = new TurndownService();
 
@@ -298,6 +298,13 @@ export class NormalizerService {
         if (match.type === 'country') return { city: null, region: null, country: match.value };
         if (match.type === 'region') return { city: null, region: match.value, country: null };
         return { city: match.value, region: null, country: match.country }; // city
+      }
+      // No match, but if every token was pure noise (e.g. a broken ATS
+      // posting whose "location" is actually its employment-type value,
+      // like "Full-time" — see NOISE_WORDS in geo.js) the raw string isn't
+      // a real place name either, so don't store it as one.
+      if (tokenizeLocation(parts[0]).length === 0) {
+        return { city: null, region: null, country: null };
       }
     }
 
