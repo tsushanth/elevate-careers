@@ -1122,7 +1122,7 @@
         const profile = stored.profile || {};
         if (!profile.resume && !profile.background)
           return;
-        const result = await apiCall("/job-fit", { jobDescription: jobDesc, jobTitle: document.title }, profile);
+        const result = await apiCall("/job-fit", { jobDescription: jobDesc, jobTitle: document.title, jobUrl: location.href }, profile);
         renderJobFit(result);
       } catch (_) {
         fitChecked = false;

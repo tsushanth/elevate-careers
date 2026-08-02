@@ -95,6 +95,46 @@ async function saveProfile() {
 
 document.getElementById('save').addEventListener('click', saveProfile);
 
+// ── Skill gap path (Phase 1: aggregated missing-skill signal) ────────────────
+async function loadGapPath() {
+  const status = document.getElementById('gap-path-status');
+  const results = document.getElementById('gap-path-results');
+  status.textContent = 'Loading…';
+  results.innerHTML = '';
+  try {
+    const res = await sw('GET_TOKEN');
+    const token = res?.token;
+    if (!token) throw new Error('Not signed in');
+    const r = await fetch('https://elevate-careers-api.fly.dev/api/ai-resume/skills/gap-path', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || data?.error || `API ${r.status}`);
+
+    status.textContent = `Based on ${data.totalJobsSeen} job(s) seen`;
+    if (!data.skills?.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'font-size:12.5px;color:#475569;';
+      empty.textContent = data.totalJobsSeen > 0 ? 'No recurring gaps yet.' : 'Browse a few job postings with the extension active to build this up.';
+      results.appendChild(empty);
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.style.cssText = 'margin:0;padding-left:18px;';
+    for (const s of data.skills) {
+      const li = document.createElement('li');
+      li.style.cssText = 'margin-bottom:6px;font-size:12.5px;color:#334155;';
+      const pct = Number.isFinite(s.missingInPct) ? ` — missing in ${s.missingInPct}% of jobs seen` : '';
+      li.textContent = `${s.skill}${pct}`;
+      ul.appendChild(li);
+    }
+    results.appendChild(ul);
+  } catch (e) {
+    status.textContent = `Failed: ${e.message}`;
+  }
+}
+document.getElementById('refresh-gap-path').addEventListener('click', loadGapPath);
+
 document.getElementById('clear-cache').addEventListener('click', async () => {
   await chrome.storage.local.remove(['answerCache', 'learnedAnswers']);
   const toast = document.getElementById('clear-cache-toast');
@@ -239,6 +279,7 @@ async function renderAuth() {
     };
 
     await loadProfile(token);
+    loadGapPath();
   } else {
     // Signed out — show onboarding gate, hide profile
     document.getElementById('onboarding').style.display = 'block';

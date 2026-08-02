@@ -915,12 +915,14 @@ router.post('/job-fit', requireAuth, async (req, res) => {
 
     let fitScore = null;
     let fitSummary = '';
+    let matchedKeywords = [];
+    let missingKeywords = [];
     try {
       const completion = await getAnthropic().messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
+        max_tokens: 400,
         temperature: 0, // same job + same profile should score the same every time, not swing wildly between calls
-        system: 'You are scoring how well a candidate\'s background fits a job posting. Return ONLY valid JSON, no markdown: {"fitScore": <integer 0-100>, "summary": "<one short sentence on the biggest gap or strength>"}. Be realistic — a generic/unrelated background should score low, don\'t default to a generous middle score.',
+        system: 'You are scoring how well a candidate\'s background fits a job posting. Return ONLY valid JSON, no markdown: {"fitScore": <integer 0-100>, "summary": "<one short sentence on the biggest gap or strength>", "matchedKeywords": [<JD-required hard skills/tools the candidate genuinely has>], "missingKeywords": [<JD-required hard skills/tools the candidate does NOT have, per their resume/background>]}. Be realistic — a generic/unrelated background should score low, don\'t default to a generous middle score. Never list a skill as matched unless the resume/background actually supports it.',
         messages: [{
           role: 'user',
           content: `Job title: ${jobTitle || '(unknown)'}\nJob description:\n${jobDescription.slice(0, 3000)}\n\nCandidate background:\n${(profile?.background || '').slice(0, 1000)}\n\nCandidate resume:\n${(profile?.resume || '').slice(0, 3000)}`,
@@ -930,12 +932,29 @@ router.post('/job-fit', requireAuth, async (req, res) => {
       const parsed = JSON.parse(raw);
       if (Number.isFinite(parsed.fitScore)) fitScore = Math.max(0, Math.min(100, Math.round(parsed.fitScore)));
       fitSummary = parsed.summary || '';
+      matchedKeywords = Array.isArray(parsed.matchedKeywords) ? parsed.matchedKeywords : [];
+      missingKeywords = Array.isArray(parsed.missingKeywords) ? parsed.missingKeywords : [];
     } catch (e) {
       console.error('[job-fit] scoring failed:', e.message);
     }
 
+    // Persist the skill-gap signal (fire-and-forget) so it can be aggregated
+    // across the user's whole job pool later — see /skills/gap-path. This is
+    // the broadest-coverage signal we have: it fires on every job page
+    // visit, not just applications, so it captures jobs the user looked at
+    // but decided not to apply to as well.
+    if (missingKeywords.length > 0 || matchedKeywords.length > 0) {
+      getSupabase().from('skill_gap_signals').insert({
+        user_id: req.user.id,
+        job_url: req.body.jobUrl || null,
+        job_title: jobTitle || null,
+        missing_keywords: missingKeywords,
+        matched_keywords: matchedKeywords,
+      }).then(() => {}).catch(e => console.error('[job-fit] failed to persist skill gap signal:', e.message));
+    }
+
     incrementAiUsage(req.user.id);
-    res.json({ fitScore, fitSummary, blockers });
+    res.json({ fitScore, fitSummary, blockers, matchedKeywords, missingKeywords });
   } catch (e) {
     console.error('[job-fit]', e);
     res.status(500).json({ error: e.message });
@@ -1069,6 +1088,50 @@ router.get('/usage', requireAuth, async (req, res) => {
       is_over_limit: used >= FREE_AI_LIMIT,
     });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/ai-resume/skills/gap-path — Phase 1 of the skill-gap-path
+// feature: aggregate every /job-fit signal seen for this user (across their
+// whole job pool, not just one posting) into a ranked list of which missing
+// skills show up most often. This is the "transferable skills path" input —
+// later phases turn each entry into a generated lesson/project/test.
+router.get('/skills/gap-path', requireAuth, async (req, res) => {
+  try {
+    const { db } = await import('../db/index.js');
+    const result = await db.query(
+      `SELECT skill,
+              COUNT(*) FILTER (WHERE seen = 'missing') AS missing_count,
+              COUNT(*) FILTER (WHERE seen = 'matched') AS matched_count,
+              COUNT(DISTINCT job_url) FILTER (WHERE seen = 'missing') AS missing_jobs
+       FROM (
+         SELECT job_url, unnest(missing_keywords) AS skill, 'missing' AS seen FROM skill_gap_signals WHERE user_id = $1
+         UNION ALL
+         SELECT job_url, unnest(matched_keywords) AS skill, 'matched' AS seen FROM skill_gap_signals WHERE user_id = $1
+       ) t
+       GROUP BY skill
+       HAVING COUNT(*) FILTER (WHERE seen = 'missing') > 0
+       ORDER BY missing_jobs DESC, missing_count DESC
+       LIMIT 25`,
+      [req.user.id]
+    );
+    const totalJobsResult = await db.query(
+      `SELECT COUNT(DISTINCT job_url) AS total FROM skill_gap_signals WHERE user_id = $1`,
+      [req.user.id]
+    );
+    const totalJobs = parseInt(totalJobsResult.rows[0]?.total || '0', 10);
+
+    const skills = result.rows.map(r => ({
+      skill: r.skill,
+      missingCount: parseInt(r.missing_count, 10),
+      matchedCount: parseInt(r.matched_count, 10),
+      missingInPct: totalJobs > 0 ? Math.round((parseInt(r.missing_jobs, 10) / totalJobs) * 100) : null,
+    }));
+
+    res.json({ totalJobsSeen: totalJobs, skills });
+  } catch (e) {
+    console.error('[skills/gap-path]', e);
     res.status(500).json({ error: e.message });
   }
 });
