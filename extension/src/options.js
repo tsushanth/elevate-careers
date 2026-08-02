@@ -151,6 +151,72 @@ async function loadGapPath() {
 }
 document.getElementById('refresh-gap-path').addEventListener('click', loadGapPath);
 
+// ── AI-era opportunities (current-snapshot, not a growth trend) ──────────────
+async function loadAiOpportunities() {
+  const status = document.getElementById('ai-opportunities-status');
+  const results = document.getElementById('ai-opportunities-results');
+  status.textContent = 'Loading…';
+  results.innerHTML = '';
+  try {
+    const res = await sw('GET_TOKEN');
+    const token = res?.token;
+    if (!token) throw new Error('Not signed in');
+    const r = await fetch('https://elevate-careers-api.fly.dev/api/ai-resume/skills/ai-opportunities', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.message || data?.error || `API ${r.status}`);
+
+    status.textContent = `Last ${data.windowDays} days`;
+
+    const summary = document.createElement('div');
+    summary.style.cssText = 'font-size:13px;margin-bottom:10px;';
+    summary.textContent = `${data.aiRelatedCount.toLocaleString()} of ${data.totalJobsInWindow.toLocaleString()} jobs posted (${data.aiSharePct}%) are AI-related roles.`;
+    results.appendChild(summary);
+
+    const makeList = (heading, items, renderItem) => {
+      if (!items?.length) return;
+      const h = document.createElement('div');
+      h.style.cssText = 'font-weight:700;font-size:12px;margin:10px 0 4px;';
+      h.textContent = heading;
+      results.appendChild(h);
+      const ul = document.createElement('ul');
+      ul.style.cssText = 'margin:0;padding-left:18px;';
+      items.forEach(item => {
+        const li = document.createElement('li');
+        li.style.cssText = 'margin-bottom:4px;font-size:12.5px;color:#334155;';
+        renderItem(li, item);
+        ul.appendChild(li);
+      });
+      results.appendChild(ul);
+    };
+
+    makeList('Most in-demand skills', data.topSkills, (li, s) => {
+      const skillLine = document.createElement('div');
+      skillLine.textContent = `${s.skill} (${s.count} postings)`;
+      li.appendChild(skillLine);
+      if (s.certifications?.length) {
+        const certLine = document.createElement('div');
+        certLine.style.cssText = 'margin-top:2px;font-size:11px;color:#6366f1;';
+        s.certifications.forEach((c, i) => {
+          if (i > 0) certLine.appendChild(document.createTextNode(' · '));
+          const a = document.createElement('a');
+          a.href = c.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.textContent = c.name; a.style.color = '#6366f1';
+          certLine.appendChild(a);
+        });
+        li.appendChild(certLine);
+      }
+    });
+
+    makeList('Top titles', data.topTitles, (li, t) => { li.textContent = `${t.title} (${t.count})`; });
+    makeList('Top hiring companies', data.topCompanies, (li, c) => { li.textContent = `${c.company} (${c.count})`; });
+  } catch (e) {
+    status.textContent = `Failed: ${e.message}`;
+  }
+}
+document.getElementById('refresh-ai-opportunities').addEventListener('click', loadAiOpportunities);
+
 document.getElementById('clear-cache').addEventListener('click', async () => {
   await chrome.storage.local.remove(['answerCache', 'learnedAnswers']);
   const toast = document.getElementById('clear-cache-toast');
@@ -296,6 +362,7 @@ async function renderAuth() {
 
     await loadProfile(token);
     loadGapPath();
+    loadAiOpportunities();
   } else {
     // Signed out — show onboarding gate, hide profile
     document.getElementById('onboarding').style.display = 'block';

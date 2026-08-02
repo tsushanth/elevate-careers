@@ -1182,6 +1182,97 @@ router.get('/skills/gap-path', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/ai-resume/skills/ai-opportunities — "jobs AI has opened up" snapshot.
+//
+// Deliberately a CURRENT-STATE snapshot, not a growth-over-time trend: our
+// own job table's posting volume grew ~500x over the last 18 months purely
+// because ingestion itself scaled up (more sources added), not because the
+// market did — so any "AI jobs are growing X%" claim built from our own
+// historical counts would be measuring our scraper, not the job market.
+// This only looks at a single recent window (last 90 days) and reports
+// what's prevalent right now, which our data can actually support.
+//
+// Skill counts come from job_version.description_md (the full job text —
+// job.description_excerpt is truncated to 500 chars and mostly cuts off
+// before the requirements section, which made an earlier attempt at this
+// query return near-zero counts for real, common skills). Word-boundary
+// matched, not substring — a plain substring match on "RAG" was falsely
+// counting "average"/"storage"/"program".
+const AI_TITLE_REGEX = '\\y(AI|ML|machine learning|LLM|applied scientist|prompt engineer|MLOps|artificial intelligence)\\y';
+const AI_OPPORTUNITY_SKILL_VOCAB = [
+  'Python', 'PyTorch', 'TensorFlow', 'LangChain', 'Kubernetes', 'AWS', 'GCP', 'Azure',
+  'SQL', 'Docker', 'RAG', 'Prompt engineering', 'MLOps', 'Spark', 'Airflow',
+  'Hugging Face', 'NLP', 'Computer vision', 'Java', 'Go', 'React', 'Rust', 'C++',
+];
+router.get('/skills/ai-opportunities', requireAuth, async (req, res) => {
+  try {
+    const { db } = await import('../db/index.js');
+    const windowDays = 90;
+
+    const totalsResult = await db.query(
+      `SELECT
+         COUNT(*) AS total,
+         COUNT(*) FILTER (WHERE title ~* $1) AS ai_related
+       FROM job
+       WHERE posted_at > now() - ($2 || ' days')::interval AND is_active = true`,
+      [AI_TITLE_REGEX, windowDays]
+    );
+    const totalJobsInWindow = parseInt(totalsResult.rows[0]?.total || '0', 10);
+    const aiRelatedCount = parseInt(totalsResult.rows[0]?.ai_related || '0', 10);
+
+    const topTitlesResult = await db.query(
+      `SELECT title, COUNT(*) AS n
+       FROM job
+       WHERE posted_at > now() - ($2 || ' days')::interval AND is_active = true AND title ~* $1
+       GROUP BY title ORDER BY n DESC LIMIT 10`,
+      [AI_TITLE_REGEX, windowDays]
+    );
+
+    const topCompaniesResult = await db.query(
+      `SELECT c.name AS company, COUNT(*) AS n
+       FROM job j JOIN company c ON c.id = j.company_id
+       WHERE j.posted_at > now() - ($2 || ' days')::interval AND j.is_active = true AND j.title ~* $1
+       GROUP BY c.name ORDER BY n DESC LIMIT 10`,
+      [AI_TITLE_REGEX, windowDays]
+    );
+
+    const skillCountsResult = await db.query(
+      `SELECT skill, COUNT(*) AS n
+       FROM (
+         SELECT j.id, jv.description_md
+         FROM job j JOIN job_version jv ON jv.id = j.current_version_id
+         WHERE j.posted_at > now() - ($2 || ' days')::interval AND j.is_active = true AND j.title ~* $1
+       ) ai_jobs, unnest($3::text[]) AS skill
+       WHERE description_md ~* ('\\y' || skill || '\\y')
+       GROUP BY skill ORDER BY n DESC LIMIT 15`,
+      [AI_TITLE_REGEX, windowDays, AI_OPPORTUNITY_SKILL_VOCAB]
+    );
+
+    const slugs = [...new Set(skillCountsResult.rows.map(r => skillToSlug(r.skill)))];
+    const catalogResult = slugs.length > 0
+      ? await db.query(`SELECT skill_slug, certifications FROM skill_certifications_catalog WHERE skill_slug = ANY($1::text[])`, [slugs])
+      : { rows: [] };
+    const catalogBySlug = Object.fromEntries(catalogResult.rows.map(r => [r.skill_slug, r.certifications]));
+
+    res.json({
+      windowDays,
+      totalJobsInWindow,
+      aiRelatedCount,
+      aiSharePct: totalJobsInWindow > 0 ? Math.round((aiRelatedCount / totalJobsInWindow) * 1000) / 10 : null,
+      topTitles: topTitlesResult.rows.map(r => ({ title: r.title, count: parseInt(r.n, 10) })),
+      topCompanies: topCompaniesResult.rows.map(r => ({ company: r.company, count: parseInt(r.n, 10) })),
+      topSkills: skillCountsResult.rows.map(r => ({
+        skill: r.skill,
+        count: parseInt(r.n, 10),
+        certifications: catalogBySlug[skillToSlug(r.skill)] || [],
+      })),
+    });
+  } catch (e) {
+    console.error('[skills/ai-opportunities]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Extension heartbeat — called once per day from mount.js to track active installs
 router.post('/ping', requireAuth, async (req, res) => {
   try {
