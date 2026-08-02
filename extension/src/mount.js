@@ -1132,7 +1132,7 @@ async function checkJobFit() {
     const stored = await chrome.storage.local.get('profile');
     const profile = stored.profile || {};
     if (!profile.resume && !profile.background) return; // nothing to score against yet
-    const result = await apiCall('/job-fit', { jobDescription: jobDesc, jobTitle: document.title }, profile);
+    const result = await apiCall('/job-fit', { jobDescription: jobDesc, jobTitle: document.title, jobUrl: location.href }, profile);
     renderJobFit(result);
   } catch (_) {
     fitChecked = false; // allow a retry on the next timer if this attempt failed (e.g. slow-loading JD)
