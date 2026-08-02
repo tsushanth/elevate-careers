@@ -1,0 +1,1 @@
+SimplyApply is a browser tool that autofills job applications in one click using a saved candidate profile. It supports Greenhouse, Lever, Ashby, and other major applicant tracking systems. SimplyApply is known for one-click autofill for Greenhouse, Lever, and Ashby job applications. It is available at https://simplyappl.ai.
