@@ -119,7 +119,7 @@ function App() {
     fetchJobs(0);
   }, [filters, session, sessionChecked]);
 
-  const fetchJobs = async (pageNum = page) => {
+  const fetchJobs = async (pageNum = page, overrideFilters = {}) => {
     // Guard against out-of-order responses: if session/filters change quickly
     // (e.g. session hydrating from null -> real on page load), an earlier
     // request can resolve after a later one and clobber it with stale/smaller
@@ -129,18 +129,24 @@ function App() {
     // a background refresh on top of an already-visible list shouldn't blank it.
     if (jobs.length === 0) setLoading(true);
     try {
+      // overrideFilters lets a caller (e.g. clicking a skill/title in the
+      // Growth tab) pass the search term directly instead of going through
+      // setFilters + relying on this closure's `filters` — since setFilters
+      // is async, a fetchJobs call made right after it in the same handler
+      // would otherwise still see the stale pre-update value.
+      const f = { ...filters, ...overrideFilters };
       const params = new URLSearchParams({
         limit: PAGE_SIZE,
         offset: pageNum * PAGE_SIZE,
-        ...(filters.keyword && { keyword: filters.keyword }),
-        ...(filters.remote && { remote: 'true' }),
-        ...(filters.location && { location: filters.location }),
-        ...(filters.employmentType && { employment_type: filters.employmentType }),
-        ...(filters.datePosted && { days: filters.datePosted }),
+        ...(f.keyword && { keyword: f.keyword }),
+        ...(f.remote && { remote: 'true' }),
+        ...(f.location && { location: f.location }),
+        ...(f.employmentType && { employment_type: f.employmentType }),
+        ...(f.datePosted && { days: f.datePosted }),
       });
 
       // Use personalized feed when signed in and no explicit keyword search
-      const usePersonalized = session && !filters.keyword && !filters.location && !filters.remote;
+      const usePersonalized = session && !f.keyword && !f.location && !f.remote;
       if (usePersonalized) params.set('show_applied', showApplied ? 'true' : 'false');
       const url = usePersonalized
         ? `${API_URL}/jobs/personalized?${params}`
@@ -179,6 +185,15 @@ function App() {
   const handleSearch = (e) => {
     e.preventDefault();
     fetchJobs();
+  };
+
+  // Jump to the Jobs tab pre-searched for a term — used by clickable
+  // skills/titles in the Growth tab (skill gap path, AI-era opportunities).
+  const searchJobs = (keyword) => {
+    setActiveTab('jobs');
+    setFilters(prev => ({ ...prev, keyword }));
+    setPage(0);
+    fetchJobs(0, { keyword });
   };
 
   // action: 'card' (this session only) | 'company' | 'title' (persisted to prefs)
@@ -348,7 +363,12 @@ function App() {
 
       {/* Growth Tab */}
       {activeTab === 'growth' && session && (
-        <GrowthTab session={session} API_URL={API_URL} />
+        <GrowthTab
+          session={session}
+          API_URL={API_URL}
+          onSearchTerm={searchJobs}
+          onCompanyClick={company => navigate(`/companies/${slugify(company)}`)}
+        />
       )}
 
       {/* Search Bar */}

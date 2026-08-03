@@ -22,7 +22,25 @@ function CertLinks({ certifications }) {
   );
 }
 
-export default function GrowthTab({ session, API_URL }) {
+// A clickable term that searches the Jobs tab for it — used for skills and
+// titles, where "clicking" means "show me jobs matching this."
+function TermButton({ term, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(term)}
+      title={`Search jobs for "${term}"`}
+      style={{
+        all: 'unset', cursor: 'pointer', color: '#0f172a', fontWeight: 600,
+        borderBottom: '1px dashed #94a3b8',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyClick }) {
   const [gapPath, setGapPath] = useState(null);
   const [gapPathLoading, setGapPathLoading] = useState(true);
   const [gapPathError, setGapPathError] = useState(null);
@@ -67,7 +85,10 @@ export default function GrowthTab({ session, API_URL }) {
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {gapPath.skills.map(s => (
                   <li key={s.skill} style={{ marginBottom: 12, fontSize: 13.5, color: '#334155' }}>
-                    <div>{s.skill}{s.missingInPct != null ? ` — missing in ${s.missingInPct}% of jobs seen` : ''}</div>
+                    <div>
+                      <TermButton term={s.skill} onClick={onSearchTerm}>{s.skill}</TermButton>
+                      {s.missingInPct != null ? ` — missing in ${s.missingInPct}% of jobs seen` : ''}
+                    </div>
                     <CertLinks certifications={s.certifications} />
                     {s.unlocksJobs?.length > 0 && (
                       <div style={{ marginTop: 4, fontSize: 12, color: '#16a34a' }}>
@@ -102,7 +123,7 @@ export default function GrowthTab({ session, API_URL }) {
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {aiOpps.topSkills.map(s => (
                 <li key={s.skill} style={{ marginBottom: 6, fontSize: 12.5, color: '#334155' }}>
-                  <div>{s.skill} ({s.count} postings)</div>
+                  <div><TermButton term={s.skill} onClick={onSearchTerm}>{s.skill}</TermButton> ({s.count} postings)</div>
                   <CertLinks certifications={s.certifications} />
                 </li>
               ))}
@@ -111,14 +132,18 @@ export default function GrowthTab({ session, API_URL }) {
             <div style={{ fontWeight: 700, fontSize: 12, margin: '14px 0 6px' }}>Top titles</div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {aiOpps.topTitles.map(t => (
-                <li key={t.title} style={{ marginBottom: 4, fontSize: 12.5, color: '#334155' }}>{t.title} ({t.count})</li>
+                <li key={t.title} style={{ marginBottom: 4, fontSize: 12.5, color: '#334155' }}>
+                  <TermButton term={t.title} onClick={onSearchTerm}>{t.title}</TermButton> ({t.count})
+                </li>
               ))}
             </ul>
 
             <div style={{ fontWeight: 700, fontSize: 12, margin: '14px 0 6px' }}>Top hiring companies</div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {aiOpps.topCompanies.map(c => (
-                <li key={c.company} style={{ marginBottom: 4, fontSize: 12.5, color: '#334155' }}>{c.company} ({c.count})</li>
+                <li key={c.company} style={{ marginBottom: 4, fontSize: 12.5, color: '#334155' }}>
+                  <TermButton term={c.company} onClick={onCompanyClick}>{c.company}</TermButton> ({c.count})
+                </li>
               ))}
             </ul>
           </>
