@@ -40,6 +40,36 @@ function TermButton({ term, onClick, children }) {
   );
 }
 
+// Summarizes unlocksJobs as a count + expandable list, rather than always
+// spelling out the first job title inline — with few jobs seen so far, many
+// skills unlock the SAME one or two postings (one infra-heavy job needs
+// Kubernetes, Docker, CI/CD, monitoring, networking all at once), so
+// repeating that job's full title under every skill read as noisy/redundant.
+function UnlocksSummary({ jobs }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!jobs?.length) return null;
+  return (
+    <div style={{ marginTop: 4, fontSize: 12, color: '#16a34a' }}>
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        style={{ all: 'unset', cursor: 'pointer', color: '#16a34a', fontWeight: 600 }}
+      >
+        🔓 Unlocks {jobs.length} job{jobs.length > 1 ? 's' : ''} {expanded ? '▾' : '▸'}
+      </button>
+      {expanded && (
+        <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+          {jobs.map(j => (
+            <li key={j.url} style={{ marginBottom: 2 }}>
+              <a href={j.url} target="_blank" rel="noopener noreferrer" style={{ color: '#16a34a' }}>{j.title}</a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 const btnStyle = {
   fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 6,
   border: '1px solid #e2e8f0', background: '#fafafa', color: '#0f172a', cursor: 'pointer',
@@ -233,7 +263,7 @@ export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyCli
                   <li key={s.skill} style={{ marginBottom: 12, fontSize: 13.5, color: '#334155' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <TermButton term={s.skill} onClick={onSearchTerm}>{s.skill}</TermButton>
-                      <span>{s.missingInPct != null ? `— missing in ${s.missingInPct}% of jobs seen` : ''}</span>
+                      <span>{s.missingInPct != null ? `— missing from your profile, needed by ${s.missingInPct}% of jobs you've viewed` : ''}</span>
                       {verifiedSkills.has(s.skill) ? (
                         <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Verified</span>
                       ) : (
@@ -241,16 +271,7 @@ export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyCli
                       )}
                     </div>
                     <CertLinks certifications={s.certifications} />
-                    {s.unlocksJobs?.length > 0 && (
-                      <div style={{ marginTop: 4, fontSize: 12, color: '#16a34a' }}>
-                        🔓 Learn this and you'd unlock: {s.unlocksJobs.map((j, i) => (
-                          <React.Fragment key={j.url}>
-                            {i > 0 && ' · '}
-                            <a href={j.url} target="_blank" rel="noopener noreferrer" style={{ color: '#16a34a' }}>{j.title}</a>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    )}
+                    <UnlocksSummary jobs={s.unlocksJobs} />
                   </li>
                 ))}
               </ul>
