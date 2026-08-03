@@ -62,6 +62,7 @@ const REGION_SYNONYMS = {
   anz: 'ANZ', 'australia and new zealand': 'ANZ',
   cee: 'CEE',
   'european union': 'EU', eu: 'EU',
+  cis: 'CIS', 'commonwealth of independent states': 'CIS',
   // Continents — unlike "Global"/"Hybrid"/"Anywhere" these unambiguously
   // exclude the US, so they're safe to treat as a non-US signal.
   asia: 'ASIA', europe: 'EUROPE', africa: 'AFRICA', oceania: 'OCEANIA',
