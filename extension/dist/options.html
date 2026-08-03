@@ -52,6 +52,11 @@
   .ob-msg { font-size:12px; margin-top:8px; color:#94a3b8; min-height:18px; }
   .ob-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   #profile-sections { display:none; }
+  .tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid #e2e8f0; }
+  .tab-btn { all:unset; cursor:pointer; padding:10px 18px; font:600 13px system-ui; color:#64748b; border-bottom:2px solid transparent; }
+  .tab-btn.active { color:#0f172a; border-bottom-color:#6366f1; }
+  .tab-btn:hover { color:#0f172a; }
+  #tab-content-growth { display:none; }
 </style>
 </head>
 <body>
@@ -88,6 +93,13 @@
   </div>
 
   <div id="profile-sections">
+
+  <div class="tabs">
+    <button type="button" class="tab-btn active" id="tab-btn-profile">Profile</button>
+    <button type="button" class="tab-btn" id="tab-btn-growth">Growth</button>
+  </div>
+
+  <div id="tab-content-profile">
   <div class="section">
     <h2>Personal</h2>
     <div class="grid">
@@ -211,6 +223,17 @@
   </div>
 
   <div class="section">
+    <h2>Cache</h2>
+    <p class="hint" style="margin-bottom:10px;">SimplyApply remembers AI-generated answers per field label so it doesn't re-ask the same question twice. Clear this if answers seem stale (e.g. after changing your profile, background, or resume text significantly).</p>
+    <div class="actions">
+      <button class="save-btn" id="clear-cache" style="background:#b91c1c;">Clear answer cache</button>
+      <span class="toast" id="clear-cache-toast">✓ Cleared</span>
+    </div>
+  </div>
+  </div><!-- end tab-content-profile -->
+
+  <div id="tab-content-growth">
+  <div class="section">
     <h2>Skill gap path</h2>
     <p class="hint" style="margin-bottom:10px;">Skills that keep showing up as missing across the jobs you've browsed — the more you browse, the more this fills in.</p>
     <div class="upload-row" style="margin-bottom:8px;">
@@ -229,15 +252,7 @@
     </div>
     <div id="ai-opportunities-results"></div>
   </div>
-
-  <div class="section">
-    <h2>Cache</h2>
-    <p class="hint" style="margin-bottom:10px;">SimplyApply remembers AI-generated answers per field label so it doesn't re-ask the same question twice. Clear this if answers seem stale (e.g. after changing your profile, background, or resume text significantly).</p>
-    <div class="actions">
-      <button class="save-btn" id="clear-cache" style="background:#b91c1c;">Clear answer cache</button>
-      <span class="toast" id="clear-cache-toast">✓ Cleared</span>
-    </div>
-  </div>
+  </div><!-- end tab-content-growth -->
 
   </div><!-- end profile-sections -->
 
