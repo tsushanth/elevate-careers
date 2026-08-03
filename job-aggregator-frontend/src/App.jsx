@@ -6,6 +6,7 @@ import { supabase } from './supabase';
 import AuthModal from './AuthModal';
 import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './OnboardingModal';
 import ApplicationsTab from './ApplicationsTab';
+import GrowthTab from './GrowthTab';
 import './App.css';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
@@ -273,6 +274,9 @@ function App() {
           <nav className="nav">
             <a href="#jobs" onClick={e => { e.preventDefault(); setActiveTab('jobs'); }} className={activeTab === 'jobs' ? 'nav-active' : ''}>Jobs</a>
             <a href="#applications" onClick={e => { e.preventDefault(); setActiveTab('applications'); }} className={activeTab === 'applications' ? 'nav-active' : ''}>Applications</a>
+            {session && (
+              <a href="#growth" onClick={e => { e.preventDefault(); setActiveTab('growth'); }} className={activeTab === 'growth' ? 'nav-active' : ''}>Growth</a>
+            )}
             {session ? (
               <div className="nav-user">
                 <span className="nav-email">{session.user.email}</span>
@@ -340,6 +344,11 @@ function App() {
           pendingApply={pendingApply}
           onPendingConsumed={() => setPendingApply(null)}
         />
+      )}
+
+      {/* Growth Tab */}
+      {activeTab === 'growth' && session && (
+        <GrowthTab session={session} API_URL={API_URL} />
       )}
 
       {/* Search Bar */}
