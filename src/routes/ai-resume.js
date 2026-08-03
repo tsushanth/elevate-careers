@@ -1304,6 +1304,135 @@ router.get('/skills/ai-opportunities', requireAuth, async (req, res) => {
   }
 });
 
+// ── Skill Check ───────────────────────────────────────────────────────────────
+// Deliberately called a "Skill Check," never a "certification" — a
+// candidate could otherwise list "SimplyApply Certified: Kubernetes" next
+// to a real CKA/AWS cert with no way for an employer to tell them apart.
+// This is a SimplyApply-internal assessment, not an industry credential.
+
+// GET /api/ai-resume/skills/check?skill=<name>
+// Returns the question bank for a skill (WITHOUT correct answers), generating
+// and caching it once via AI on first request. Never regenerated per user —
+// same question bank for everyone, so grading is consistent and reviewable.
+router.get('/skills/check', requireAuth, async (req, res) => {
+  try {
+    const skillDisplay = (req.query.skill || '').trim();
+    if (!skillDisplay) return res.status(400).json({ error: 'skill required' });
+    const slug = skillToSlug(skillDisplay);
+
+    const { db } = await import('../db/index.js');
+    const existing = await db.query(`SELECT * FROM skill_checks WHERE skill_slug = $1`, [slug]);
+
+    let check = existing.rows[0];
+    if (!check) {
+      const completion = await getAnthropic().messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        temperature: 0,
+        system: `You write multiple-choice skill-assessment questions for a job-search product. Return ONLY valid JSON, no markdown: {"questions": [{"question": "", "options": ["", "", "", ""], "correctIndex": 0}]}. Write exactly 5 questions testing practical, real-world understanding of the given skill (not obscure trivia). Each question has exactly 4 options with exactly one correct answer. Vary correctIndex across questions — don't always put the answer in the same position.`,
+        messages: [{ role: 'user', content: `Skill: ${skillDisplay}` }],
+      });
+      const raw = completion.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) {
+        throw new Error('question generation returned no questions');
+      }
+      const insertResult = await db.query(
+        `INSERT INTO skill_checks (skill_slug, skill_display, questions, total_questions, passing_score)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (skill_slug) DO UPDATE SET skill_slug = EXCLUDED.skill_slug
+         RETURNING *`,
+        [slug, skillDisplay, JSON.stringify(parsed.questions), parsed.questions.length, Math.ceil(parsed.questions.length * 0.8)]
+      );
+      check = insertResult.rows[0];
+    }
+
+    // Strip correctIndex before sending to the client.
+    const questionsForClient = check.questions.map(q => ({ question: q.question, options: q.options }));
+    res.json({
+      skill: check.skill_display,
+      totalQuestions: check.total_questions,
+      passingScore: check.passing_score,
+      questions: questionsForClient,
+    });
+  } catch (e) {
+    console.error('[skills/check]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/ai-resume/skills/check/submit — body: { skill, answers: [indices] }
+router.post('/skills/check/submit', requireAuth, async (req, res) => {
+  try {
+    const skillDisplay = (req.body.skill || '').trim();
+    const answers = req.body.answers;
+    if (!skillDisplay) return res.status(400).json({ error: 'skill required' });
+    if (!Array.isArray(answers)) return res.status(400).json({ error: 'answers must be an array' });
+    const slug = skillToSlug(skillDisplay);
+
+    const { db } = await import('../db/index.js');
+    const checkResult = await db.query(`SELECT * FROM skill_checks WHERE skill_slug = $1`, [slug]);
+    const check = checkResult.rows[0];
+    if (!check) return res.status(404).json({ error: 'not_found', message: 'No skill check exists for this skill yet — fetch it first via GET /skills/check.' });
+
+    const score = check.questions.reduce((n, q, i) => n + (answers[i] === q.correctIndex ? 1 : 0), 0);
+    const passed = score >= check.passing_score;
+
+    await db.query(
+      `INSERT INTO user_skill_checks (user_id, skill_slug, score, total, passed) VALUES ($1, $2, $3, $4, $5)`,
+      [req.user.id, slug, score, check.total_questions, passed]
+    );
+
+    // The "unlock" moment — same job-matching data as the gap-path preview,
+    // surfaced immediately on a pass. skill_gap_signals stores raw free-text
+    // skill names (not slugs), so slug-matching has to happen in JS, not SQL.
+    let unlocksJobs = [];
+    if (passed) {
+      const candidatesResult = await db.query(
+        `SELECT job_url, job_title, created_at, unnest(missing_keywords) AS skill
+         FROM skill_gap_signals WHERE user_id = $1 AND job_url IS NOT NULL
+         ORDER BY created_at DESC`,
+        [req.user.id]
+      );
+      const seen = new Set();
+      for (const row of candidatesResult.rows) {
+        if (skillToSlug(row.skill) !== slug) continue;
+        if (seen.has(row.job_url)) continue;
+        seen.add(row.job_url);
+        unlocksJobs.push({ title: row.job_title, url: row.job_url });
+        if (unlocksJobs.length >= 10) break;
+      }
+    }
+
+    incrementAiUsage(req.user.id);
+    res.json({ score, total: check.total_questions, passingScore: check.passing_score, passed, unlocksJobs });
+  } catch (e) {
+    console.error('[skills/check/submit]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/ai-resume/skills/verified — this user's passed skill checks, for
+// showing "Verified" badges and (future) feeding into resume tailoring as
+// an honestly-labeled "Verified Skills" line, not blended into experience.
+router.get('/skills/verified', requireAuth, async (req, res) => {
+  try {
+    const { db } = await import('../db/index.js');
+    const result = await db.query(
+      `SELECT DISTINCT ON (sc.skill_slug) sc.skill_slug, sk.skill_display, sc.score, sc.total, sc.created_at
+       FROM user_skill_checks sc
+       JOIN skill_checks sk ON sk.skill_slug = sc.skill_slug
+       WHERE sc.user_id = $1 AND sc.passed = true
+       ORDER BY sc.skill_slug, sc.created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ verified: result.rows.map(r => ({ skill: r.skill_display, score: r.score, total: r.total, verifiedAt: r.created_at })) });
+  } catch (e) {
+    console.error('[skills/verified]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Extension heartbeat — called once per day from mount.js to track active installs
 router.post('/ping', requireAuth, async (req, res) => {
   try {
