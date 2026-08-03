@@ -66,9 +66,19 @@ export default function GrowthTab({ session, API_URL }) {
               <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Based on {gapPath.totalJobsSeen} job(s) seen</div>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {gapPath.skills.map(s => (
-                  <li key={s.skill} style={{ marginBottom: 8, fontSize: 13.5, color: '#334155' }}>
+                  <li key={s.skill} style={{ marginBottom: 12, fontSize: 13.5, color: '#334155' }}>
                     <div>{s.skill}{s.missingInPct != null ? ` — missing in ${s.missingInPct}% of jobs seen` : ''}</div>
                     <CertLinks certifications={s.certifications} />
+                    {s.unlocksJobs?.length > 0 && (
+                      <div style={{ marginTop: 4, fontSize: 12, color: '#16a34a' }}>
+                        🔓 Learn this and you'd unlock: {s.unlocksJobs.map((j, i) => (
+                          <React.Fragment key={j.url}>
+                            {i > 0 && ' · '}
+                            <a href={j.url} target="_blank" rel="noopener noreferrer" style={{ color: '#16a34a' }}>{j.title}</a>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

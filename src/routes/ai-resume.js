@@ -1167,12 +1167,37 @@ router.get('/skills/gap-path', requireAuth, async (req, res) => {
       : { rows: [] };
     const catalogBySlug = Object.fromEntries(catalogResult.rows.map(r => [r.skill_slug, r.certifications]));
 
+    // Sample of the actual jobs that flagged each skill as missing — this is
+    // the "you'd unlock these jobs" preview. Built from data we already
+    // collect (skill_gap_signals already records job_url/job_title per
+    // check), just surfaced per-skill instead of only as an aggregate count.
+    const unlocksResult = await db.query(
+      `WITH deduped AS (
+         SELECT DISTINCT ON (skill, job_url) skill, job_url, job_title, created_at
+         FROM (
+           SELECT unnest(missing_keywords) AS skill, job_url, job_title, created_at
+           FROM skill_gap_signals WHERE user_id = $1
+         ) x
+         WHERE job_url IS NOT NULL
+         ORDER BY skill, job_url, created_at DESC
+       ),
+       ranked AS (
+         SELECT *, ROW_NUMBER() OVER (PARTITION BY skill ORDER BY created_at DESC) AS rn FROM deduped
+       )
+       SELECT skill, json_agg(json_build_object('title', job_title, 'url', job_url) ORDER BY created_at DESC) AS jobs
+       FROM ranked WHERE rn <= 5
+       GROUP BY skill`,
+      [req.user.id]
+    );
+    const unlocksBySkill = Object.fromEntries(unlocksResult.rows.map(r => [r.skill, r.jobs]));
+
     const skills = result.rows.map(r => ({
       skill: r.skill,
       missingCount: parseInt(r.missing_count, 10),
       matchedCount: parseInt(r.matched_count, 10),
       missingInPct: totalJobs > 0 ? Math.round((parseInt(r.missing_jobs, 10) / totalJobs) * 100) : null,
       certifications: catalogBySlug[skillToSlug(r.skill)] || [],
+      unlocksJobs: unlocksBySkill[r.skill] || [],
     }));
 
     res.json({ totalJobsSeen: totalJobs, skills });
