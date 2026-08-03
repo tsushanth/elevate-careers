@@ -173,12 +173,23 @@ const NOISE_TOKENS = new Set(NOISE_WORDS);
 // when it's already its own token.
 const NOISE_WORD_RE = new RegExp(`\\b(${NOISE_WORDS.join('|')})\\b`, 'gi');
 
+// Regional-qualifier suffixes glued onto a real city name with no separator
+// between them ("Delhi NCR", "Chicago Metro", "NYC Metropolitan Area") —
+// unlike NOISE_WORDS these aren't "not a location," they're modifiers on a
+// real one, so the fix is to strip the qualifier and re-check the base city
+// against the dictionary, not to drop the whole token. "NCR" (National
+// Capital Region) is the common Indian-postings case that surfaced this,
+// but the same failure mode applies to any "<city> <qualifier>" postings —
+// this is the general fix, not a Delhi-specific patch.
+const REGIONAL_QUALIFIER_RE = /\b(ncr|metro(politan)?( area)?|region|greater area)\b/gi;
+
 export function tokenizeLocation(raw) {
   return raw
     .split(SEPARATOR_RE)
     .map(t => t.trim())
     .filter(t => t && !NOISE_TOKENS.has(t.toLowerCase()))
     .map(t => t.replace(NOISE_WORD_RE, '').trim())
+    .map(t => t.replace(REGIONAL_QUALIFIER_RE, '').trim())
     .filter(Boolean);
 }
 
