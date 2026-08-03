@@ -40,6 +40,138 @@ function TermButton({ term, onClick, children }) {
   );
 }
 
+const btnStyle = {
+  fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 6,
+  border: '1px solid #e2e8f0', background: '#fafafa', color: '#0f172a', cursor: 'pointer',
+};
+
+// Skill Check quiz modal — deliberately never called a "certification" (see
+// the migration's header comment): this is a SimplyApply-internal
+// assessment, not an industry credential, and the UI should never blur that
+// line for a candidate who might put it on a resume.
+function SkillCheckModal({ skill, session, API_URL, onClose, onPassed }) {
+  const [quiz, setQuiz] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [answers, setAnswers] = useState([]);
+  const [result, setResult] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/ai-resume/skills/check?skill=${encodeURIComponent(skill)}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) throw new Error(data.message || data.error);
+        setQuiz(data);
+        setAnswers(new Array(data.questions.length).fill(null));
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [skill, session, API_URL]);
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const r = await fetch(`${API_URL}/api/ai-resume/skills/check/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ skill, answers }),
+      });
+      const data = await r.json();
+      if (data.error) throw new Error(data.message || data.error);
+      setResult(data);
+      if (data.passed) onPassed(skill);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const allAnswered = answers.length > 0 && answers.every(a => a !== null);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }} onClick={onClose}>
+      <div style={{
+        background: '#fff', borderRadius: 14, padding: 28, maxWidth: 560, width: '100%',
+        maxHeight: '85vh', overflowY: 'auto',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Skill Check: {skill}</div>
+          <button type="button" onClick={onClose} style={{ all: 'unset', cursor: 'pointer', fontSize: 18, color: '#94a3b8' }}>✕</button>
+        </div>
+        <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 18 }}>
+          A SimplyApply Skill Check — an internal assessment, not an industry certification.
+        </div>
+
+        {loading && <div style={{ fontSize: 13, color: '#94a3b8' }}>Loading questions…</div>}
+        {error && <div style={{ fontSize: 13, color: '#b91c1c' }}>Failed: {error}</div>}
+
+        {quiz && !result && (
+          <>
+            {quiz.questions.map((q, qi) => (
+              <div key={qi} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 8 }}>{qi + 1}. {q.question}</div>
+                {q.options.map((opt, oi) => (
+                  <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 6, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name={`q${qi}`}
+                      checked={answers[qi] === oi}
+                      onChange={() => setAnswers(prev => prev.map((a, i) => i === qi ? oi : a))}
+                    />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            ))}
+            <button
+              type="button"
+              disabled={!allAnswered || submitting}
+              onClick={submit}
+              style={{
+                ...btnStyle, background: '#0f172a', color: '#fff', padding: '8px 18px', fontSize: 13,
+                opacity: (!allAnswered || submitting) ? 0.5 : 1,
+              }}
+            >
+              {submitting ? 'Grading…' : 'Submit'}
+            </button>
+          </>
+        )}
+
+        {result && (
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: result.passed ? '#16a34a' : '#b91c1c', marginBottom: 6 }}>
+              {result.passed ? '✅ Passed' : '❌ Not yet'} — {result.score}/{result.total} (need {result.passingScore}/{result.total})
+            </div>
+            {result.passed && result.unlocksJobs?.length > 0 && (
+              <div style={{ marginTop: 12, fontSize: 13 }}>
+                🔓 You unlocked {result.unlocksJobs.length} job{result.unlocksJobs.length > 1 ? 's' : ''} that needed this:
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                  {result.unlocksJobs.map(j => (
+                    <li key={j.url} style={{ marginBottom: 4 }}>
+                      <a href={j.url} target="_blank" rel="noopener noreferrer" style={{ color: '#16a34a' }}>{j.title}</a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!result.passed && (
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>Review the skill and try again anytime.</div>
+            )}
+            <button type="button" onClick={onClose} style={{ ...btnStyle, marginTop: 16 }}>Close</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyClick }) {
   const [gapPath, setGapPath] = useState(null);
   const [gapPathLoading, setGapPathLoading] = useState(true);
@@ -48,6 +180,17 @@ export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyCli
   const [aiOpps, setAiOpps] = useState(null);
   const [aiOppsLoading, setAiOppsLoading] = useState(true);
   const [aiOppsError, setAiOppsError] = useState(null);
+
+  const [verifiedSkills, setVerifiedSkills] = useState(new Set());
+  const [activeQuizSkill, setActiveQuizSkill] = useState(null);
+
+  const loadVerified = () => {
+    if (!session) return;
+    fetch(`${API_URL}/api/ai-resume/skills/verified`, { headers: { Authorization: `Bearer ${session.access_token}` } })
+      .then(r => r.json())
+      .then(data => setVerifiedSkills(new Set((data.verified || []).map(v => v.skill))))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (!session) return;
@@ -64,6 +207,9 @@ export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyCli
       .then(data => { if (data.error) throw new Error(data.message || data.error); setAiOpps(data); })
       .catch(e => setAiOppsError(e.message))
       .finally(() => setAiOppsLoading(false));
+
+    loadVerified();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, API_URL]);
 
   return (
@@ -85,9 +231,14 @@ export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyCli
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {gapPath.skills.map(s => (
                   <li key={s.skill} style={{ marginBottom: 12, fontSize: 13.5, color: '#334155' }}>
-                    <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <TermButton term={s.skill} onClick={onSearchTerm}>{s.skill}</TermButton>
-                      {s.missingInPct != null ? ` — missing in ${s.missingInPct}% of jobs seen` : ''}
+                      <span>{s.missingInPct != null ? `— missing in ${s.missingInPct}% of jobs seen` : ''}</span>
+                      {verifiedSkills.has(s.skill) ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#16a34a' }}>✓ Verified</span>
+                      ) : (
+                        <button type="button" onClick={() => setActiveQuizSkill(s.skill)} style={btnStyle}>Take Skill Check</button>
+                      )}
                     </div>
                     <CertLinks certifications={s.certifications} />
                     {s.unlocksJobs?.length > 0 && (
@@ -149,6 +300,16 @@ export default function GrowthTab({ session, API_URL, onSearchTerm, onCompanyCli
           </>
         )}
       </div>
+
+      {activeQuizSkill && (
+        <SkillCheckModal
+          skill={activeQuizSkill}
+          session={session}
+          API_URL={API_URL}
+          onClose={() => setActiveQuizSkill(null)}
+          onPassed={skill => setVerifiedSkills(prev => new Set(prev).add(skill))}
+        />
+      )}
 
     </div>
   );
