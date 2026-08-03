@@ -217,6 +217,23 @@ async function loadAiOpportunities() {
 }
 document.getElementById('refresh-ai-opportunities').addEventListener('click', loadAiOpportunities);
 
+// ── Tabs (Profile / Growth) ───────────────────────────────────────────────────
+let growthTabLoaded = false;
+function showTab(name) {
+  const isProfile = name === 'profile';
+  document.getElementById('tab-content-profile').style.display = isProfile ? 'block' : 'none';
+  document.getElementById('tab-content-growth').style.display = isProfile ? 'none' : 'block';
+  document.getElementById('tab-btn-profile').classList.toggle('active', isProfile);
+  document.getElementById('tab-btn-growth').classList.toggle('active', !isProfile);
+  if (!isProfile && !growthTabLoaded) {
+    growthTabLoaded = true;
+    loadGapPath();
+    loadAiOpportunities();
+  }
+}
+document.getElementById('tab-btn-profile').addEventListener('click', () => showTab('profile'));
+document.getElementById('tab-btn-growth').addEventListener('click', () => showTab('growth'));
+
 document.getElementById('clear-cache').addEventListener('click', async () => {
   await chrome.storage.local.remove(['answerCache', 'learnedAnswers']);
   const toast = document.getElementById('clear-cache-toast');
@@ -361,8 +378,6 @@ async function renderAuth() {
     };
 
     await loadProfile(token);
-    loadGapPath();
-    loadAiOpportunities();
   } else {
     // Signed out — show onboarding gate, hide profile
     document.getElementById('onboarding').style.display = 'block';
