@@ -819,7 +819,41 @@ app.get('/jobs', async (req, res) => {
       limit = 50,
       offset = 0,
     } = req.query;
-    
+
+    // Optional auth: unlike /jobs/personalized, a token isn't required here
+    // -- this stays the public listing endpoint. But when a signed-in user
+    // hits it (e.g. the frontend falls back to this route the moment any
+    // search/location/remote filter is active, per fetchJobs in App.jsx),
+    // their preferences must still apply. Before this, /jobs ignored
+    // dismissed jobs, excluded companies/titles/locations, and the
+    // non-US-location filter entirely -- a dismissed card, or a job in a
+    // country the user's profile says "USA," could reappear the instant
+    // any filter box was used, since only /jobs/personalized ever checked
+    // any of that. A bad/expired token here is not an error; it just means
+    // no preference filtering, same as an anonymous request. SQL/params for
+    // this are built below, once paramCount is known, not here.
+    let pref = null;
+    let dismissedJobIds = [];
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (token) {
+      try {
+        const sb = getSupabase();
+        const { data: { user } } = await sb.auth.getUser(token);
+        if (user) {
+          const [{ data: prefRow }, { data: dismissedRows }] = await Promise.all([
+            sb.from('apply_preferences')
+              .select('location, excluded_companies, excluded_titles, excluded_locations')
+              .eq('user_id', user.id).single(),
+            sb.from('dismissed_jobs').select('job_id').eq('user_id', user.id),
+          ]);
+          pref = prefRow || {};
+          dismissedJobIds = (dismissedRows || []).map(r => r.job_id).filter(Boolean);
+        }
+      } catch (e) {
+        logger.warn({ err: e.message }, 'Optional auth pref-filter on /jobs failed -- continuing unfiltered');
+      }
+    }
+
     let query = `
       SELECT 
         j.*,
@@ -885,7 +919,52 @@ app.get('/jobs', async (req, res) => {
       query += ` AND j.salary_min >= $${paramCount}`;
       params.push(salary_min);
     }
-    
+
+    // Preference-based exclusions, built now that paramCount reflects every
+    // explicit filter above — see the optional-auth block near the top of
+    // this handler for why this exists at all.
+    if (pref) {
+      if (dismissedJobIds.length) {
+        paramCount++;
+        query += ` AND j.id != ALL($${paramCount}::bigint[])`;
+        params.push(dismissedJobIds);
+      }
+      if ((pref.excluded_companies || []).length) {
+        paramCount++;
+        query += ` AND c.name_normalized != ALL($${paramCount}::text[])`;
+        params.push(pref.excluded_companies.map(normalizeCompanyName));
+      }
+      if ((pref.excluded_titles || []).length) {
+        paramCount++;
+        query += ` AND lower(trim(regexp_replace(j.title, '\\s+', ' ', 'g'))) != ALL($${paramCount}::text[])`;
+        params.push(pref.excluded_titles.map(normalizeTitle));
+      }
+      if ((pref.excluded_locations || []).length) {
+        paramCount++;
+        query += ` AND NOT EXISTS (
+          SELECT 1 FROM job_location xl WHERE xl.job_id = j.id
+            AND (xl.city = ANY($${paramCount}::text[]) OR xl.region = ANY($${paramCount}::text[]) OR xl.country = ANY($${paramCount}::text[]))
+        )`;
+        params.push(pref.excluded_locations);
+      }
+      // Same non-US signal check as /jobs/personalized's wantsUS branch —
+      // only applied if the user's stored location preference is the US.
+      const locPref = (pref.location || '').trim().toLowerCase();
+      if (['usa', 'us', 'u.s.', 'u.s.a.', 'united states', 'united states of america'].includes(locPref)) {
+        query += ` AND (
+          (
+            NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
+            OR EXISTS (
+              SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
+                AND (jlf.country IS NULL OR jlf.country ~* '\\y(usa|us|united states)\\y')
+                AND (jlf.region IS NULL OR jlf.region !~* '\\y(${NON_US_REGION_CODES_SQL})\\y')
+            )
+          )
+          AND j.title !~* '${NON_US_TITLE_REGEX_SQL}'
+        )`;
+      }
+    }
+
     query += ` GROUP BY j.id, c.name, c.domain, c.logo_domain`;
     query += ` ORDER BY j.posted_at DESC NULLS LAST`;
     
