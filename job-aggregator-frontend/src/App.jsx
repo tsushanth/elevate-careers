@@ -151,7 +151,14 @@ function App() {
       const url = usePersonalized
         ? `${API_URL}/jobs/personalized?${params}`
         : `${API_URL}/jobs?${params}`;
-      const headers = usePersonalized
+      // Always send the token when signed in, even on the /jobs fallback
+      // path (active search/location/remote filter) — that endpoint now
+      // applies the same preference-based exclusions (dismissed jobs,
+      // excluded companies/titles/locations, non-US filter) when a valid
+      // token is present. Previously only /jobs/personalized ever got a
+      // token, so a dismissed or non-US job could reappear the instant any
+      // filter box was used.
+      const headers = session
         ? { Authorization: `Bearer ${session.access_token}` }
         : {};
 
