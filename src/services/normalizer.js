@@ -16,6 +16,21 @@ export function normalizeCompanyName(name) {
     .trim();
 }
 
+// Slug form of normalizeCompanyName, for building a company_domain used in
+// job dedup keys (generateDedupeKey below). MUST derive from the same
+// normalization as company matching (getOrCreateCompany's name_normalized
+// lookup) — building the slug from the raw company name independently, as
+// the /ingest/jobspy and /ingest/linkedin routes used to, let minor source
+// variation ("Clarion" vs "Clarion Inc." on different scrape runs) produce
+// two different company_domain values and therefore two different
+// dedupe_keys for the exact same posting (same external_id), even though
+// getOrCreateCompany correctly resolved both to the same company row —
+// confirmed via duplicate job/application rows for identical LinkedIn
+// postings applied to on the same day.
+export function companySlug(name) {
+  return normalizeCompanyName(name).replace(/\s+/g, '-') || 'unknown';
+}
+
 // Mirrors the SQL `lower(trim(regexp_replace(title, '\s+', ' ', 'g')))` used
 // in the excluded_titles filter — catches case/whitespace variants only,
 // not reworded titles (e.g. "... II" suffix). Full fuzzy title matching is
@@ -231,9 +246,17 @@ export class NormalizerService {
         salary_currency = $8,
         valid_through = $9,
         description_excerpt = $10,
+        -- COALESCE against the existing column, not the incoming value: this
+        -- previously wasn't updated at all, which left LinkedIn-sourced jobs
+        -- (ingested with posted_at=null before the /ingest/linkedin fix)
+        -- permanently stuck with a null date, sorting to the bottom of
+        -- every search (ORDER BY posted_at DESC NULLS LAST in /jobs). Backfill
+        -- from a future re-ingest without ever overwriting a real date with
+        -- null from some other source's incomplete payload.
+        posted_at = COALESCE($11, posted_at),
         tsv = to_tsvector('english', $3 || ' ' || COALESCE($10, '')),
         updated_at = now()
-      WHERE id = $11
+      WHERE id = $12
     `, [
       companyId,
       job.apply_url,
@@ -245,6 +268,7 @@ export class NormalizerService {
       job.salary_currency,
       job.valid_through,
       descriptionExcerpt,
+      job.posted_at,
       existing.id,
     ]);
   }
