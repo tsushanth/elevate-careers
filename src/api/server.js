@@ -556,6 +556,69 @@ app.post('/ingest/jobspy', async (req, res) => {
   }
 });
 
+// LinkedIn ingest — jobs are scraped and posted directly by aihawk-local's
+// read-only search (src/ai_hawk/job_manager.py), not fetched by this server.
+// Reuses the same shared-secret auth + normalizer.processJob() pattern as
+// /ingest/jobspy above rather than inventing a new ingestion path.
+app.post('/ingest/linkedin', async (req, res) => {
+  try {
+    const { secret, jobs: rawJobs } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!Array.isArray(rawJobs)) return res.status(400).json({ error: 'jobs must be an array' });
+
+    logger.info({ count: rawJobs.length }, 'linkedin ingest received');
+
+    const normalizer = (await import('../services/normalizer.js')).default;
+    let created = 0, skipped = 0, errors = 0;
+
+    for (const j of rawJobs) {
+      try {
+        if (!j.title || !j.apply_url || !j.company) { skipped++; continue; }
+
+        const companySlug = j.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const companyDomain = `${companySlug}.linkedin`;
+
+        const normalized = {
+          provider: 'linkedin',
+          external_id: j.external_id || null,
+          apply_url: j.apply_url,
+          title: j.title,
+          description: j.description || '',
+          employment_type: null,
+          remote: null,
+          salary_min: null,
+          salary_max: null,
+          salary_currency: 'USD',
+          // aihawk-local's scraper doesn't capture LinkedIn's own posted-date
+          // text, unlike the JobSpy path (which gets a real date_posted from
+          // the library). /jobs sorts ORDER BY posted_at DESC NULLS LAST, so
+          // leaving this null means every LinkedIn job ingested here sorts to
+          // the absolute bottom of every search result, permanently -- found
+          // this via a live site test where a confirmed top-keyword-match job
+          // never appeared in the visible results. Ingestion time is a
+          // reasonable proxy (better than making the job invisible) until the
+          // scraper is extended to parse LinkedIn's relative-time card text.
+          posted_at: new Date().toISOString(),
+          company_domain: companyDomain,
+          location: j.location || null,
+        };
+
+        await normalizer.processJob(normalized, normalized.provider, companySlug);
+        created++;
+      } catch (e) {
+        logger.warn({ error: e.message, title: j.title }, 'linkedin job ingest error');
+        errors++;
+      }
+    }
+
+    logger.info({ created, skipped, errors }, 'linkedin ingest complete');
+    res.json({ ok: true, created, skipped, errors, total: rawJobs.length });
+  } catch (e) {
+    logger.error({ error: e.message }, 'linkedin ingest failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Jobs API
 app.get('/jobs/personalized', async (req, res) => {
   try {
@@ -741,14 +804,14 @@ app.get('/jobs/personalized', async (req, res) => {
           AND j.is_active = true
           ${excludeClause(4)}
           ${pf.sql}
-          ORDER BY j.company_id, ts_rank(j.tsv, to_tsquery('english', $1)) DESC, j.posted_at DESC NULLS LAST
+          ORDER BY j.company_id, ts_rank(j.tsv, to_tsquery('english', $1)) DESC, j.posted_at DESC NULLS LAST, j.id DESC
         ) bpc
         LEFT JOIN LATERAL (
           SELECT array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
                  array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
           FROM job_location jl WHERE jl.job_id = bpc.id
         ) loc ON true
-        ORDER BY bpc.relevance DESC, bpc.posted_at DESC NULLS LAST
+        ORDER BY bpc.relevance DESC, bpc.posted_at DESC NULLS LAST, bpc.id DESC
         LIMIT $2 OFFSET $3
       `, [tsQuery, limit, offset, ...extraParams, ...pf.params]);
       jobs = result.rows;
@@ -771,14 +834,14 @@ app.get('/jobs/personalized', async (req, res) => {
           FROM job j
           JOIN company c ON j.company_id = c.id
           WHERE j.is_active = true ${fallbackExclude} ${fpf.sql}
-          ORDER BY j.company_id, j.posted_at DESC NULLS LAST
+          ORDER BY j.company_id, j.posted_at DESC NULLS LAST, j.id DESC
         ) bpc
         LEFT JOIN LATERAL (
           SELECT array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
                  array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
           FROM job_location jl WHERE jl.job_id = bpc.id
         ) loc ON true
-        ORDER BY bpc.posted_at DESC NULLS LAST
+        ORDER BY bpc.posted_at DESC NULLS LAST, bpc.id DESC
         LIMIT $1 OFFSET $2
       `, [limit, offset, ...extraParams, ...fpf.params]);
       jobs = result.rows;
@@ -812,6 +875,7 @@ app.get('/jobs', async (req, res) => {
       location,
       remote,
       company,
+      provider,
       posted_since,
       employment_type,
       salary_min,
@@ -895,7 +959,13 @@ app.get('/jobs', async (req, res) => {
       query += ` AND c.name ILIKE $${paramCount}`;
       params.push(`%${company}%`);
     }
-    
+
+    if (provider) {
+      paramCount++;
+      query += ` AND j.provider = $${paramCount}`;
+      params.push(provider);
+    }
+
     if (posted_since) {
       paramCount++;
       query += ` AND j.posted_at >= $${paramCount}`;
