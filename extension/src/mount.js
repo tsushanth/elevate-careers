@@ -574,6 +574,13 @@ function nativeSelectSet(el, value) {
 }
 
 async function typeIn(el, value, delay = 12) {
+  // Same stale-node issue as applyRuleFix: field.el can be a detached
+  // reference if the page remounted its form (e.g. Apollo GraphQL) after
+  // scanFields() captured it. Re-query the live node by id before typing.
+  if (el?.id && !el.isConnected) {
+    const liveEl = document.getElementById(el.id);
+    if (liveEl) el = liveEl;
+  }
   el.focus();
   nativeSet(el, '');
   fire(el, 'input');
@@ -879,8 +886,23 @@ async function applyRuleFix(rule, field, value) {
   if (!value) return false;
   const fix = rule.fix;
 
-  const el = (fix.selectorOverride && document.querySelector(fix.selectorOverride)) || field.el;
+  let el = (fix.selectorOverride && document.querySelector(fix.selectorOverride)) || field.el;
   if (fix.waitMs) await sleep(fix.waitMs);
+
+  // scanFields() captures field.el once, early. Some ATS pages (confirmed:
+  // Ashby's "Formal" theme, which uses Apollo GraphQL) re-render/remount
+  // their form fields after that scan — usually once an async query
+  // resolves after initial paint — replacing the DOM nodes wholesale. The
+  // captured reference goes stale (detached from the document) while a
+  // fresh node with the same id takes its place. Filling the stale node
+  // "succeeds" (the write and every readback both land on the same
+  // detached object) but is invisible, since the browser is rendering the
+  // new node, not the one we touched. If the captured element isn't
+  // connected to the document, re-find the live one by id before filling.
+  if (el?.id && !el.isConnected) {
+    const liveEl = document.getElementById(el.id);
+    if (liveEl) el = liveEl;
+  }
 
   switch (fix.fillMethod) {
     case 'execCommand': {
@@ -900,6 +922,21 @@ async function applyRuleFix(rule, field, value) {
       fire(el, 'input');
       fire(el, 'change');
       el.blur();
+
+      // Verify the value actually landed before reporting success — this
+      // rule exists specifically because React controlled inputs can
+      // silently discard the set value on re-render (the whole reason for
+      // the _valueTracker reset above). Root-caused via live debugging on
+      // an Ashby "Formal"-themed page: the real failure mode wasn't a
+      // rendering race, it was scanFields() capturing a node that the
+      // page's own React app (Apollo GraphQL query resolving after
+      // initial paint) later replaced wholesale — the stale-node re-query
+      // above handles that. This check stays as a second line of defense
+      // for any other page where the set value genuinely doesn't stick.
+      await sleep(50);
+      if (el.value !== String(value)) return false;
+      await sleep(150);
+      if (el.value !== String(value)) return false;
       break;
     }
     case 'nativeSet':
@@ -962,6 +999,25 @@ function watchForUserEdits(fields) {
 }
 
 // ── Job description extraction ────────────────────────────────────────────────
+// Ashby (and several other ATS themes) render a clean labeled key/value
+// block for the actual posting location — e.g. "Location" / "San Francisco
+// Bay Area" — separate from the free-text job description. The free-text
+// scan the backend runs against the full JD/page body can false-positive on
+// any other city mentioned anywhere on the page (other offices, footer,
+// company blurb, etc. — confirmed: an SF posting whose page also happened
+// to mention "London" elsewhere got flagged as "Location appears to be
+// London"). When a labeled location field is found, send it separately so
+// the backend can trust it over the free-text scan.
+function getStructuredLocation() {
+  const labelEls = [...document.querySelectorAll('div, span, dt, p')]
+    .filter(el => el.children.length === 0 && /^location$/i.test(el.textContent.trim()));
+  for (const label of labelEls) {
+    const value = label.nextElementSibling?.textContent?.trim();
+    if (value && value.length < 100) return value;
+  }
+  return null;
+}
+
 function getJobDescription() {
   const selectors = [
     '[class*="job-description"]', '[class*="jobDescription"]', '[class*="job_description"]',
@@ -1148,7 +1204,7 @@ async function checkJobFit() {
     const stored = await chrome.storage.local.get('profile');
     const profile = stored.profile || {};
     if (!profile.resume && !profile.background) return; // nothing to score against yet
-    const result = await apiCall('/job-fit', { jobDescription: jobDesc, jobTitle: document.title, jobUrl: location.href }, profile);
+    const result = await apiCall('/job-fit', { jobDescription: jobDesc, jobTitle: document.title, jobUrl: location.href, structuredLocation: getStructuredLocation() }, profile);
     renderJobFit(result);
   } catch (_) {
     fitChecked = false; // allow a retry on the next timer if this attempt failed (e.g. slow-loading JD)
@@ -1277,6 +1333,18 @@ async function run(dryRun) {
   for (const field of fields) {
     while (paused) await sleep(150);
 
+    // Stale-node guard: scanFields() captured field.el once, early. Pages that
+    // remount their form fields later (e.g. Apollo GraphQL-driven ATS themes)
+    // leave that reference detached from the document. Every fill path below
+    // (fillStructured, fillCountryCode, fillCombobox, fillSelect,
+    // fillCustomDropdown, attachFileObj, typeIn, applyRuleFix, checkbox/radio
+    // clicks) reads field.el fresh at call time, so fixing it once here — by
+    // re-querying the live node by id — covers all of them.
+    if (field.el?.id && !field.el.isConnected) {
+      const liveEl = document.getElementById(field.el.id);
+      if (liveEl) field.el = liveEl;
+    }
+
     field.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     field.el.style.outline = '2px solid #f59e0b';
     setRow(field, 'filling', 'working…');
@@ -1302,6 +1370,18 @@ async function run(dryRun) {
         const { pdf, filename: apiFilename, atsMatchRate, baselineMatchRate, missingKeywords } = await apiCall('/resume/tailor', { jobDescription: jobDesc, jobTitle: document.title }, profile);
         const filename = apiFilename || `${(profile.firstName || 'Resume')}_${(profile.lastName || 'Resume')}_Resume.pdf`.replace(/\s+/g, '_');
         await attachPdfB64(field.el, pdf, filename);
+        // attachPdfB64 resolving doesn't mean the page's own file-input
+        // handling (upload, preview render, form-state recompute) has
+        // actually settled — on at least one ATS page that follow-on work
+        // appears to trigger a form-wide re-render sometime after this
+        // await returns, which silently resets other fields we filled via
+        // the native-setter bypass (confirmed via "SimplyApply DEBUG"
+        // logging: every text field passed its own +50ms/+200ms
+        // verification, so the fill itself was never the problem — the
+        // reset happens later, from something this attach step kicks off).
+        // Giving it a moment here, before moving to the next field in the
+        // natural top-to-bottom order, lets that settle first.
+        await sleep(1000);
         let atsNote = '';
         if (Number.isFinite(atsMatchRate)) {
           const lift = Number.isFinite(baselineMatchRate)
