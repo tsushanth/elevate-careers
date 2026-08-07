@@ -10,7 +10,7 @@ import { enqueueJob } from '../services/queue.js';
 import { createClient } from '@supabase/supabase-js';
 
 import { recomputeSignals } from '../services/signals.js';
-import { normalizeCompanyName, normalizeTitle } from '../services/normalizer.js';
+import { normalizeCompanyName, normalizeTitle, companySlug } from '../services/normalizer.js';
 import { REGION_CODES, nonUsTitleRegex } from '../services/geo.js';
 
 const NON_US_REGION_CODES_SQL = REGION_CODES.join('|');
@@ -520,9 +520,12 @@ app.post('/ingest/jobspy', async (req, res) => {
       try {
         if (!j.title || !j.apply_url || !j.company) { skipped++; continue; }
 
-        // Build a slug domain from company name for deduplication
-        const companySlug = j.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        const companyDomain = `${companySlug}.jobspy`;
+        // Build a slug domain from company name for deduplication — must use
+        // the same normalization as company matching (see companySlug's doc
+        // comment in normalizer.js) or minor source variation in the
+        // company-name string creates duplicate job rows for one posting.
+        const slug = companySlug(j.company);
+        const companyDomain = `${slug}.jobspy`;
 
         const normalized = {
           provider:    j.source || 'jobspy',
@@ -540,7 +543,7 @@ app.post('/ingest/jobspy', async (req, res) => {
           location:    j.location || null,
         };
 
-        await normalizer.processJob(normalized, normalized.provider, companySlug);
+        await normalizer.processJob(normalized, normalized.provider, slug);
         created++;
       } catch (e) {
         logger.warn({ error: e.message, title: j.title }, 'jobspy job ingest error');
@@ -575,8 +578,8 @@ app.post('/ingest/linkedin', async (req, res) => {
       try {
         if (!j.title || !j.apply_url || !j.company) { skipped++; continue; }
 
-        const companySlug = j.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        const companyDomain = `${companySlug}.linkedin`;
+        const slug = companySlug(j.company);
+        const companyDomain = `${slug}.linkedin`;
 
         const normalized = {
           provider: 'linkedin',
@@ -603,7 +606,7 @@ app.post('/ingest/linkedin', async (req, res) => {
           location: j.location || null,
         };
 
-        await normalizer.processJob(normalized, normalized.provider, companySlug);
+        await normalizer.processJob(normalized, normalized.provider, slug);
         created++;
       } catch (e) {
         logger.warn({ error: e.message, title: j.title }, 'linkedin job ingest error');
