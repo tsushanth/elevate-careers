@@ -953,14 +953,16 @@
         if (field.type === "file")
           continue;
         const el = field.el;
-        const handler = () => {
+        const handler = (e) => {
+          if (e && e.isTrusted === false)
+            return;
           let val;
           if (el.type === "checkbox" || el.type === "radio") {
             val = el.checked ? "Yes" : "No";
           } else if (field.type === "combobox" || field.type === "datalist") {
             const container = el.closest('[class*="container"]');
             const singleVal = container?.querySelector('[class*="single-value"]')?.textContent?.trim();
-            const multiVals = container ? [...container.querySelectorAll('[class*="multi-value__label"]')].map((e) => e.textContent.trim()) : [];
+            const multiVals = container ? [...container.querySelectorAll('[class*="multi-value__label"]')].map((e2) => e2.textContent.trim()) : [];
             val = multiVals.length ? multiVals.join(", ") : singleVal;
           } else {
             val = el.value?.trim();
