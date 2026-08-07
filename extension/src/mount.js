@@ -1018,12 +1018,30 @@ function watchForUserEdits(fields) {
 // London"). When a labeled location field is found, send it separately so
 // the backend can trust it over the free-text scan.
 function getStructuredLocation() {
+  // Try 1: exact leaf-node sibling match — works when label/value are direct
+  // siblings (e.g. <div>Location</div><div>Redwood City</div>).
   const labelEls = [...document.querySelectorAll('div, span, dt, p')]
     .filter(el => el.children.length === 0 && /^location$/i.test(el.textContent.trim()));
   for (const label of labelEls) {
     const value = label.nextElementSibling?.textContent?.trim();
     if (value && value.length < 100) return value;
   }
+  // Try 2: same idea, but walk up to the label's parent's sibling — handles
+  // an extra wrapper div around the label and/or the value
+  // (e.g. <div><div>Location</div></div><div><div>Redwood City</div></div>).
+  for (const label of labelEls) {
+    let node = label;
+    for (let i = 0; i < 3 && node; i++) {
+      const sib = node.nextElementSibling;
+      const value = sib?.textContent?.trim();
+      if (value && value.length > 0 && value.length < 100 && value.toLowerCase() !== 'location') return value;
+      node = node.parentElement;
+    }
+  }
+  // Try 3: regex over rendered text — "Location" on its own line followed
+  // by a short value line — independent of exact DOM nesting.
+  const textMatch = document.body.innerText.match(/^Location\s*\n\s*(.{2,80})\s*$/im);
+  if (textMatch) return textMatch[1].trim();
   return null;
 }
 

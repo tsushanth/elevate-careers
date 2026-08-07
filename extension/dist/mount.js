@@ -991,6 +991,19 @@
         if (value && value.length < 100)
           return value;
       }
+      for (const label of labelEls) {
+        let node = label;
+        for (let i = 0; i < 3 && node; i++) {
+          const sib = node.nextElementSibling;
+          const value = sib?.textContent?.trim();
+          if (value && value.length > 0 && value.length < 100 && value.toLowerCase() !== "location")
+            return value;
+          node = node.parentElement;
+        }
+      }
+      const textMatch = document.body.innerText.match(/^Location\s*\n\s*(.{2,80})\s*$/im);
+      if (textMatch)
+        return textMatch[1].trim();
       return null;
     }
     function getJobDescription() {
