@@ -854,7 +854,7 @@ function normalizeSalaryAmount(numStr, kFlag) {
 
 router.post('/job-fit', requireAuth, async (req, res) => {
   try {
-    const { jobDescription, jobTitle, profile } = req.body;
+    const { jobDescription, jobTitle, profile, structuredLocation } = req.body;
     if (!jobDescription) return res.status(400).json({ error: 'jobDescription required' });
 
     const needsSponsorship = (profile?.sponsorship || '').trim().toLowerCase() === 'yes';
@@ -889,7 +889,16 @@ router.post('/job-fit', requireAuth, async (req, res) => {
     // word "veteran".
     const profileCountry = (profile?.country || '').trim().toLowerCase();
     const candidateIsUS = !profileCountry || ['us', 'usa', 'united states', 'u.s.', 'u.s.a.'].includes(profileCountry);
-    if (candidateIsUS) {
+    // A labeled location field the ATS renders for this specific posting
+    // (extension-extracted, e.g. Ashby's "Location" key/value block) is
+    // authoritative for THIS req, unlike the free-text scan below — which
+    // matches any city/country name anywhere on the page, including other
+    // offices, footer text, or company blurbs unrelated to this posting.
+    // If it's present and contains no non-US signal itself, trust it and
+    // skip the free-text scan entirely.
+    const structuredLocationIsClearlyNonUs = structuredLocation && nonUsTextRegexJs().test(structuredLocation);
+    const trustStructuredLocation = structuredLocation && !structuredLocationIsClearlyNonUs;
+    if (candidateIsUS && !trustStructuredLocation) {
       const nonUsMatch = jobDescription.match(nonUsTextRegexJs());
       const mentionsRemoteOrRelocation = /\b(fully remote|remote[- ]first|remote[- ]friendly|work from anywhere|anywhere in the (us|u\.s\.)|relocation (assistance|support|package|provided)|we (will |can )?relocate you|visa and relocation)\b/i.test(jobDescription)
         || /\bremote\b(?!\s*(from|within|in)\b)/i.test(jobDescription);

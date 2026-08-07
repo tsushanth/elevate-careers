@@ -646,6 +646,11 @@
         el.value = value;
     }
     async function typeIn(el, value, delay = 12) {
+      if (el?.id && !el.isConnected) {
+        const liveEl = document.getElementById(el.id);
+        if (liveEl)
+          el = liveEl;
+      }
       el.focus();
       nativeSet(el, "");
       fire(el, "input");
@@ -891,9 +896,14 @@
       if (!value)
         return false;
       const fix = rule.fix;
-      const el = fix.selectorOverride && document.querySelector(fix.selectorOverride) || field.el;
+      let el = fix.selectorOverride && document.querySelector(fix.selectorOverride) || field.el;
       if (fix.waitMs)
         await sleep(fix.waitMs);
+      if (el?.id && !el.isConnected) {
+        const liveEl = document.getElementById(el.id);
+        if (liveEl)
+          el = liveEl;
+      }
       switch (fix.fillMethod) {
         case "execCommand": {
           el.focus();
@@ -910,6 +920,12 @@
           fire(el, "input");
           fire(el, "change");
           el.blur();
+          await sleep(50);
+          if (el.value !== String(value))
+            return false;
+          await sleep(150);
+          if (el.value !== String(value))
+            return false;
           break;
         }
         case "nativeSet":
@@ -965,6 +981,15 @@
         el.addEventListener("change", handler, { once: true });
         el.addEventListener("blur", handler, { once: true });
       }
+    }
+    function getStructuredLocation() {
+      const labelEls = [...document.querySelectorAll("div, span, dt, p")].filter((el) => el.children.length === 0 && /^location$/i.test(el.textContent.trim()));
+      for (const label of labelEls) {
+        const value = label.nextElementSibling?.textContent?.trim();
+        if (value && value.length < 100)
+          return value;
+      }
+      return null;
     }
     function getJobDescription() {
       const selectors = [
@@ -1138,7 +1163,7 @@
         const profile = stored.profile || {};
         if (!profile.resume && !profile.background)
           return;
-        const result = await apiCall("/job-fit", { jobDescription: jobDesc, jobTitle: document.title, jobUrl: location.href }, profile);
+        const result = await apiCall("/job-fit", { jobDescription: jobDesc, jobTitle: document.title, jobUrl: location.href, structuredLocation: getStructuredLocation() }, profile);
         renderJobFit(result);
       } catch (_) {
         fitChecked = false;
@@ -1272,6 +1297,11 @@
       for (const field of fields) {
         while (paused)
           await sleep(150);
+        if (field.el?.id && !field.el.isConnected) {
+          const liveEl = document.getElementById(field.el.id);
+          if (liveEl)
+            field.el = liveEl;
+        }
         field.el.scrollIntoView({ behavior: "smooth", block: "center" });
         field.el.style.outline = "2px solid #f59e0b";
         setRow(field, "filling", "working\u2026");
@@ -1303,6 +1333,7 @@
             const { pdf, filename: apiFilename, atsMatchRate, baselineMatchRate, missingKeywords } = await apiCall("/resume/tailor", { jobDescription: jobDesc, jobTitle: document.title }, profile);
             const filename = apiFilename || `${profile.firstName || "Resume"}_${profile.lastName || "Resume"}_Resume.pdf`.replace(/\s+/g, "_");
             await attachPdfB64(field.el, pdf, filename);
+            await sleep(1e3);
             let atsNote = "";
             if (Number.isFinite(atsMatchRate)) {
               const lift = Number.isFinite(baselineMatchRate) ? ` (was ${baselineMatchRate}%, ${atsMatchRate >= baselineMatchRate ? "+" : ""}${atsMatchRate - baselineMatchRate}pt)` : "";
