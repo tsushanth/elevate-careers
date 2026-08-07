@@ -24,7 +24,12 @@ def scrape():
     body = request.get_json(force=True)
     queries = body.get('queries', [])
     max_results = int(body.get('max_results', 50))
-    sites = body.get('sites', ['indeed', 'linkedin', 'glassdoor'])
+    # Glassdoor dropped from the default: its location-autocomplete endpoint
+    # 403s ("Security | Glassdoor") on every request as of 2026-08 — not a
+    # location-format bug, their bot wall. Every query in a batch fails on
+    # it identically, for no jobs gained. Callers can still pass
+    # 'glassdoor' explicitly in `sites` if that ever changes.
+    sites = body.get('sites', ['indeed', 'linkedin'])
 
     all_jobs = []
     seen_urls = set()
@@ -40,6 +45,12 @@ def scrape():
                 results_wanted=max_results,
                 hours_old=48,
                 country_indeed='USA',
+                # Without this, LinkedIn results come back with an empty
+                # description (unlike Indeed, which includes it in the
+                # initial search response) — costs one extra request per
+                # LinkedIn job, but otherwise every LinkedIn-sourced
+                # posting shows "No description available." on the site.
+                linkedin_fetch_description=True,
             )
             for _, row in df.iterrows():
                 direct = safe(row.get('job_url_direct'))
