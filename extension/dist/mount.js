@@ -391,6 +391,8 @@
       { re: /current.*company|most recent.*company|employer/i, key: "currentCompany" }
     ];
     function matchKey(label) {
+      if (label.length > 60 || /\?\s*$/.test(label.trim()))
+        return null;
       const t = label.toLowerCase();
       for (const { re, key } of KEYWORD_RULES) {
         if (re.test(t))

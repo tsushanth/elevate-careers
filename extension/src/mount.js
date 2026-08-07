@@ -319,6 +319,15 @@ const KEYWORD_RULES = [
 ];
 
 function matchKey(label) {
+  // These rules are meant for short structured field labels ("City",
+  // "Current company", "LinkedIn URL") — not full-sentence questions, where
+  // a keyword can appear embedded in an unrelated proper noun or clause
+  // (confirmed: "Are you able to work on-site at our Redwood City, CA
+  // office..." matched the bare /\bcity\b/i rule and got auto-filled with
+  // the candidate's own city instead of being routed to the AI to answer
+  // the actual on-site-schedule question). A real question sentence is long
+  // and/or ends in "?"; bail out and let isOpenEnded()'s AI path handle it.
+  if (label.length > 60 || /\?\s*$/.test(label.trim())) return null;
   const t = label.toLowerCase();
   for (const { re, key } of KEYWORD_RULES) {
     if (re.test(t)) return key;
