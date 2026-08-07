@@ -646,6 +646,24 @@ app.get('/jobs/personalized', async (req, res) => {
     const appliedUrls = (appliedRows || []).filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
     const appliedCount = (appliedRows || []).length;
 
+    // Companies the user has already applied to at least once — deprioritized
+    // (not excluded) in the feed below. Applying at a company shouldn't hide
+    // it forever (a company posts many genuinely different roles), but a
+    // *different* job at that same company shouldn't compete with companies
+    // the user hasn't touched yet either — especially since the same ATS
+    // posting can resurface under a new external_id when a company reposts
+    // it (Ashby/Greenhouse/etc. do this to bump freshness), which the applied
+    // job_id exclusion above can't catch since it's a genuinely different
+    // job row. Sort those companies' jobs after everything else instead of
+    // interleaving them, rather than hiding them outright.
+    let appliedCompanyIds = [];
+    if (appliedJobIds.length > 0) {
+      const { data: appliedCompanyRows } = await sb.from('job')
+        .select('company_id')
+        .in('id', appliedJobIds);
+      appliedCompanyIds = [...new Set((appliedCompanyRows || []).map(r => r.company_id).filter(Boolean))];
+    }
+
     // Jobs the user explicitly dismissed via "Just remove this card" — always
     // excluded regardless of the show_applied toggle (that toggle is only
     // about applied jobs, unrelated to a card the user asked to hide).
@@ -790,6 +808,7 @@ app.get('/jobs/personalized', async (req, res) => {
       const tsQuery = allPhrases.join(' | ');
       const extraParams = excludeClauseParams;
       const pf = buildPrefFilters(4 + extraParams.length);
+      const appliedCompanyIdx = 4 + extraParams.length + pf.params.length;
       const result = await db.query(`
         SELECT
           bpc.*,
@@ -814,9 +833,13 @@ app.get('/jobs/personalized', async (req, res) => {
                  array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
           FROM job_location jl WHERE jl.job_id = bpc.id
         ) loc ON true
-        ORDER BY bpc.relevance DESC, bpc.posted_at DESC NULLS LAST, bpc.id DESC
+        -- Companies already applied to sort after everything else (not
+        -- excluded — see appliedCompanyIds comment above) so a different
+        -- role at an already-applied company doesn't compete with
+        -- companies the user hasn't touched yet.
+        ORDER BY (bpc.company_id = ANY($${appliedCompanyIdx}::bigint[])) ASC, bpc.relevance DESC, bpc.posted_at DESC NULLS LAST, bpc.id DESC
         LIMIT $2 OFFSET $3
-      `, [tsQuery, limit, offset, ...extraParams, ...pf.params]);
+      `, [tsQuery, limit, offset, ...extraParams, ...pf.params, appliedCompanyIds]);
       jobs = result.rows;
     }
 
@@ -829,6 +852,7 @@ app.get('/jobs/personalized', async (req, res) => {
       const extraParams = excludeClauseParams;
       const fallbackExclude = excludeClause(3);
       const fpf = buildPrefFilters(3 + extraParams.length);
+      const appliedCompanyIdx = 3 + extraParams.length + fpf.params.length;
       const result = await db.query(`
         SELECT bpc.*, loc.cities, loc.countries
         FROM (
@@ -844,9 +868,9 @@ app.get('/jobs/personalized', async (req, res) => {
                  array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
           FROM job_location jl WHERE jl.job_id = bpc.id
         ) loc ON true
-        ORDER BY bpc.posted_at DESC NULLS LAST, bpc.id DESC
+        ORDER BY (bpc.company_id = ANY($${appliedCompanyIdx}::bigint[])) ASC, bpc.posted_at DESC NULLS LAST, bpc.id DESC
         LIMIT $1 OFFSET $2
-      `, [limit, offset, ...extraParams, ...fpf.params]);
+      `, [limit, offset, ...extraParams, ...fpf.params, appliedCompanyIds]);
       jobs = result.rows;
     }
 
