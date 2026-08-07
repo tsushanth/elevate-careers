@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink } from 'lucide-react';
 import { supabase } from './supabase';
+import { track } from './track';
 import AuthModal from './AuthModal';
 import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './OnboardingModal';
 import ApplicationsTab from './ApplicationsTab';
@@ -43,7 +44,7 @@ function App() {
   // refetch on top of cached results shouldn't blank the page.
   const [loading, setLoading] = useState(jobs.length === 0);
   const [filters, setFilters] = useState({
-    keyword: '', remote: false, location: '', employmentType: '', datePosted: '',
+    keyword: '', remote: false, location: '', employmentType: '', datePosted: '', provider: '',
   });
   const [totalCount, setTotalCount] = useState(() => {
     try { return parseInt(sessionStorage.getItem('sa_totalCount'), 10) || 0; } catch { return 0; }
@@ -143,10 +144,11 @@ function App() {
         ...(f.location && { location: f.location }),
         ...(f.employmentType && { employment_type: f.employmentType }),
         ...(f.datePosted && { days: f.datePosted }),
+        ...(f.provider && { provider: f.provider }),
       });
 
       // Use personalized feed when signed in and no explicit keyword search
-      const usePersonalized = session && !f.keyword && !f.location && !f.remote;
+      const usePersonalized = session && !f.keyword && !f.location && !f.remote && !f.provider;
       if (usePersonalized) params.set('show_applied', showApplied ? 'true' : 'false');
       const url = usePersonalized
         ? `${API_URL}/jobs/personalized?${params}`
@@ -405,6 +407,7 @@ function App() {
             { label: 'Contract', key: 'employmentType', value: 'contract' },
             { label: 'Past week', key: 'datePosted', value: '7' },
             { label: 'Past month', key: 'datePosted', value: '30' },
+            { label: 'LinkedIn', key: 'provider', value: 'linkedin' },
           ].map(f => {
             const active = f.toggle ? filters.remote : filters[f.key] === f.value;
             return (
@@ -626,14 +629,18 @@ function App() {
                   ? [selectedJob.cities?.[0], selectedJob.countries?.[0]].filter(Boolean).join(', ')
                   : 'Location not specified'}
               </span>
-              <span>•</span>
-              <span>
-                Posted{' '}
-                {Math.floor(
-                  (Date.now() - new Date(selectedJob.posted_at)) / (1000 * 60 * 60 * 24)
-                )}{' '}
-                days ago
-              </span>
+              {selectedJob.posted_at && !isNaN(new Date(selectedJob.posted_at)) && (
+                <>
+                  <span>•</span>
+                  <span>
+                    Posted{' '}
+                    {Math.max(0, Math.floor(
+                      (Date.now() - new Date(selectedJob.posted_at)) / (1000 * 60 * 60 * 24)
+                    ))}{' '}
+                    days ago
+                  </span>
+                </>
+              )}
               <span>•</span>
               <span>Over 100 people clicked apply</span>
             </div>
@@ -739,7 +746,13 @@ function App() {
         <AuthModal
           onSuccess={(s, isNewUser) => {
             setSession(s);
-            if (isNewUser && shouldShowOnboarding()) setShowOnboarding(true);
+            if (isNewUser) {
+              track('signup_completed', { provider: s?.user?.app_metadata?.provider });
+              if (shouldShowOnboarding()) {
+                track('onboarding_shown');
+                setShowOnboarding(true);
+              }
+            }
           }}
           onClose={() => setShowAuthModal(false)}
         />
