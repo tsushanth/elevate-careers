@@ -973,7 +973,16 @@ function watchForUserEdits(fields) {
     if (field.type === 'file') continue;
 
     const el = field.el;
-    const handler = () => {
+    // Only persist genuine user edits — our own autofill dispatches synthetic
+    // change/input events (new Event(...)), which the DOM marks isTrusted:
+    // false, unlike real user interaction. Without this check, a wrong
+    // autofill value "confirms" itself into learnedAnswers on its own
+    // change event and keeps replaying on every future run, even after the
+    // classification bug that caused it is fixed (confirmed: a mis-filled
+    // "Milpitas" answer for an unrelated on-site-schedule question kept
+    // reappearing from cache after the root-cause matchKey fix shipped).
+    const handler = (e) => {
+      if (e && e.isTrusted === false) return;
       let val;
       if (el.type === 'checkbox' || el.type === 'radio') {
         val = el.checked ? 'Yes' : 'No';
