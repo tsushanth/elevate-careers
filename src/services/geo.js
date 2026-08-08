@@ -101,6 +101,9 @@ const CITY_COUNTRY = {
   // Netherlands / Belgium
   amsterdam: 'Netherlands', rotterdam: 'Netherlands', 'the hague': 'Netherlands',
   brussels: 'Belgium', antwerp: 'Belgium', bruges: 'Belgium',
+  ghent: 'Belgium', gent: 'Belgium', leuven: 'Belgium', heverlee: 'Belgium',
+  berchem: 'Belgium', hasselt: 'Belgium', bijgaarden: 'Belgium',
+  liege: 'Belgium', 'liège': 'Belgium',
   // Nordics
   stockholm: 'Sweden', gothenburg: 'Sweden',
   copenhagen: 'Denmark', helsinki: 'Finland', oslo: 'Norway',
@@ -157,7 +160,10 @@ const CITY_COUNTRY = {
 // Matches "India (Remote)", "Remote - Canada", "United States | Remote",
 // "US > Arizona > Phoenix" etc. — splits on every separator these ATS
 // listings actually use and drops noise tokens that carry no location info.
-const SEPARATOR_RE = /[,|>/]|(?<=\S)\s*-\s*(?=\S)|[()]/g;
+// ':' and ';' added after "Remote - Canada: Select locations" strings
+// leaked through — without a colon split, "canada: select locations" never
+// exactly matches the bare "canada" country-name lookup.
+const SEPARATOR_RE = /[,|>/:;]|(?<=\S)\s*-\s*(?=\S)|[()]/g;
 // Some ATS postings (e.g. a Lever `categories.location` bug seen on Peak's
 // board) put the employment-type/commitment value where the location
 // should be ("Full-time" as the entire location string) — garbage data at
