@@ -144,12 +144,18 @@ const CITY_COUNTRY = {
   auckland: 'New Zealand', wellington: 'New Zealand',
   // Canada
   toronto: 'Canada', vancouver: 'Canada', montreal: 'Canada', 'montréal': 'Canada',
-  ottawa: 'Canada', calgary: 'Canada',
+  ottawa: 'Canada', calgary: 'Canada', mississauga: 'Canada',
   // Latin America
   'mexico city': 'Mexico', 'sao paulo': 'Brazil', 'são paulo': 'Brazil',
   'rio de janeiro': 'Brazil', 'buenos aires': 'Argentina',
   'bogota': 'Colombia', 'bogotá': 'Colombia', medellin: 'Colombia', 'medellín': 'Colombia',
   santiago: 'Chile', lima: 'Peru', montevideo: 'Uruguay',
+  // "Santiago" alone is ambiguous (also DR's 2nd-largest city, plus Spain/
+  // Mexico/Portugal all have a "Santiago de X") — these more specific
+  // compound names take priority since they're only ever this exact phrase.
+  'santiago de chile': 'Chile', 'santiago de los caballeros': 'Dominican Republic',
+  'santiago de compostela': 'Spain', 'santiago de queretaro': 'Mexico', 'santiago de querétaro': 'Mexico',
+  'santiago do cacem': 'Portugal', 'santiago do cacém': 'Portugal',
   'guatemala city': 'Guatemala', 'santo domingo': 'Dominican Republic',
   quito: 'Ecuador', 'la paz': 'Bolivia', asuncion: 'Paraguay', 'asunción': 'Paraguay',
   // NOTE: "San Jose"/"Panama City" deliberately excluded — collide with
@@ -174,6 +180,11 @@ const NOISE_WORDS = [
   'full-time', 'full time', 'fulltime', 'part-time', 'part time', 'parttime',
   'contract', 'contractor', 'temporary', 'temp', 'internship', 'intern',
   'permanent', 'freelance', 'co-op',
+  // Connector word in "Remote or <city>" / "<city> or Remote" style strings —
+  // without stripping it, e.g. "Remote or Mississauga" strips down to
+  // "or Mississauga" (still not an exact CITY_COUNTRY match) instead of
+  // resolving to just "Mississauga".
+  'or',
 ];
 const NOISE_TOKENS = new Set(NOISE_WORDS);
 // Catches noise words with no strong separator at all ("US Remote",
