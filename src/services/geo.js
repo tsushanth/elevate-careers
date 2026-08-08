@@ -33,7 +33,7 @@ const COUNTRY_SYNONYMS = {
   ireland: 'Ireland', germany: 'Germany', france: 'France', spain: 'Spain', italy: 'Italy',
   netherlands: 'Netherlands', poland: 'Poland', portugal: 'Portugal', sweden: 'Sweden',
   norway: 'Norway', denmark: 'Denmark', finland: 'Finland', switzerland: 'Switzerland',
-  austria: 'Austria', belgium: 'Belgium', 'czech republic': 'Czech Republic', romania: 'Romania',
+  austria: 'Austria', belgium: 'Belgium', 'czech republic': 'Czech Republic', czechia: 'Czech Republic', romania: 'Romania',
   ukraine: 'Ukraine', greece: 'Greece', hungary: 'Hungary', serbia: 'Serbia',
   croatia: 'Croatia', bulgaria: 'Bulgaria', israel: 'Israel', turkey: 'Turkey',
   uae: 'UAE', 'united arab emirates': 'UAE', 'saudi arabia': 'Saudi Arabia', qatar: 'Qatar',
@@ -137,6 +137,7 @@ const CITY_COUNTRY = {
   dhaka: 'Bangladesh', colombo: 'Sri Lanka',
   // Oceania
   sydney: 'Australia', melbourne: 'Australia', brisbane: 'Australia', perth: 'Australia',
+  hobart: 'Australia', adelaide: 'Australia', canberra: 'Australia', darwin: 'Australia',
   auckland: 'New Zealand', wellington: 'New Zealand',
   // Canada
   toronto: 'Canada', vancouver: 'Canada', montreal: 'Canada', 'montréal': 'Canada',
