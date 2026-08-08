@@ -39,6 +39,24 @@ function App() {
   const selectJob = (job) => {
     setSelectedJob(job);
     try { sessionStorage.setItem('sa_selectedJob', JSON.stringify(job)); } catch {}
+    // The list response only carries description_excerpt (hard-truncated to
+    // 500 chars, cutting off mid-sentence) — fetch the full description_md
+    // from job_version for the detail view instead of showing a dead-end
+    // "..." with no way to read the rest.
+    if (job?.id && !job.description_md) {
+      fetch(`${API_URL}/jobs/${job.id}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(full => {
+          if (!full?.description_md) return;
+          setSelectedJob(prev => {
+            if (!prev || prev.id !== job.id) return prev;
+            const updated = { ...prev, description_md: full.description_md };
+            try { sessionStorage.setItem('sa_selectedJob', JSON.stringify(updated)); } catch {}
+            return updated;
+          });
+        })
+        .catch(() => {});
+    }
   };
   // Only true while there's no cached list to show yet — a background
   // refetch on top of cached results shouldn't blank the page.
@@ -716,10 +734,10 @@ function App() {
 
             <div className="job-detail-description">
               <h3>About the job</h3>
-              {selectedJob.description_excerpt ? (
+              {selectedJob.description_md || selectedJob.description_excerpt ? (
                 <div
                   className="description-content"
-                  dangerouslySetInnerHTML={{ __html: selectedJob.description_excerpt }}
+                  dangerouslySetInnerHTML={{ __html: selectedJob.description_md || selectedJob.description_excerpt }}
                 />
               ) : (
                 <p>No description available.</p>
