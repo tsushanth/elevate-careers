@@ -150,44 +150,20 @@
     // Custom career sites detected by detect-ats.js and injected via scripting API
     "kula.ai"
   ];
-  if (new URLSearchParams(location.search).get("sa_autofill") === "1") {
-    const broadcast = () => {
-      for (const iframe of document.querySelectorAll("iframe")) {
-        try {
-          iframe.contentWindow?.postMessage({ type: "SIMPLYAPPLY_TRIGGER_AUTOFILL" }, "*");
-        } catch (_) {
-        }
-      }
-    };
-    let attempts = 0;
-    const interval = setInterval(() => {
-      broadcast();
-      if (++attempts >= 10)
-        clearInterval(interval);
-    }, 500);
-  }
   var _loc = location.hostname + location.pathname;
   if (!window.__simplyApplyForceInject && !JOB_HOSTS.some((h) => _loc.includes(h))) {
   } else if (window.__simplyApplyRunning) {
   } else {
     window.__simplyApplyRunning = true;
     const _runFn = main();
-    const triggerAutofill = () => {
-      if (window.__saAutoTriggered)
-        return;
+    if (new URLSearchParams(location.search).get("sa_autofill") === "1" && !window.__saAutoTriggered) {
       window.__saAutoTriggered = true;
       Promise.resolve(_runFn).then((run) => {
         if (typeof run === "function")
           setTimeout(() => run(false).catch(() => {
           }), 3500);
       });
-    };
-    if (new URLSearchParams(location.search).get("sa_autofill") === "1")
-      triggerAutofill();
-    window.addEventListener("message", (e) => {
-      if (e.data?.type === "SIMPLYAPPLY_TRIGGER_AUTOFILL")
-        triggerAutofill();
-    });
+    }
   }
   function main() {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -568,7 +544,7 @@
             return false;
           if (SEARCH_RE.test(el.className) || SEARCH_RE.test(el.name) || SEARCH_RE.test(el.id))
             return false;
-          if (el.closest('nav, header, [role=search], form[action*="search"]'))
+          if (el.closest('nav, header, [role=search], form[action*="search"], form[action*="positions"]'))
             return false;
           if (el.type === "file")
             return true;
