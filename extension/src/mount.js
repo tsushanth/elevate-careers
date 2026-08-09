@@ -31,41 +31,6 @@ const JOB_HOSTS = [
   'kula.ai',
 ];
 
-// Many ATS embeds (Greenhouse's "job-boards.greenhouse.io/embed/job_app"
-// among others) render the real application form inside a CROSS-ORIGIN
-// iframe on the company's own custom career-site domain (e.g.
-// tower-research.com/open-positions/?...&sa_autofill=1). ?sa_autofill=1
-// only ever lands on the outer page's own URL — the iframe has a
-// completely separate URL with no such param, and being cross-origin, it
-// can't read window.top.location to check the parent's URL either
-// (blocked by the same-origin policy). Without this broadcast, the iframe
-// never learns autofill was requested at all: the widget still renders
-// (it correctly matches JOB_HOSTS), but silently sits in its untouched
-// idle state ("Done — ✓0 skip0 err0") forever, which reads exactly like a
-// failed 0-field scan even though no scan ever ran. postMessage is the
-// correct, secure way to signal across that cross-origin boundary — every
-// frame does this unconditionally, top-level or not, ATS host or not,
-// since the outer page (e.g. tower-research.com) itself is never a
-// JOB_HOSTS match and wouldn't otherwise run any of this logic at all.
-if (new URLSearchParams(location.search).get('sa_autofill') === '1') {
-  const broadcast = () => {
-    for (const iframe of document.querySelectorAll('iframe')) {
-      try { iframe.contentWindow?.postMessage({ type: 'SIMPLYAPPLY_TRIGGER_AUTOFILL' }, '*'); } catch (_) {}
-    }
-  };
-  // Retry for a few seconds — a cross-origin ATS iframe (fetching and
-  // client-rendering its own form) often hasn't finished loading its own
-  // content script yet when this outer page's script first runs, so an
-  // only-once broadcast can fire before any listener exists to receive it.
-  // Harmless to resend: the receiving side no-ops past the first trigger
-  // via __saAutoTriggered.
-  let attempts = 0;
-  const interval = setInterval(() => {
-    broadcast();
-    if (++attempts >= 10) clearInterval(interval);
-  }, 500);
-}
-
 // Run on job sites in any frame, but only once per frame (guard re-injection)
 // Check both hostname and path since some entries contain path prefixes (e.g. stripe.com/jobs)
 const _loc = location.hostname + location.pathname;
@@ -76,22 +41,13 @@ else if (window.__simplyApplyRunning) { /* already injected in this frame */ }
 else {
   window.__simplyApplyRunning = true;
   const _runFn = main();
-  const triggerAutofill = () => {
-    if (window.__saAutoTriggered) return;
+  // Auto-fill trigger: simplyappl.ai opens job URL with ?sa_autofill=1
+  if (new URLSearchParams(location.search).get('sa_autofill') === '1' && !window.__saAutoTriggered) {
     window.__saAutoTriggered = true;
     Promise.resolve(_runFn).then(run => {
       if (typeof run === 'function') setTimeout(() => run(false).catch(() => {}), 3500);
     });
-  };
-  // Own-URL case: this frame IS the top-level page and it directly has
-  // ?sa_autofill=1 (no iframe involved, e.g. a direct boards.greenhouse.io
-  // link opened straight from the job board).
-  if (new URLSearchParams(location.search).get('sa_autofill') === '1') triggerAutofill();
-  // Cross-origin-iframe case: the outer page broadcast the trigger down
-  // (see above) since it couldn't put the param on this frame's own URL.
-  window.addEventListener('message', (e) => {
-    if (e.data?.type === 'SIMPLYAPPLY_TRIGGER_AUTOFILL') triggerAutofill();
-  });
+  }
 }
 
 function main() {
@@ -520,15 +476,7 @@ function fieldsFromDoc(doc) {
       if (el.disabled || el.readOnly) return false;
       // Skip search/nav inputs that aren't part of a job application form
       if (SEARCH_RE.test(el.className) || SEARCH_RE.test(el.name) || SEARCH_RE.test(el.id)) return false;
-      // form[action*="positions"] was here too, meant to skip a "search open
-      // positions" search box on a careers listing page — but "positions" is
-      // generic enough to also appear in a REAL application form's own
-      // action URL (e.g. any career site under a /open-positions/ path
-      // path posting to .../open-positions/apply), wrongly excluding every
-      // field in the actual form. [role=search] and action*="search" (plus
-      // the per-field SEARCH_RE check above) already cover the intended
-      // case without that collision risk.
-      if (el.closest('nav, header, [role=search], form[action*="search"]')) return false;
+      if (el.closest('nav, header, [role=search], form[action*="search"], form[action*="positions"]')) return false;
       if (el.type === 'file') return true;
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
