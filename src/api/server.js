@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
 import { normalizeCompanyName, normalizeTitle, companySlug } from '../services/normalizer.js';
 import { REGION_CODES, nonUsTitleRegex } from '../services/geo.js';
+import Anthropic from '@anthropic-ai/sdk';
 
 const NON_US_REGION_CODES_SQL = REGION_CODES.join('|');
 const NON_US_TITLE_REGEX_SQL = nonUsTitleRegex();
@@ -618,6 +619,78 @@ app.post('/ingest/linkedin', async (req, res) => {
     res.json({ ok: true, created, skipped, errors, total: rawJobs.length });
   } catch (e) {
     logger.error({ error: e.message }, 'linkedin ingest failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Self-healing location resolution — closes the gap that used to require a
+// human spotting a leaked non-US job in the feed, then a Claude session
+// tracing the raw string and hand-patching geo.js. Every raw location
+// string geo.js's static dictionaries can't resolve (city set, country/
+// region both null) leaves that job's country UNKNOWN, which the US-only
+// feed filter treats as "don't over-exclude" — permissive by design for
+// genuinely ambiguous data, but it means every new unrecognized city name
+// (Czechia, Hobart, Mississauga, "Santiago de los Caballeros"... all found
+// by hand this way) silently shows up in a US candidate's feed until
+// someone notices and fixes it. This route asks an AI model to classify the
+// highest-volume unresolved strings and writes the result straight into
+// job_location — no code deploy required per new city, unlike geo.js's
+// static tables. Run daily from cron/ingest.sh after normal ingestion.
+app.post('/ingest/classify-locations', async (req, res) => {
+  try {
+    const { secret, limit = 40 } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    const { rows } = await db.query(`
+      SELECT jl.city, count(*) AS n
+      FROM job_location jl
+      WHERE jl.region IS NULL AND jl.country IS NULL AND jl.city IS NOT NULL
+      GROUP BY jl.city
+      ORDER BY n DESC
+      LIMIT $1
+    `, [limit]);
+
+    if (rows.length === 0) {
+      return res.json({ ok: true, classified: 0, updated: 0, message: 'nothing unresolved' });
+    }
+
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const cities = rows.map(r => r.city);
+    const completion = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      system: `You classify raw, messy job-posting location strings (from many different ATS platforms — Greenhouse, Lever, Ashby, LinkedIn, etc; may include city/region names, noise words like "Remote"/"Hybrid", multiple locations joined with separators, or non-English text) into a single real-world country.
+
+Respond with ONLY a JSON array, one object per input string in the same order, no other text:
+[{"input": "<the exact input string>", "country": "<country name, e.g. \\"United States\\", \\"Canada\\", \\"Czech Republic\\">" or null}]
+
+Rules:
+- country must be a real country's common English name, or null.
+- Return null if: the string is pure noise with no place name (e.g. "Remote", "Hybrid", "N/A", "Full-time"), it's genuinely ambiguous between multiple countries, or you're not confident.
+- If a string names a specific city/region, return that place's country, not the ATS's HQ country.
+- Never guess — a wrong country is worse than a null.`,
+      messages: [{ role: 'user', content: JSON.stringify(cities) }],
+    });
+
+    const text = completion.content[0].text.trim();
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('AI response did not contain a JSON array');
+    const classified = JSON.parse(jsonMatch[0]);
+
+    let updated = 0;
+    for (const c of classified) {
+      if (!c.country || !c.input) continue;
+      const result = await db.query(
+        `UPDATE job_location SET country = $1 WHERE city = $2 AND country IS NULL AND region IS NULL`,
+        [c.country, c.input]
+      );
+      updated += result.rowCount;
+    }
+
+    logger.info({ classified: classified.length, updated }, 'location classify-and-backfill complete');
+    res.json({ ok: true, classified: classified.length, updated });
+  } catch (e) {
+    logger.error({ error: e.message }, 'classify-locations failed');
     res.status(500).json({ error: e.message });
   }
 });
