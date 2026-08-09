@@ -35,23 +35,50 @@ echo "$QUEUE" | jq -r '.companies[] | "\(.provider) \(.org)"' 2>/dev/null | whil
 done
 echo "Sync loop complete $(date)"
 
-echo "Step 3: Scraping jobs via JobSpy (Indeed + LinkedIn + Glassdoor)..."
-JOBSPY=$(curl -sf --max-time 120 -X POST "$API/ingest/jobspy" \
+echo "Step 3: Scraping jobs via JobSpy (Indeed + LinkedIn), one query per request..."
+# One query per HTTP call, not all 8 batched into a single request — the
+# jobspy-service worker OOM'd mid-batch on 2026-08-04 (512mb VM, 8 queries x
+# 3 sites in one process before responding), which silently lost the whole
+# day's results including LinkedIn's already-successful scrapes since the
+# client got nothing back. Splitting means one slow/heavy query can only
+# cost that query's results, not the entire run. Glassdoor dropped — its
+# location-autocomplete endpoint 403s ("Security | Glassdoor") on every
+# request, not a query-format issue, so it was contributing zero jobs while
+# adding load to every single request.
+JOBSPY_QUERIES='
+software engineer|United States
+backend engineer|United States
+fullstack engineer|United States
+data engineer|United States
+devops engineer|United States
+product manager|United States
+software engineer|Remote
+machine learning engineer|United States
+'
+
+echo "$JOBSPY_QUERIES" | while IFS='|' read -r keyword location; do
+  [ -z "$keyword" ] && continue
+  echo "JobSpy query: $keyword / $location..."
+  RESULT=$(curl -sf --max-time 60 -X POST "$API/ingest/jobspy" \
+    -H 'Content-Type: application/json' \
+    -d "{
+      \"secret\": \"$SECRET\",
+      \"max_results\": 50,
+      \"sites\": [\"indeed\", \"linkedin\"],
+      \"queries\": [{\"keyword\": \"$keyword\", \"location\": \"$location\"}]
+    }") && echo "  → $RESULT" || echo "  → failed, continuing"
+  sleep 3
+done
+
+echo "Step 4: Classifying + backfilling unresolved job locations..."
+# Self-healing pass — an unresolved raw location string (no country/region
+# geo.js could parse) leaves that job passing the US-only feed filter
+# permissively, i.e. it silently shows up until someone notices it in
+# production and geo.js gets hand-patched. This closes that gap
+# automatically every day instead of waiting on a human to spot the next
+# one. Report-only companion (no automatic write): scripts/audit-unmatched-locations.js
+CLASSIFY=$(curl -sf --max-time 60 -X POST "$API/ingest/classify-locations" \
   -H 'Content-Type: application/json' \
-  -d "{
-    \"secret\": \"$SECRET\",
-    \"max_results\": 50,
-    \"sites\": [\"indeed\", \"linkedin\", \"glassdoor\"],
-    \"queries\": [
-      {\"keyword\": \"software engineer\",   \"location\": \"United States\"},
-      {\"keyword\": \"backend engineer\",     \"location\": \"United States\"},
-      {\"keyword\": \"fullstack engineer\",   \"location\": \"United States\"},
-      {\"keyword\": \"data engineer\",        \"location\": \"United States\"},
-      {\"keyword\": \"devops engineer\",      \"location\": \"United States\"},
-      {\"keyword\": \"product manager\",      \"location\": \"United States\"},
-      {\"keyword\": \"software engineer\",    \"location\": \"Remote\"},
-      {\"keyword\": \"machine learning engineer\", \"location\": \"United States\"}
-    ]
-  }") && echo "JobSpy: $JOBSPY" || echo "JobSpy ingest failed (non-fatal)"
+  -d "{\"secret\":\"$SECRET\",\"limit\":40}") && echo "  → $CLASSIFY" || echo "  → failed, continuing"
 
 echo "Daily ingestion triggered $(date)"
