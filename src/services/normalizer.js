@@ -211,7 +211,7 @@ export class NormalizerService {
         employment_type, remote, salary_min, salary_max, salary_currency,
         posted_at, valid_through, description_excerpt, dedupe_key, tsv
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-        to_tsvector('english', $5 || ' ' || COALESCE($13, ''))
+        setweight(to_tsvector('english', $5), 'A') || setweight(to_tsvector('english', COALESCE($13, '')), 'D')
       ) RETURNING id
     `, [
       companyId,
@@ -254,7 +254,14 @@ export class NormalizerService {
         -- from a future re-ingest without ever overwriting a real date with
         -- null from some other source's incomplete payload.
         posted_at = COALESCE($11, posted_at),
-        tsv = to_tsvector('english', $3 || ' ' || COALESCE($10, '')),
+        -- Title weighted far above description ('A' vs 'D') — an incidental
+        -- description mention (e.g. a generic "who should apply: software
+        -- engineers, sales reps, ..." boilerplate paragraph on an unrelated
+        -- role) shouldn't rank/match on par with an actual title match.
+        -- Confirmed needed: a Nextech "Regional Sales Director" posting
+        -- matched a "software engineer" search purely off that kind of
+        -- boilerplate line.
+        tsv = setweight(to_tsvector('english', $3), 'A') || setweight(to_tsvector('english', COALESCE($10, '')), 'D'),
         updated_at = now()
       WHERE id = $12
     `, [
