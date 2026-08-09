@@ -1378,6 +1378,32 @@ app.get('/companies/:slug/jobs', async (req, res) => {
   try {
     const { slug } = req.params;
     const { limit = 50, offset = 0 } = req.query;
+
+    // Optional auth, same pattern as /jobs: this stays a public page (also
+    // SSR'd for bots, see /ssr/companies/:slug), so a token isn't required —
+    // but when a signed-in user with a US-only preference hits it, that
+    // preference should apply here too. Before this, a company page showed
+    // every open role at a company regardless of location, even when the
+    // exact same job was correctly excluded from "Recommended for you" for
+    // being e.g. region-scoped to Europe — the two pages disagreed on
+    // whether the user actually wanted to see it.
+    let wantsUS = false;
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (token) {
+      try {
+        const sb = getSupabase();
+        const { data: { user } } = await sb.auth.getUser(token);
+        if (user) {
+          const { data: prefRow } = await sb.from('apply_preferences')
+            .select('location').eq('user_id', user.id).single();
+          const locPref = (prefRow?.location || '').trim().toLowerCase();
+          wantsUS = ['usa', 'us', 'u.s.', 'u.s.a.', 'united states', 'united states of america'].includes(locPref);
+        }
+      } catch (e) {
+        logger.warn({ err: e.message }, 'Optional auth pref-filter on /companies/:slug/jobs failed -- continuing unfiltered');
+      }
+    }
+
     const result = await db.query(`
       SELECT j.*, c.name as company_name, c.domain as company_domain, c.logo_domain as company_logo_domain,
         array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
@@ -1390,6 +1416,17 @@ app.get('/companies/:slug/jobs', async (req, res) => {
           lower(regexp_replace(c.name, '[^a-zA-Z0-9]+', '-', 'g')) = $1
           OR c.domain ILIKE $1 || '.%'
         )
+        ${wantsUS ? `AND (
+          (
+            NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
+            OR EXISTS (
+              SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
+                AND (jlf.country IS NULL OR jlf.country ~* '\\y(usa|us|united states)\\y')
+                AND (jlf.region IS NULL OR jlf.region !~* '\\y(${NON_US_REGION_CODES_SQL})\\y')
+            )
+          )
+          AND j.title !~* '${NON_US_TITLE_REGEX_SQL}'
+        )` : ''}
       GROUP BY j.id, c.name, c.domain, c.logo_domain
       ORDER BY j.posted_at DESC NULLS LAST
       LIMIT $2 OFFSET $3

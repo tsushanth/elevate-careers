@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapPin, ExternalLink, ArrowLeft, Briefcase } from 'lucide-react';
+import { supabase } from './supabase';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 
@@ -16,7 +17,7 @@ function formatSalary(job) {
   return null;
 }
 
-export default function CompanyPage({ session }) {
+export default function CompanyPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const [company, setCompany] = useState(null);
@@ -26,15 +27,28 @@ export default function CompanyPage({ session }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      fetch(`${API_URL}/companies/${slug}`).then(r => r.ok ? r.json() : null),
-      fetch(`${API_URL}/companies/${slug}/jobs`).then(r => r.ok ? r.json() : { jobs: [] }),
-    ]).then(([co, jobData]) => {
-      setCompany(co);
-      setJobs(jobData.jobs || []);
-      if (jobData.jobs?.length > 0) setSelectedJob(jobData.jobs[0]);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    // Not passed a `session` prop — this page is routed standalone (see
+    // index.js), unlike App.jsx which owns its own supabase.auth.getSession()
+    // call. Fetch it directly here so the auth token can be sent, letting
+    // the backend apply the user's US-only preference the same way
+    // "Recommended for you" already does — without it, /companies/:slug/jobs
+    // has no way to know who's asking and falls back to unfiltered (correct
+    // for an anonymous/bot visitor, but not for a signed-in user with a
+    // location preference set).
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const authHeaders = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+      Promise.all([
+        fetch(`${API_URL}/companies/${slug}`).then(r => r.ok ? r.json() : null),
+        fetch(`${API_URL}/companies/${slug}/jobs`, { headers: authHeaders }).then(r => r.ok ? r.json() : { jobs: [] }),
+      ]).then(([co, jobData]) => {
+        setCompany(co);
+        setJobs(jobData.jobs || []);
+        if (jobData.jobs?.length > 0) setSelectedJob(jobData.jobs[0]);
+        setLoading(false);
+      }).catch(() => setLoading(false));
+    });
   }, [slug]);
 
   const handleApply = (job) => {
