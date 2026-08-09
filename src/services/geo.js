@@ -110,8 +110,15 @@ const CITY_COUNTRY = {
   // Eastern Europe
   warsaw: 'Poland', krakow: 'Poland', 'kraków': 'Poland',
   vilnius: 'Lithuania', kaunas: 'Lithuania',
-  prague: 'Czech Republic', budapest: 'Hungary', bucharest: 'Romania',
+  prague: 'Czech Republic', budapest: 'Hungary', bucharest: 'Romania', craiova: 'Romania',
+  'craiova it hub': 'Romania',
   kyiv: 'Ukraine', kiev: 'Ukraine', lviv: 'Ukraine', minsk: 'Belarus', sofia: 'Bulgaria', belgrade: 'Serbia',
+  // "Georgia" the country is deliberately NOT a COUNTRY_SYNONYM (collides
+  // with the US state, e.g. "Atlanta, Georgia" — see the note above that
+  // dict). Tbilisi/Batumi as CITY_COUNTRY entries don't have that collision
+  // risk (unambiguous city names), so this is the safe way to resolve a
+  // bare "Tbilisi" string without reintroducing the state/country clash.
+  tbilisi: 'Georgia', batumi: 'Georgia',
   zagreb: 'Croatia', athens: 'Greece', vienna: 'Austria',
   // Middle East
   'tel aviv': 'Israel', 'tel-aviv': 'Israel', 'kfar saba': 'Israel', jerusalem: 'Israel',
@@ -180,11 +187,11 @@ const NOISE_WORDS = [
   'full-time', 'full time', 'fulltime', 'part-time', 'part time', 'parttime',
   'contract', 'contractor', 'temporary', 'temp', 'internship', 'intern',
   'permanent', 'freelance', 'co-op',
-  // Connector word in "Remote or <city>" / "<city> or Remote" style strings —
-  // without stripping it, e.g. "Remote or Mississauga" strips down to
-  // "or Mississauga" (still not an exact CITY_COUNTRY match) instead of
-  // resolving to just "Mississauga".
-  'or',
+  // Connector words in "Remote or <city>" / "Remote in <country>" style
+  // strings — without stripping them, e.g. "Remote in Poland" strips down
+  // to "in Poland" (still not an exact match) instead of resolving to just
+  // "Poland".
+  'or', 'in',
 ];
 const NOISE_TOKENS = new Set(NOISE_WORDS);
 // Catches noise words with no strong separator at all ("US Remote",
