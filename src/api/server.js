@@ -199,6 +199,30 @@ app.post('/ingest/bootstrap-discovery', async (req, res) => {
 // One-time-ish backfill: resolve logo_domain for existing companies that
 // don't have one yet (created before this column existed). Rate-limited
 // loop against Clearbit's free autocomplete endpoint.
+// One-off: recompute tsv for all existing rows with title weighted far above
+// description ('A' vs 'D' — see normalizer.js's createJob/updateJob comment).
+// Only new/updated jobs pick up the new weighting automatically; this
+// backfills everything already ingested before that change, so the fix is
+// immediate instead of waiting for organic re-ingestion to touch each row.
+app.post('/ingest/backfill-tsv-weights', async (req, res) => {
+  try {
+    const { secret } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    const result = await db.query(`
+      UPDATE job SET tsv =
+        setweight(to_tsvector('english', title), 'A') ||
+        setweight(to_tsvector('english', COALESCE(description_excerpt, '')), 'D')
+    `);
+
+    logger.info({ updated: result.rowCount }, 'tsv weight backfill complete');
+    res.json({ ok: true, updated: result.rowCount });
+  } catch (e) {
+    logger.error({ error: e.message }, 'tsv weight backfill failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/ingest/backfill-logos', async (req, res) => {
   try {
     const { secret, limit = 500 } = req.body;
