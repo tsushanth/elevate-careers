@@ -11,7 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import { recomputeSignals } from '../services/signals.js';
 import { normalizeCompanyName, normalizeTitle, companySlug } from '../services/normalizer.js';
-import { REGION_CODES, nonUsTitleRegex } from '../services/geo.js';
+import { REGION_CODES, nonUsTitleRegex, resolveLocationToken } from '../services/geo.js';
 import Anthropic from '@anthropic-ai/sdk';
 
 const NON_US_REGION_CODES_SQL = REGION_CODES.join('|');
@@ -643,6 +643,48 @@ app.post('/ingest/linkedin', async (req, res) => {
     res.json({ ok: true, created, skipped, errors, total: rawJobs.length });
   } catch (e) {
     logger.error({ error: e.message }, 'linkedin ingest failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Deterministic companion to /ingest/classify-locations below: geo.js's
+// dictionaries grow over time (a city gets added after being hand-traced
+// from a user report, or picked up from an audit), but only NEW/updated
+// job rows automatically pick up a dictionary addition — existing rows
+// stay stuck with the country/region they had at ingestion time forever,
+// even once the code already knows the answer. Confirmed needed: "vilnius"
+// has been in CITY_COUNTRY for a while, but a job ingested before that
+// still had country=NULL until this route ran. Zero AI calls, exact
+// matches only — safe to run as often as wanted. HTTP port of
+// scripts/backfill-job-locations.js --apply, so both stay in sync.
+app.post('/ingest/backfill-known-locations', async (req, res) => {
+  try {
+    const { secret } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    const { rows } = await db.query(`
+      SELECT id, city FROM job_location
+      WHERE region IS NULL AND country IS NULL AND city IS NOT NULL
+    `);
+
+    let updated = 0;
+    for (const r of rows) {
+      const match = resolveLocationToken(r.city);
+      if (!match) continue;
+      if (match.type === 'country') {
+        await db.query(`UPDATE job_location SET country = $1, city = NULL WHERE id = $2`, [match.value, r.id]);
+      } else if (match.type === 'region') {
+        await db.query(`UPDATE job_location SET region = $1, city = NULL WHERE id = $2`, [match.value, r.id]);
+      } else {
+        await db.query(`UPDATE job_location SET city = $1, country = $2 WHERE id = $3`, [match.value, match.country, r.id]);
+      }
+      updated++;
+    }
+
+    logger.info({ checked: rows.length, updated }, 'known-locations backfill complete');
+    res.json({ ok: true, checked: rows.length, updated });
+  } catch (e) {
+    logger.error({ error: e.message }, 'backfill-known-locations failed');
     res.status(500).json({ error: e.message });
   }
 });

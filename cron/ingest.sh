@@ -70,7 +70,17 @@ echo "$JOBSPY_QUERIES" | while IFS='|' read -r keyword location; do
   sleep 3
 done
 
-echo "Step 4: Classifying + backfilling unresolved job locations..."
+echo "Step 4: Backfilling job_location rows geo.js can already resolve..."
+# Runs before the AI classify step — free, instant, exact-match only. Covers
+# the case where geo.js's dictionaries already know a city (added after some
+# earlier fix) but the existing DB row was never re-synced to match, e.g.
+# "vilnius" was already mapped to Lithuania yet a job ingested earlier still
+# had country=NULL until this ran once by hand.
+KNOWN=$(curl -sf --max-time 60 -X POST "$API/ingest/backfill-known-locations" \
+  -H 'Content-Type: application/json' \
+  -d "{\"secret\":\"$SECRET\"}") && echo "  → $KNOWN" || echo "  → failed, continuing"
+
+echo "Step 5: Classifying + backfilling unresolved job locations..."
 # Self-healing pass — an unresolved raw location string (no country/region
 # geo.js could parse) leaves that job passing the US-only feed filter
 # permissively, i.e. it silently shows up until someone notices it in
