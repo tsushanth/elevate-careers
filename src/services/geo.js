@@ -119,7 +119,7 @@ const CITY_COUNTRY = {
   // risk (unambiguous city names), so this is the safe way to resolve a
   // bare "Tbilisi" string without reintroducing the state/country clash.
   tbilisi: 'Georgia', batumi: 'Georgia',
-  zagreb: 'Croatia', athens: 'Greece', vienna: 'Austria',
+  zagreb: 'Croatia', athens: 'Greece', vienna: 'Austria', ljubljana: 'Slovenia', 'ljubljana airport': 'Slovenia',
   // Middle East
   'tel aviv': 'Israel', 'tel-aviv': 'Israel', 'kfar saba': 'Israel', jerusalem: 'Israel',
   haifa: 'Israel', 'petah tikva': 'Israel', 'herzliya': 'Israel',
@@ -192,6 +192,10 @@ const NOISE_WORDS = [
   // to "in Poland" (still not an exact match) instead of resolving to just
   // "Poland".
   'or', 'in',
+  // "<region> Timezone" / "<region> TZ" postings (e.g. "Remote - Europe
+  // Timezone") — without stripping this, "Europe Timezone" doesn't exact-
+  // match the bare "europe" region-code entry.
+  'timezone', 'tz',
 ];
 const NOISE_TOKENS = new Set(NOISE_WORDS);
 // Catches noise words with no strong separator at all ("US Remote",
