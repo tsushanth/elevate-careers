@@ -689,6 +689,128 @@ app.post('/ingest/backfill-known-locations', async (req, res) => {
   }
 });
 
+// H-1B sponsorship history — public USCIS data (H-1B Employer Data Hub,
+// FY2009-2023, https://www.uscis.gov/archive/h-1b-employer-data-hub-files),
+// same underlying idea as what JobRight shows ("Data Powered by US
+// Department of Labor"): per-employer, per-fiscal-year approval/denial
+// counts, letting a candidate see whether a company has an actual track
+// record of sponsoring H-1Bs rather than only catching postings that
+// explicitly say "no sponsorship" in the JD text (see CITIZENSHIP_RE/
+// CLEARANCE_RE/NO_SPONSOR_RE in ai-resume.js — that only catches the
+// minority of non-sponsoring employers who say so outright).
+//
+// FY2024-2026 data exists but only via USCIS's live Tableau-embedded tool
+// (no stable direct CSV) and DOL's more granular/current LCA disclosure
+// data returned 403 from every URL/header combination tried (a bot-
+// protection challenge, not a permissions issue) — FY2023 is the most
+// recent reliably-automatable source. A 15-year trailing history is still
+// a strong signal; revisit DOL if a working access path turns up later.
+//
+// Deliberately NOT wired into any feed filter/ranking yet — this route only
+// captures and stores the signal. How it's used (exclude, deprioritize,
+// flag) is a user-facing preference to design later, not a default this
+// route should impose.
+app.post('/ingest/h1b-sponsorship-data', async (req, res) => {
+  try {
+    const { secret, years } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS company_h1b_sponsorship (
+        id bigserial PRIMARY KEY,
+        fiscal_year int NOT NULL,
+        employer_name text NOT NULL,
+        employer_name_normalized text NOT NULL,
+        initial_approval int DEFAULT 0,
+        initial_denial int DEFAULT 0,
+        continuing_approval int DEFAULT 0,
+        continuing_denial int DEFAULT 0,
+        naics text,
+        state text,
+        city text,
+        UNIQUE (fiscal_year, employer_name_normalized, state)
+      )
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_h1b_employer_normalized ON company_h1b_sponsorship (employer_name_normalized)`);
+
+    // Minimal CSV line parser handling quoted fields with embedded commas —
+    // the source file quotes any field containing a comma (employer names
+    // like "Foo, Inc" appear), std split(',') would misalign columns.
+    function parseCsvLine(line) {
+      const out = [];
+      let cur = '', inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+          if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+          else if (ch === '"') { inQuotes = false; }
+          else cur += ch;
+        } else {
+          if (ch === '"') inQuotes = true;
+          else if (ch === ',') { out.push(cur); cur = ''; }
+          else cur += ch;
+        }
+      }
+      out.push(cur);
+      return out;
+    }
+
+    const results = {};
+    for (const year of years) {
+      try {
+        const csvRes = await fetch(`https://www.uscis.gov/sites/default/files/document/data/h1b_datahubexport-${year}.csv`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+        });
+        if (!csvRes.ok) { results[year] = `fetch failed: ${csvRes.status}`; continue; }
+        const text = await csvRes.text();
+        const lines = text.split('\n').filter(Boolean);
+        const rows = lines.slice(1).map(parseCsvLine).filter(cols => cols.length >= 11 && cols[1]?.trim());
+
+        let upserted = 0;
+        const BATCH = 500;
+        for (let i = 0; i < rows.length; i += BATCH) {
+          const batch = rows.slice(i, i + BATCH);
+          const values = [];
+          const params = [];
+          let p = 0;
+          for (const cols of batch) {
+            const [fy, employer, ia, id_, ca, cd, naics, , state, city] = cols;
+            const normalized = normalizeCompanyName(employer);
+            if (!normalized) continue;
+            values.push(`($${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p})`);
+            params.push(
+              parseInt(fy, 10) || year, employer.trim(), normalized,
+              parseInt(ia, 10) || 0, parseInt(id_, 10) || 0, parseInt(ca, 10) || 0, parseInt(cd, 10) || 0,
+              naics?.trim() || null, state?.trim() || null, city?.trim() || null
+            );
+          }
+          if (!values.length) continue;
+          const result = await db.query(`
+            INSERT INTO company_h1b_sponsorship
+              (fiscal_year, employer_name, employer_name_normalized, initial_approval, initial_denial, continuing_approval, continuing_denial, naics, state, city)
+            VALUES ${values.join(',')}
+            ON CONFLICT (fiscal_year, employer_name_normalized, state) DO UPDATE SET
+              initial_approval = EXCLUDED.initial_approval,
+              initial_denial = EXCLUDED.initial_denial,
+              continuing_approval = EXCLUDED.continuing_approval,
+              continuing_denial = EXCLUDED.continuing_denial
+          `, params);
+          upserted += result.rowCount;
+        }
+        results[year] = `${upserted} rows upserted (${rows.length} parsed)`;
+      } catch (e) {
+        results[year] = `error: ${e.message}`;
+      }
+    }
+
+    logger.info({ results }, 'h1b sponsorship data ingest complete');
+    res.json({ ok: true, results });
+  } catch (e) {
+    logger.error({ error: e.message }, 'h1b-sponsorship-data ingest failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Self-healing location resolution — closes the gap that used to require a
 // human spotting a leaked non-US job in the feed, then a Claude session
 // tracing the raw string and hand-patching geo.js. Every raw location
