@@ -108,7 +108,7 @@ const CITY_COUNTRY = {
   liege: 'Belgium', 'liège': 'Belgium',
   // Nordics
   stockholm: 'Sweden', gothenburg: 'Sweden',
-  copenhagen: 'Denmark', helsinki: 'Finland', oslo: 'Norway',
+  copenhagen: 'Denmark', aarhus: 'Denmark', helsinki: 'Finland', oslo: 'Norway',
   // Eastern Europe
   warsaw: 'Poland', krakow: 'Poland', 'kraków': 'Poland',
   vilnius: 'Lithuania', kaunas: 'Lithuania',
@@ -215,7 +215,7 @@ const NOISE_WORD_RE = new RegExp(`\\b(${NOISE_WORDS.join('|')})\\b`, 'gi');
 // Capital Region) is the common Indian-postings case that surfaced this,
 // but the same failure mode applies to any "<city> <qualifier>" postings —
 // this is the general fix, not a Delhi-specific patch.
-const REGIONAL_QUALIFIER_RE = /\b(ncr|metro(politan)?( area)?|region|greater area)\b/gi;
+const REGIONAL_QUALIFIER_RE = /\b(ncr|metro(politan)?( area)?|region|greater area|hq|office|headquarters|east coast|west coast)\b/gi;
 
 // Strips a leading postal/zip code ("69000 Lyon" -> "Lyon") and any emoji —
 // flag emoji especially ("Lyon 🇫🇷"), common on postings from ATSs that let
