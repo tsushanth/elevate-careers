@@ -85,10 +85,12 @@ const CITY_COUNTRY = {
   london: 'UK', manchester: 'UK', bristol: 'UK', edinburgh: 'UK', glasgow: 'UK', leeds: 'UK',
   birmingham: 'UK', cambridge: 'UK', oxford: 'UK', bracknell: 'UK', reading: 'UK',
   slough: 'UK', leicester: 'UK', sheffield: 'UK', newcastle: 'UK', belfast: 'UK',
+  solihull: 'UK', loughborough: 'UK',
   // Ireland
   dublin: 'Ireland', cork: 'Ireland',
   // France
   paris: 'France', lyon: 'France', marseille: 'France', toulouse: 'France',
+  'lyon part dieu': 'France', 'sainte foy les lyon': 'France', 'périphérie de lyon': 'France',
   // Germany
   berlin: 'Germany', munich: 'Germany', hamburg: 'Germany', frankfurt: 'Germany', cologne: 'Germany',
   stuttgart: 'Germany', dusseldorf: 'Germany', 'düsseldorf': 'Germany', leipzig: 'Germany', bochum: 'Germany',
@@ -151,7 +153,7 @@ const CITY_COUNTRY = {
   auckland: 'New Zealand', wellington: 'New Zealand',
   // Canada
   toronto: 'Canada', vancouver: 'Canada', montreal: 'Canada', 'montréal': 'Canada',
-  ottawa: 'Canada', calgary: 'Canada', mississauga: 'Canada',
+  ottawa: 'Canada', calgary: 'Canada', mississauga: 'Canada', kitchener: 'Canada',
   // Latin America
   'mexico city': 'Mexico', 'sao paulo': 'Brazil', 'são paulo': 'Brazil',
   'rio de janeiro': 'Brazil', 'buenos aires': 'Argentina',
@@ -215,6 +217,14 @@ const NOISE_WORD_RE = new RegExp(`\\b(${NOISE_WORDS.join('|')})\\b`, 'gi');
 // this is the general fix, not a Delhi-specific patch.
 const REGIONAL_QUALIFIER_RE = /\b(ncr|metro(politan)?( area)?|region|greater area)\b/gi;
 
+// Strips a leading postal/zip code ("69000 Lyon" -> "Lyon") and any emoji —
+// flag emoji especially ("Lyon 🇫🇷"), common on postings from ATSs that let
+// the poster free-type a location with a country flag for flavor. Neither
+// of these carry the actual place-name signal, they just prevent an exact
+// dictionary match on the real city name underneath.
+const POSTAL_CODE_PREFIX_RE = /^\d{4,6}\s+/;
+const EMOJI_RE = /[\p{Extended_Pictographic}\p{Regional_Indicator}️]/gu;
+
 export function tokenizeLocation(raw) {
   return raw
     .split(SEPARATOR_RE)
@@ -222,6 +232,8 @@ export function tokenizeLocation(raw) {
     .filter(t => t && !NOISE_TOKENS.has(t.toLowerCase()))
     .map(t => t.replace(NOISE_WORD_RE, '').trim())
     .map(t => t.replace(REGIONAL_QUALIFIER_RE, '').trim())
+    .map(t => t.replace(EMOJI_RE, '').trim())
+    .map(t => t.replace(POSTAL_CODE_PREFIX_RE, '').trim())
     .filter(Boolean);
 }
 
