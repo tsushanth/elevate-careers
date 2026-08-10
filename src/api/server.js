@@ -772,17 +772,28 @@ app.post('/ingest/h1b-sponsorship-data', async (req, res) => {
           const batch = rows.slice(i, i + BATCH);
           const values = [];
           const params = [];
-          let p = 0;
+          // Dedupe within the batch by the same key ON CONFLICT targets —
+          // Postgres can't apply ON CONFLICT DO UPDATE twice to the same
+          // row within one statement ("command cannot affect row a second
+          // time"), and the source data does have distinct raw employer
+          // strings that normalize to the same (fiscal_year, normalized
+          // name, state) tuple. Last one in the batch wins.
+          const dedup = new Map();
           for (const cols of batch) {
             const [fy, employer, ia, id_, ca, cd, naics, , state, city] = cols;
             const normalized = normalizeCompanyName(employer);
             if (!normalized) continue;
-            values.push(`($${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p})`);
-            params.push(
+            const key = `${parseInt(fy, 10) || year}|${normalized}|${state?.trim() || ''}`;
+            dedup.set(key, [
               parseInt(fy, 10) || year, employer.trim(), normalized,
               parseInt(ia, 10) || 0, parseInt(id_, 10) || 0, parseInt(ca, 10) || 0, parseInt(cd, 10) || 0,
               naics?.trim() || null, state?.trim() || null, city?.trim() || null
-            );
+            ]);
+          }
+          let p = 0;
+          for (const row of dedup.values()) {
+            values.push(`($${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p})`);
+            params.push(...row);
           }
           if (!values.length) continue;
           const result = await db.query(`
