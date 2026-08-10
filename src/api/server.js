@@ -1049,7 +1049,7 @@ app.get('/jobs/personalized', async (req, res) => {
 
     // Load user preferences for filtering
     const { data: prefRow } = await sb.from('apply_preferences')
-      .select('keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations')
+      .select('keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, require_visa_sponsor')
       .eq('user_id', user.id)
       .single();
     const pref = prefRow || {};
@@ -1118,6 +1118,25 @@ app.get('/jobs/personalized', async (req, res) => {
             AND (xl.city = ANY($${idx}::text[]) OR xl.region = ANY($${idx}::text[]) OR xl.country = ANY($${idx}::text[]))
         )`);
         params.push(pref.excluded_locations); idx++;
+      }
+      // Opt-in: only show companies with an actual public H-1B sponsorship
+      // track record (company_h1b_sponsorship — USCIS/DOL data, see
+      // /ingest/h1b-sponsorship-data[-raw]). Deliberately a hard exclude
+      // when the user turns this on, same as the US-only location filter
+      // above (an explicit opt-in preference, not an always-on soft
+      // signal like the applied-companies deprioritization) — but note the
+      // real risk of false negatives: a company with zero approvals in our
+      // data might still genuinely sponsor (imperfect name matching, too
+      // small/new to show up, or FY2024-2025 gaps — see ingest route
+      // comments on data coverage), so this can hide real opportunities,
+      // not just non-sponsors. That tradeoff is why it's opt-in, not a
+      // default for every US-preference user.
+      if (pref.require_visa_sponsor) {
+        clauses.push(`EXISTS (
+          SELECT 1 FROM company_h1b_sponsorship hs
+          WHERE hs.employer_name_normalized = c.name_normalized
+            AND (hs.initial_approval + hs.continuing_approval) > 0
+        )`);
       }
       return { sql: clauses.map(c => `AND ${c}`).join(' '), params };
     };
@@ -1690,6 +1709,7 @@ app.get('/companies/:slug/jobs', async (req, res) => {
     // being e.g. region-scoped to Europe — the two pages disagreed on
     // whether the user actually wanted to see it.
     let wantsUS = false;
+    let requireVisaSponsor = false;
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (token) {
       try {
@@ -1697,9 +1717,10 @@ app.get('/companies/:slug/jobs', async (req, res) => {
         const { data: { user } } = await sb.auth.getUser(token);
         if (user) {
           const { data: prefRow } = await sb.from('apply_preferences')
-            .select('location').eq('user_id', user.id).single();
+            .select('location, require_visa_sponsor').eq('user_id', user.id).single();
           const locPref = (prefRow?.location || '').trim().toLowerCase();
           wantsUS = ['usa', 'us', 'u.s.', 'u.s.a.', 'united states', 'united states of america'].includes(locPref);
+          requireVisaSponsor = !!prefRow?.require_visa_sponsor;
         }
       } catch (e) {
         logger.warn({ err: e.message }, 'Optional auth pref-filter on /companies/:slug/jobs failed -- continuing unfiltered');
@@ -1728,6 +1749,11 @@ app.get('/companies/:slug/jobs', async (req, res) => {
             )
           )
           AND j.title !~* '${NON_US_TITLE_REGEX_SQL}'
+        )` : ''}
+        ${requireVisaSponsor ? `AND EXISTS (
+          SELECT 1 FROM company_h1b_sponsorship hs
+          WHERE hs.employer_name_normalized = c.name_normalized
+            AND (hs.initial_approval + hs.continuing_approval) > 0
         )` : ''}
       GROUP BY j.id, c.name, c.domain, c.logo_domain
       ORDER BY j.posted_at DESC NULLS LAST

@@ -8,6 +8,14 @@ import { normalizeCompanyName, normalizeTitle } from '../services/normalizer.js'
 
 const router = express.Router();
 
+// One-time idempotent migration, run at process start rather than requiring
+// a separate migration step — new opt-in preference for the H-1B
+// sponsorship-history filter (see /jobs/personalized and
+// /companies/:slug/jobs in server.js). Defaults to false so existing users
+// see no behavior change until they explicitly opt in.
+db.query(`ALTER TABLE apply_preferences ADD COLUMN IF NOT EXISTS require_visa_sponsor boolean DEFAULT false`)
+  .catch(e => console.error('[prefs migration] require_visa_sponsor column:', e.message));
+
 let _supabase = null;
 function getSupabase() {
   if (!_supabase) _supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
@@ -50,12 +58,12 @@ function getApplyQueue() {
 router.get('/', requireAuth, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar
+      `SELECT keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar, require_visa_sponsor
        FROM apply_preferences WHERE user_id = $1 LIMIT 1`,
       [req.user.id]
     );
     if (!result.rows.length) {
-      return res.json({ keywords: [], remote: false, location: '', salary_min: null, excluded_companies: [], excluded_titles: [], excluded_locations: [], daily_limit: 10, enabled: false, auto_apply_similar: false });
+      return res.json({ keywords: [], remote: false, location: '', salary_min: null, excluded_companies: [], excluded_titles: [], excluded_locations: [], daily_limit: 10, enabled: false, auto_apply_similar: false, require_visa_sponsor: false });
     }
     res.json(result.rows[0]);
   } catch (e) {
@@ -66,15 +74,15 @@ router.get('/', requireAuth, async (req, res) => {
 
 // POST /api/preferences — upsert user preferences
 router.post('/', requireAuth, async (req, res) => {
-  const { keywords = [], remote = false, location = '', salary_min = null, excluded_companies = [], excluded_titles = [], excluded_locations = [], daily_limit = 10, enabled = false, auto_apply_similar = false } = req.body;
+  const { keywords = [], remote = false, location = '', salary_min = null, excluded_companies = [], excluded_titles = [], excluded_locations = [], daily_limit = 10, enabled = false, auto_apply_similar = false, require_visa_sponsor = false } = req.body;
   try {
     await db.query(
-      `INSERT INTO apply_preferences (user_id, keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+      `INSERT INTO apply_preferences (user_id, keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar, require_visa_sponsor, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
        ON CONFLICT (user_id) DO UPDATE SET
          keywords=$2, remote=$3, location=$4, salary_min=$5,
-         excluded_companies=$6, excluded_titles=$7, excluded_locations=$8, daily_limit=$9, enabled=$10, auto_apply_similar=$11, updated_at=NOW()`,
-      [req.user.id, keywords, remote, location || null, salary_min || null, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar]
+         excluded_companies=$6, excluded_titles=$7, excluded_locations=$8, daily_limit=$9, enabled=$10, auto_apply_similar=$11, require_visa_sponsor=$12, updated_at=NOW()`,
+      [req.user.id, keywords, remote, location || null, salary_min || null, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar, require_visa_sponsor]
     );
     res.json({ ok: true });
   } catch (e) {
