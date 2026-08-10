@@ -155,6 +155,8 @@ const CITY_COUNTRY = {
   // Latin America
   'mexico city': 'Mexico', 'sao paulo': 'Brazil', 'são paulo': 'Brazil',
   'rio de janeiro': 'Brazil', 'buenos aires': 'Argentina',
+  'belo horizonte': 'Brazil', curitiba: 'Brazil', brasilia: 'Brazil', 'brasília': 'Brazil',
+  recife: 'Brazil', campinas: 'Brazil', 'porto alegre': 'Brazil',
   'bogota': 'Colombia', 'bogotá': 'Colombia', medellin: 'Colombia', 'medellín': 'Colombia',
   santiago: 'Chile', lima: 'Peru', montevideo: 'Uruguay',
   // "Santiago" alone is ambiguous (also DR's 2nd-largest city, plus Spain/
