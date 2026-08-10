@@ -707,17 +707,33 @@ app.post('/ingest/classify-locations', async (req, res) => {
     const { secret, limit = 40 } = req.body;
     if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
 
+    // Confirmed-noise strings ("Remote", "Hybrid", "N/A" — high-volume,
+    // genuinely no place name) used to get re-asked about on every single
+    // run since the ORDER BY count DESC always put them at the top of the
+    // queue, permanently crowding out real-but-low-volume cities (Solihull:
+    // 4 rows, Loughborough: 2 — vs. "Remote" at hundreds) from ever reaching
+    // a batch slot. Once the AI confirms a string is noise, remember it here
+    // so it stops competing for a spot — the answer is deterministic, asking
+    // again can't change it.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS unresolvable_locations (
+        raw_city text PRIMARY KEY,
+        checked_at timestamptz DEFAULT now()
+      )
+    `);
+
     const { rows } = await db.query(`
       SELECT jl.city, count(*) AS n
       FROM job_location jl
       WHERE jl.region IS NULL AND jl.country IS NULL AND jl.city IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM unresolvable_locations ul WHERE ul.raw_city = jl.city)
       GROUP BY jl.city
       ORDER BY n DESC
       LIMIT $1
     `, [limit]);
 
     if (rows.length === 0) {
-      return res.json({ ok: true, classified: 0, updated: 0, message: 'nothing unresolved' });
+      return res.json({ ok: true, classified: 0, updated: 0, message: 'nothing unresolved (or everything left is already-confirmed noise)' });
     }
 
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -743,9 +759,17 @@ Rules:
     if (!jsonMatch) throw new Error('AI response did not contain a JSON array');
     const classified = JSON.parse(jsonMatch[0]);
 
-    let updated = 0;
+    let updated = 0, markedNoise = 0;
     for (const c of classified) {
-      if (!c.country || !c.input) continue;
+      if (!c.input) continue;
+      if (!c.country) {
+        await db.query(
+          `INSERT INTO unresolvable_locations (raw_city) VALUES ($1) ON CONFLICT (raw_city) DO NOTHING`,
+          [c.input]
+        );
+        markedNoise++;
+        continue;
+      }
       const result = await db.query(
         `UPDATE job_location SET country = $1 WHERE city = $2 AND country IS NULL AND region IS NULL`,
         [c.country, c.input]
@@ -753,8 +777,8 @@ Rules:
       updated += result.rowCount;
     }
 
-    logger.info({ classified: classified.length, updated }, 'location classify-and-backfill complete');
-    res.json({ ok: true, classified: classified.length, updated });
+    logger.info({ classified: classified.length, updated, markedNoise }, 'location classify-and-backfill complete');
+    res.json({ ok: true, classified: classified.length, updated, markedNoise });
   } catch (e) {
     logger.error({ error: e.message }, 'classify-locations failed');
     res.status(500).json({ error: e.message });
