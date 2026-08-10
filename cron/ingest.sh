@@ -87,8 +87,17 @@ echo "Step 5: Classifying + backfilling unresolved job locations..."
 # production and geo.js gets hand-patched. This closes that gap
 # automatically every day instead of waiting on a human to spot the next
 # one. Report-only companion (no automatic write): scripts/audit-unmatched-locations.js
-CLASSIFY=$(curl -sf --max-time 60 -X POST "$API/ingest/classify-locations" \
-  -H 'Content-Type: application/json' \
-  -d "{\"secret\":\"$SECRET\",\"limit\":40}") && echo "  → $CLASSIFY" || echo "  → failed, continuing"
+#
+# Runs 6 rounds of 60 (360 distinct strings/day, up from 40) — the backlog
+# of long-tail, low-volume unresolved strings (a specific city that only a
+# handful of postings use) was clearing slower than new ones appeared at
+# the original single-round-of-40 pace. Each round only costs one small
+# Haiku call; looping in-process is simpler than a second cron schedule.
+for i in 1 2 3 4 5 6; do
+  CLASSIFY=$(curl -sf --max-time 60 -X POST "$API/ingest/classify-locations" \
+    -H 'Content-Type: application/json' \
+    -d "{\"secret\":\"$SECRET\",\"limit\":60}") && echo "  → round $i: $CLASSIFY" || echo "  → round $i failed, continuing"
+  sleep 2
+done
 
 echo "Daily ingestion triggered $(date)"
