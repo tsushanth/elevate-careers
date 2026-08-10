@@ -822,6 +822,85 @@ app.post('/ingest/h1b-sponsorship-data', async (req, res) => {
   }
 });
 
+// Companion to /ingest/h1b-sponsorship-data above, for DOL's LCA disclosure
+// data (FY2024-2025) instead of USCIS's pre-aggregated employer-hub CSVs
+// (which only go through FY2023 via a stable direct-download URL — see
+// comment on the route above). DOL's data is raw case-level records, not
+// pre-aggregated by employer, and large enough (140MB+/quarter, XLSX) that
+// parsing it in-process here risked memory/timeout issues on this app's
+// VM — so the parsing + per-employer/state aggregation happens offline
+// (Python + openpyxl, mirroring normalizeCompanyName() exactly for
+// consistent matching), and only the compact aggregated result is POSTed
+// here. Same table, same upsert semantics as the CSV path — this route is
+// just a second way to reach the same INSERT.
+app.post('/ingest/h1b-sponsorship-data-raw', async (req, res) => {
+  try {
+    const { secret, rows } = req.body;
+    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows must be an array' });
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS company_h1b_sponsorship (
+        id bigserial PRIMARY KEY,
+        fiscal_year int NOT NULL,
+        employer_name text NOT NULL,
+        employer_name_normalized text NOT NULL,
+        initial_approval int DEFAULT 0,
+        initial_denial int DEFAULT 0,
+        continuing_approval int DEFAULT 0,
+        continuing_denial int DEFAULT 0,
+        naics text,
+        state text,
+        city text,
+        UNIQUE (fiscal_year, employer_name_normalized, state)
+      )
+    `);
+
+    const BATCH = 500;
+    let upserted = 0;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH);
+      // Same intra-batch dedupe reasoning as the CSV path — ON CONFLICT
+      // can't apply twice to the same target row within one statement.
+      const dedup = new Map();
+      for (const r of batch) {
+        if (!r.employer_name_normalized) continue;
+        const key = `${r.fiscal_year}|${r.employer_name_normalized}|${r.state || ''}`;
+        dedup.set(key, r);
+      }
+      const values = [];
+      const params = [];
+      let p = 0;
+      for (const r of dedup.values()) {
+        values.push(`($${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p}, $${++p})`);
+        params.push(
+          r.fiscal_year, r.employer_name, r.employer_name_normalized,
+          r.initial_approval || 0, r.initial_denial || 0, r.continuing_approval || 0, r.continuing_denial || 0,
+          r.naics || null, r.state || null, r.city || null
+        );
+      }
+      if (!values.length) continue;
+      const result = await db.query(`
+        INSERT INTO company_h1b_sponsorship
+          (fiscal_year, employer_name, employer_name_normalized, initial_approval, initial_denial, continuing_approval, continuing_denial, naics, state, city)
+        VALUES ${values.join(',')}
+        ON CONFLICT (fiscal_year, employer_name_normalized, state) DO UPDATE SET
+          initial_approval = EXCLUDED.initial_approval,
+          initial_denial = EXCLUDED.initial_denial,
+          continuing_approval = EXCLUDED.continuing_approval,
+          continuing_denial = EXCLUDED.continuing_denial
+      `, params);
+      upserted += result.rowCount;
+    }
+
+    logger.info({ received: rows.length, upserted }, 'h1b sponsorship raw-data ingest complete');
+    res.json({ ok: true, received: rows.length, upserted });
+  } catch (e) {
+    logger.error({ error: e.message }, 'h1b-sponsorship-data-raw ingest failed');
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Self-healing location resolution — closes the gap that used to require a
 // human spotting a leaked non-US job in the feed, then a Claude session
 // tracing the raw string and hand-patching geo.js. Every raw location
