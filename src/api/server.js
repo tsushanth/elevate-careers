@@ -539,7 +539,9 @@ app.post('/ingest/jobspy', async (req, res) => {
     logger.info({ count: rawJobs.length }, 'jobspy scrape returned');
 
     const normalizer = (await import('../services/normalizer.js')).default;
+    const { pingIndexNowForCompanies } = await import('../services/indexnow.js');
     let created = 0, skipped = 0, errors = 0;
+    const changedSlugs = new Set();
 
     for (const j of rawJobs) {
       try {
@@ -568,13 +570,16 @@ app.post('/ingest/jobspy', async (req, res) => {
           location:    j.location || null,
         };
 
-        await normalizer.processJob(normalized, normalized.provider, slug);
+        const result = await normalizer.processJob(normalized, normalized.provider, slug);
+        if (result.changed) changedSlugs.add(result.companySlug);
         created++;
       } catch (e) {
         logger.warn({ error: e.message, title: j.title }, 'jobspy job ingest error');
         errors++;
       }
     }
+
+    if (changedSlugs.size > 0) pingIndexNowForCompanies([...changedSlugs]);
 
     logger.info({ created, skipped, errors }, 'jobspy ingest complete');
     res.json({ ok: true, created, skipped, errors, total: rawJobs.length });
@@ -597,7 +602,9 @@ app.post('/ingest/linkedin', async (req, res) => {
     logger.info({ count: rawJobs.length }, 'linkedin ingest received');
 
     const normalizer = (await import('../services/normalizer.js')).default;
+    const { pingIndexNowForCompanies } = await import('../services/indexnow.js');
     let created = 0, skipped = 0, errors = 0;
+    const changedSlugs = new Set();
 
     for (const j of rawJobs) {
       try {
@@ -631,13 +638,16 @@ app.post('/ingest/linkedin', async (req, res) => {
           location: j.location || null,
         };
 
-        await normalizer.processJob(normalized, normalized.provider, slug);
+        const result = await normalizer.processJob(normalized, normalized.provider, slug);
+        if (result.changed) changedSlugs.add(result.companySlug);
         created++;
       } catch (e) {
         logger.warn({ error: e.message, title: j.title }, 'linkedin job ingest error');
         errors++;
       }
     }
+
+    if (changedSlugs.size > 0) pingIndexNowForCompanies([...changedSlugs]);
 
     logger.info({ created, skipped, errors }, 'linkedin ingest complete');
     res.json({ ok: true, created, skipped, errors, total: rawJobs.length });
