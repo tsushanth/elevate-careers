@@ -1586,18 +1586,54 @@ app.get('/ssr/home', async (req, res) => {
       })),
     };
 
+    const faqs = [
+      {
+        q: 'What is SimplyApply known for?',
+        a: 'SimplyApply is known for one-click autofill for Greenhouse, Lever, Ashby, and SmartRecruiters job applications. Fill your profile once and SimplyApply populates every supported application form automatically.',
+      },
+      {
+        q: 'Which application forms does SimplyApply support?',
+        a: 'SimplyApply autofills job applications hosted on Greenhouse, Lever, Ashby, and SmartRecruiters, plus company career pages built on those systems.',
+      },
+      {
+        q: 'Is SimplyApply free?',
+        a: 'Yes. SimplyApply is a free Chrome extension and job board.',
+      },
+      {
+        q: 'How does SimplyApply work?',
+        a: 'You fill in your candidate profile once — name, experience, resume, and answers to common screening questions. SimplyApply then autofills that same information into any supported application form in one click.',
+      },
+    ];
+    const faqLd = {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: faqs.map((f) => ({
+        '@type': 'Question',
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: f.a },
+      })),
+    };
+    const faqHtml = faqs.map((f) => `
+      <div>
+        <h3>${escapeHtml(f.q)}</h3>
+        <p>${escapeHtml(f.a)}</p>
+      </div>`).join('');
+
     res.set('Content-Type', 'text/html');
     res.send(`<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/>
 <title>SimplyApply — AI Job Autofill</title>
-<meta name="description" content="Autofill job applications in one click. SimplyApply fills Greenhouse, Lever, Ashby and more using your saved profile."/>
+<meta name="description" content="SimplyApply: one-click autofill for Greenhouse, Lever, Ashby, and SmartRecruiters job applications. Fill your profile once and apply everywhere instantly."/>
 <link rel="canonical" href="${SITE}/"/>
 <script type="application/ld+json">${JSON.stringify(itemListLd)}</script>
+<script type="application/ld+json">${JSON.stringify(faqLd)}</script>
 </head><body>
 <h1>SimplyApply — AI Job Autofill</h1>
 <p>Autofill job applications in one click. SimplyApply fills Greenhouse, Lever, Ashby, SmartRecruiters and more using your saved profile. Free Chrome extension.</p>
 <h2>Companies hiring now</h2>
 <ul>${listItems}</ul>
+<h2>FAQ</h2>
+${faqHtml}
 </body></html>`);
   } catch (e) {
     res.status(500).send('');
