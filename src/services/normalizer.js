@@ -3,6 +3,7 @@ import TurndownService from 'turndown';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 import { resolveLocationToken, tokenizeLocation } from './geo.js';
+import { sitemapSlug, pingIndexNowForCompanies } from './indexnow.js';
 
 const turndownService = new TurndownService();
 
@@ -65,13 +66,15 @@ export class NormalizerService {
   
   async processJobs(jobs, provider, org) {
     const results = { created: 0, updated: 0, skipped: 0, expired: 0, errors: [] };
+    const changedCompanySlugs = new Set();
 
     // Track which external_ids are currently live in this fetch
     const liveIds = new Set(jobs.map(j => j.external_id).filter(Boolean));
 
     for (const rawJob of jobs) {
       try {
-        await this.processJob(rawJob, provider, org);
+        const { companySlug: slug, changed } = await this.processJob(rawJob, provider, org);
+        if (changed) changedCompanySlugs.add(slug);
         results.created++;
       } catch (error) {
         logger.error({ error, rawJob }, 'Failed to process job');
@@ -84,19 +87,28 @@ export class NormalizerService {
       try {
         const domain = `${org}.${provider === 'greenhouse' ? 'greenhouse' : provider === 'lever' ? 'lever' : provider === 'ashby' ? 'ashbyhq' : provider}.io`;
         const expired = await db.query(`
-          UPDATE job SET is_active = false
-          WHERE company_id IN (SELECT id FROM company WHERE domain ILIKE $1)
-            AND provider = $2
-            AND external_id IS NOT NULL
-            AND external_id != ALL($3)
-            AND is_active = true
-          RETURNING id
+          UPDATE job j SET is_active = false
+          FROM company c
+          WHERE j.company_id = c.id
+            AND c.domain ILIKE $1
+            AND j.provider = $2
+            AND j.external_id IS NOT NULL
+            AND j.external_id != ALL($3)
+            AND j.is_active = true
+          RETURNING c.name
         `, [`%${org}%`, provider, [...liveIds]]);
         results.expired = expired.rowCount;
-        if (expired.rowCount > 0) logger.info({ org, provider, expired: expired.rowCount }, 'Marked jobs inactive');
+        if (expired.rowCount > 0) {
+          logger.info({ org, provider, expired: expired.rowCount }, 'Marked jobs inactive');
+          for (const row of expired.rows) changedCompanySlugs.add(sitemapSlug(row.name));
+        }
       } catch (e) {
         logger.warn({ error: e.message }, 'Could not mark expired jobs');
       }
+    }
+
+    if (changedCompanySlugs.size > 0) {
+      pingIndexNowForCompanies([...changedCompanySlugs]);
     }
 
     return results;
@@ -115,21 +127,24 @@ export class NormalizerService {
     
     // Check if job exists
     const existing = await this.findExistingJob(dedupeKey);
-    
+    let changed = false;
+
     if (existing) {
       // Check if significant fields changed
       if (this.hasSignificantChanges(existing, rawJob, descriptionMd)) {
         await this.updateJob(existing, rawJob, company.id, descriptionMd, descriptionExcerpt);
         await this.createJobVersion(existing.id, descriptionMd);
+        changed = true;
       }
     } else {
       // Create new job
       const jobId = await this.createJob(rawJob, company.id, dedupeKey, descriptionMd, descriptionExcerpt);
       await this.createJobVersion(jobId, descriptionMd);
       await this.createJobLocations(jobId, rawJob);
+      changed = true;
     }
-    
-    return dedupeKey;
+
+    return { dedupeKey, companySlug: sitemapSlug(company.name), changed };
   }
 
   generateDedupeKey(job) {
