@@ -4,13 +4,13 @@ const API_URL = 'https://elevate-careers-api.fly.dev';
 
 function statusBadge(status) {
   const map = {
-    queued:    { bg: 'rgba(99,102,241,0.15)', color: '#a5b4fc', label: 'Queued' },
-    running:   { bg: 'rgba(234,179,8,0.15)',  color: '#fde047', label: 'Running…' },
-    preview:   { bg: 'rgba(59,130,246,0.15)', color: '#93c5fd', label: 'Preview' },
-    submitted: { bg: 'rgba(34,197,94,0.15)',  color: '#86efac', label: '✓ Applied' },
-    failed:    { bg: 'rgba(239,68,68,0.15)',  color: '#fca5a5', label: '✗ Failed' },
+    queued:    { bg: 'rgba(10,102,194,0.15)', color: '#0a66c2', label: 'Queued' },
+    running:   { bg: 'rgba(145,89,7,0.15)',  color: '#915907', label: 'Running…' },
+    preview:   { bg: 'rgba(10,102,194,0.15)', color: '#0a66c2', label: 'Preview' },
+    submitted: { bg: 'rgba(5,118,66,0.15)',  color: '#057642', label: '✓ Applied' },
+    failed:    { bg: 'rgba(204,16,22,0.15)',  color: '#cc1016', label: '✗ Failed' },
   };
-  const s = map[status] || { bg: 'rgba(100,116,139,0.15)', color: '#94a3b8', label: status };
+  const s = map[status] || { bg: 'rgba(100,116,139,0.15)', color: '#00000099', label: status };
   return (
     <span style={{ background: s.bg, color: s.color, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
       {s.label}
@@ -38,13 +38,13 @@ function Tag({ label, onRemove }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      background: 'rgba(37,99,235,0.18)', color: '#93c5fd',
+      background: 'rgba(10,102,194,0.18)', color: '#0a66c2',
       borderRadius: 6, padding: '3px 10px', fontSize: 13, fontWeight: 500,
     }}>
       {label}
       <button
         onClick={onRemove}
-        style={{ background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}
+        style={{ background: 'none', border: 'none', color: '#0a66c2', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}
       >×</button>
     </span>
   );
@@ -174,44 +174,44 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
 
   if (!session) {
     return (
-      <div style={{ textAlign: 'center', padding: '60px 24px', color: '#64748b' }}>
+      <div style={{ textAlign: 'center', padding: '60px 24px', color: '#00000099' }}>
         <p style={{ fontSize: 16 }}>Sign in to set up auto-apply.</p>
       </div>
     );
   }
 
   const inputStyle = {
-    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 8, padding: '10px 14px', color: '#f1f5f9', fontSize: 14,
+    background: '#fff', border: '1px solid #0000001f',
+    borderRadius: 8, padding: '10px 14px', color: '#000000e6', fontSize: 14,
     outline: 'none', width: '100%', boxSizing: 'border-box',
   };
 
-  const labelStyle = { color: '#94a3b8', fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 };
+  const labelStyle = { color: '#00000099', fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 };
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto', padding: '32px 24px' }}>
 
       {/* Preferences panel */}
       <div style={{
-        background: '#0f172a', border: '1px solid rgba(37,99,235,0.25)',
+        background: '#fff', border: '1px solid rgba(10,102,194,0.25)',
         borderRadius: 14, padding: '28px 28px 24px', marginBottom: 32,
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2 style={{ color: '#f1f5f9', fontSize: 18, fontWeight: 700, margin: 0 }}>Auto-Apply Preferences</h2>
-            <p style={{ color: '#64748b', fontSize: 14, margin: '4px 0 0' }}>
+            <h2 style={{ color: '#000000e6', fontSize: 18, fontWeight: 700, margin: 0 }}>Auto-Apply Preferences</h2>
+            <p style={{ color: '#00000099', fontSize: 14, margin: '4px 0 0' }}>
               Set what kinds of jobs to apply to. We'll search and apply automatically on a schedule.
             </p>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginTop: 4 }}>
-            <span style={{ color: prefs.enabled ? '#22c55e' : '#64748b', fontSize: 14, fontWeight: 600 }}>
+            <span style={{ color: prefs.enabled ? '#057642' : '#00000099', fontSize: 14, fontWeight: 600 }}>
               {prefs.enabled ? 'Auto-apply ON' : 'Auto-apply OFF'}
             </span>
             <div
               onClick={() => setPrefs(p => ({ ...p, enabled: !p.enabled }))}
               style={{
                 width: 44, height: 24, borderRadius: 12, cursor: 'pointer',
-                background: prefs.enabled ? '#16a34a' : 'rgba(255,255,255,0.12)',
+                background: prefs.enabled ? '#057642' : '#0000001f',
                 position: 'relative', transition: 'background 0.2s', flexShrink: 0,
               }}
             >
@@ -225,7 +225,7 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
         </div>
 
         {prefsLoading ? (
-          <p style={{ color: '#475569', padding: '20px 0' }}>Loading…</p>
+          <p style={{ color: '#666666', padding: '20px 0' }}>Loading…</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 20 }}>
 
@@ -247,19 +247,19 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
                 />
                 <button
                   onClick={addKeyword}
-                  style={{ background: 'rgba(37,99,235,0.3)', color: '#93c5fd', border: '1px solid rgba(37,99,235,0.4)', borderRadius: 8, padding: '0 18px', fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  style={{ background: 'rgba(10,102,194,0.3)', color: '#0a66c2', border: '1px solid rgba(10,102,194,0.4)', borderRadius: 8, padding: '0 18px', fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >Add</button>
               </div>
             </div>
 
             {/* Remote + location row */}
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#94a3b8', fontSize: 14 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#00000099', fontSize: 14 }}>
                 <input
                   type="checkbox"
                   checked={prefs.remote}
                   onChange={e => setPrefs(p => ({ ...p, remote: e.target.checked }))}
-                  style={{ accentColor: '#2563eb', width: 16, height: 16 }}
+                  style={{ accentColor: '#0a66c2', width: 16, height: 16 }}
                 />
                 Remote only
               </label>
@@ -317,7 +317,7 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
                   />
                   <button
                     onClick={addExclude}
-                    style={{ background: 'rgba(37,99,235,0.3)', color: '#93c5fd', border: '1px solid rgba(37,99,235,0.4)', borderRadius: 8, padding: '0 18px', fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    style={{ background: 'rgba(10,102,194,0.3)', color: '#0a66c2', border: '1px solid rgba(10,102,194,0.4)', borderRadius: 8, padding: '0 18px', fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' }}
                   >Add</button>
                 </div>
               </div>
@@ -329,7 +329,7 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
                 onClick={() => savePrefs()}
                 disabled={saving}
                 style={{
-                  background: saving ? 'rgba(37,99,235,0.4)' : '#2563eb',
+                  background: saving ? 'rgba(10,102,194,0.4)' : '#0a66c2',
                   color: '#fff', border: 'none', borderRadius: 8,
                   padding: '10px 28px', fontSize: 14, fontWeight: 600,
                   cursor: saving ? 'not-allowed' : 'pointer',
@@ -337,7 +337,7 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
               >
                 {saving ? 'Saving…' : 'Save Preferences'}
               </button>
-              {saveMsg && <span style={{ color: '#22c55e', fontSize: 14, fontWeight: 600 }}>{saveMsg}</span>}
+              {saveMsg && <span style={{ color: '#057642', fontSize: 14, fontWeight: 600 }}>{saveMsg}</span>}
             </div>
           </div>
         )}
@@ -346,17 +346,17 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
       {/* Nudge when scheduler is off but there are queued jobs */}
       {!prefs.enabled && queue.length > 0 && (
         <div style={{
-          background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)',
+          background: 'rgba(10,102,194,0.1)', border: '1px solid rgba(10,102,194,0.3)',
           borderRadius: 10, padding: '14px 18px', marginBottom: 20,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
         }}>
-          <span style={{ color: '#c7d2fe', fontSize: 14 }}>
+          <span style={{ color: '#0a66c2', fontSize: 14 }}>
             ⚡ Auto-apply is <strong>off</strong> — jobs above were queued manually. Turn it on to apply automatically on a schedule.
           </span>
           <button
             onClick={() => savePrefs({ enabled: true })}
             style={{
-              background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 7,
+              background: '#0a66c2', color: '#fff', border: 'none', borderRadius: 7,
               padding: '7px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >Turn on</button>
@@ -365,20 +365,20 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
 
       {/* Activity feed */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h3 style={{ color: '#94a3b8', fontSize: 14, fontWeight: 600, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <h3 style={{ color: '#00000099', fontSize: 14, fontWeight: 600, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Apply History
         </h3>
-        <button onClick={fetchQueue} style={{ background: 'none', border: 'none', color: '#4b5563', fontSize: 13, cursor: 'pointer' }}>
+        <button onClick={fetchQueue} style={{ background: 'none', border: 'none', color: '#00000099', fontSize: 13, cursor: 'pointer' }}>
           ↻ Refresh
         </button>
       </div>
 
       {queueLoading && queue.length === 0 ? (
-        <p style={{ color: '#475569', textAlign: 'center', padding: 40 }}>Loading…</p>
+        <p style={{ color: '#666666', textAlign: 'center', padding: 40 }}>Loading…</p>
       ) : queue.length === 0 ? (
         <div style={{
-          border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 12,
-          padding: '48px 24px', textAlign: 'center', color: '#475569', fontSize: 14,
+          border: '1px dashed #0000001f', borderRadius: 12,
+          padding: '48px 24px', textAlign: 'center', color: '#666666', fontSize: 14,
         }}>
           No applications yet. Click "Auto Apply" on any job card to get started.
         </div>
@@ -386,35 +386,35 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {queue.map(job => (
             <div key={job.id} style={{
-              background: '#0f172a', border: '1px solid rgba(255,255,255,0.07)',
+              background: '#fff', border: '1px solid #0000001f',
               borderRadius: 10, padding: '14px 18px',
               display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ color: '#000000e6', fontSize: 14, fontWeight: 600, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {job.company ? <strong>{job.company}</strong> : null}
                   {job.company && job.job_title ? ' — ' : null}
                   {job.job_title || null}
                   {!job.company && !job.job_title ? (
-                    <a href={job.job_url} target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa', fontSize: 13 }}>
+                    <a href={job.job_url} target="_blank" rel="noopener noreferrer" style={{ color: '#0a66c2', fontSize: 13 }}>
                       {job.job_url.replace(/^https?:\/\//, '').slice(0, 60)}
                     </a>
                   ) : null}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <span style={{ color: '#475569', fontSize: 12 }}>
+                  <span style={{ color: '#666666', fontSize: 12 }}>
                     {new Date(job.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </span>
                   {job.auto_applied && (
-                    <span style={{ color: '#6366f1', fontSize: 12, fontWeight: 600 }}>⚡ Auto</span>
+                    <span style={{ color: '#0a66c2', fontSize: 12, fontWeight: 600 }}>⚡ Auto</span>
                   )}
                   {job.field_count > 0 && (
-                    <span style={{ color: '#475569', fontSize: 12 }}>
+                    <span style={{ color: '#666666', fontSize: 12 }}>
                       ✓{job.filled_fields} filled · {job.skipped_fields} skipped
                       {job.errored_fields > 0 ? ` · ${job.errored_fields} errors` : ''}
                     </span>
                   )}
-                  {job.ai_used && <span style={{ color: '#818cf8', fontSize: 12 }}>🤖 AI used</span>}
+                  {job.ai_used && <span style={{ color: '#0a66c2', fontSize: 12 }}>🤖 AI used</span>}
                 </div>
               </div>
 
@@ -424,8 +424,8 @@ export default function ApplyQueue({ session, pendingApply, onPendingConsumed })
                   <button
                     onClick={() => viewScreenshot(job.id)}
                     style={{
-                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                      color: '#94a3b8', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
+                      background: '#fff', border: '1px solid #0000001f',
+                      color: '#00000099', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
                     }}
                   >Screenshot</button>
                 )}

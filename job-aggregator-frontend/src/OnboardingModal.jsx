@@ -36,37 +36,37 @@ export default function OnboardingModal({ onDismiss }) {
       padding: 24,
     }}>
       <div style={{
-        background: '#0f172a',
-        border: '1px solid rgba(37,99,235,0.35)',
+        background: '#fff',
+        border: '1px solid rgba(10,102,194,0.35)',
         borderRadius: 16,
         padding: '40px 36px 32px',
         maxWidth: 480,
         width: '100%',
         textAlign: 'center',
-        boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.16)',
       }}>
         {/* Icon */}
         <div style={{
           width: 64, height: 64, borderRadius: 16,
-          background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+          background: '#0a66c2',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 30, margin: '0 auto 24px',
-          boxShadow: '0 8px 24px rgba(37,99,235,0.35)',
+          boxShadow: '0 8px 24px rgba(10,102,194,0.35)',
         }}>
           ⚡
         </div>
 
-        <h2 style={{ color: '#f1f5f9', fontSize: 22, fontWeight: 700, margin: '0 0 10px' }}>
+        <h2 style={{ color: '#000000e6', fontSize: 22, fontWeight: 700, margin: '0 0 10px' }}>
           One last step
         </h2>
-        <p style={{ color: '#94a3b8', fontSize: 15, lineHeight: 1.6, margin: '0 0 28px' }}>
+        <p style={{ color: '#00000099', fontSize: 15, lineHeight: 1.6, margin: '0 0 28px' }}>
           Install the SimplyApply Chrome extension to autofill job applications in one click — directly on Greenhouse, Lever, Workday, and more.
         </p>
 
         {/* Steps */}
         <div style={{
-          background: 'rgba(37,99,235,0.08)',
-          border: '1px solid rgba(37,99,235,0.2)',
+          background: 'rgba(10,102,194,0.08)',
+          border: '1px solid rgba(10,102,194,0.2)',
           borderRadius: 10,
           padding: '16px 20px',
           marginBottom: 28,
@@ -81,12 +81,12 @@ export default function OnboardingModal({ onDismiss }) {
             <div key={num} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{
                 width: 24, height: 24, borderRadius: '50%',
-                background: '#2563eb', color: '#fff',
+                background: '#0a66c2', color: '#fff',
                 fontSize: 12, fontWeight: 700,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 flexShrink: 0,
               }}>{num}</span>
-              <span style={{ color: '#cbd5e1', fontSize: 14 }}>{text}</span>
+              <span style={{ color: '#000000e6', fontSize: 14 }}>{text}</span>
             </div>
           ))}
         </div>
@@ -95,7 +95,7 @@ export default function OnboardingModal({ onDismiss }) {
           onClick={handleInstall}
           style={{
             width: '100%',
-            background: 'linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%)',
+            background: '#0a66c2',
             color: '#fff',
             border: 'none',
             borderRadius: 10,
@@ -104,7 +104,7 @@ export default function OnboardingModal({ onDismiss }) {
             fontWeight: 700,
             cursor: 'pointer',
             marginBottom: 14,
-            boxShadow: '0 4px 14px rgba(37,99,235,0.4)',
+            boxShadow: '0 4px 14px rgba(10,102,194,0.4)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
@@ -120,7 +120,7 @@ export default function OnboardingModal({ onDismiss }) {
           onClick={handleSkip}
           style={{
             background: 'none', border: 'none',
-            color: '#64748b', fontSize: 13,
+            color: '#00000099', fontSize: 13,
             cursor: 'pointer', padding: '4px 8px',
             textDecoration: 'underline',
           }}
