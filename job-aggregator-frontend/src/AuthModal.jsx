@@ -49,6 +49,11 @@ function AuthModal({ onSuccess, onClose }) {
         <button className="auth-close" onClick={onClose} aria-label="Close">×</button>
 
         <h2 className="auth-title">Welcome to SimplyApply</h2>
+        <p className="auth-subtitle">
+          {tab === 'signup'
+            ? '309,000+ real jobs, autofilled applications on Greenhouse, Lever, Ashby, and more — free.'
+            : 'Welcome back — pick up your job search where you left off.'}
+        </p>
 
         <div className="auth-tabs">
           <button

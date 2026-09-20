@@ -743,3 +743,79 @@
 .filter-pill { padding:5px 14px; font-size:13px; font-weight:500; border:1px solid #0000001f; border-radius:16px; background:#fff; cursor:pointer; color:#000000e6; transition:background 0.15s, border-color 0.15s; white-space:nowrap; }
 .filter-pill:hover { background:#f3f2ef; border-color:#00000033; }
 .filter-pill.active { background:#eef3f8; border-color:#0a66c2; color:#0a66c2; font-weight:600; }
+
+/* ── LinkedIn-style Jobs surface ─────────────────────────────────────────
+   Tokens mirror the values already used above. The Jobs tab, header, hero
+   and auth modal use these classes; Applications/Company/Growth/Onboarding
+   still carry their own dark inline styles. */
+:root {
+  --li-blue: #0a66c2;
+  --li-blue-dark: #004182;
+  --li-blue-tint: #eef3f8;
+  --li-bg: #f3f2ef;
+  --li-text: #000000e6;
+  --li-muted: #00000099;
+  --li-line: #0000001f;
+  --li-green: #057642;
+}
+
+.logo { display: flex; align-items: center; gap: 8px; font-size: 22px; letter-spacing: -0.3px; }
+.logo-mark { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; background: var(--li-blue); color: #fff; }
+
+.header-content { height: 52px; }
+.nav { align-items: stretch; height: 100%; gap: 8px; }
+.nav a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 80px; padding: 0 12px; font-size: 12px; font-weight: 400; border-bottom: 2px solid transparent; }
+.nav a:hover { color: var(--li-text); border-bottom-color: transparent; }
+.nav a.nav-active { color: var(--li-text) !important; font-weight: 600; border-bottom: 2px solid var(--li-text); padding-bottom: 0; }
+.nav-user, .nav-signin { align-self: center; margin-left: 8px; }
+.nav-signin { padding: 6px 20px; }
+
+/* Logged-out hero: white card on the grey page, like a LinkedIn feed module */
+.hero-card { max-width: 1128px; margin: 16px auto 0; padding: 24px; background: #fff; border: 1px solid var(--li-line); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.hero-copy { max-width: 560px; }
+.hero-card h2 { font-size: 28px; font-weight: 600; line-height: 1.25; color: var(--li-text); margin-bottom: 8px; }
+.hero-card p { font-size: 14px; line-height: 1.5; color: var(--li-muted); margin-bottom: 16px; }
+.hero-cta { display: inline-flex; align-items: center; padding: 10px 24px; border-radius: 24px; background: var(--li-blue); color: #fff; font-size: 16px; font-weight: 600; text-decoration: none; }
+.hero-cta:hover { background: var(--li-blue-dark); }
+.hero-stats { display: flex; gap: 0; flex-shrink: 0; }
+.hero-stat { padding: 0 24px; text-align: center; border-left: 1px solid var(--li-line); }
+.hero-stat:first-child { border-left: none; }
+.hero-stat b { display: block; font-size: 24px; font-weight: 600; color: var(--li-blue); }
+.hero-stat span { font-size: 12px; color: var(--li-muted); }
+
+/* Extension prompt strips */
+.ext-banner { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; padding: 10px 24px; background: var(--li-blue-tint); border-bottom: 1px solid var(--li-line); font-size: 14px; color: var(--li-text); }
+.ext-banner a { color: var(--li-blue); font-weight: 600; }
+.ext-banner a:hover { color: var(--li-blue-dark); }
+.ext-banner .ext-banner-btn { padding: 4px 16px; border-radius: 16px; background: var(--li-blue); color: #fff; font-size: 13px; text-decoration: none; white-space: nowrap; }
+.ext-banner .ext-banner-btn:hover { background: var(--li-blue-dark); color: #fff; }
+
+/* Job list bits */
+.job-card-title h3 { font-weight: 600; }
+.job-card:hover .job-card-title h3 { text-decoration: underline; }
+.applied-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--li-green); }
+.toggle-applied { background: #fff; border: 1px solid var(--li-muted); color: var(--li-muted); border-radius: 16px; padding: 3px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.toggle-applied:hover { background: var(--li-bg); }
+.toggle-applied.on { background: #f0fff4; border-color: var(--li-green); color: var(--li-green); }
+.company-fallback { display: flex; align-items: center; justify-content: center; background: var(--li-blue-tint); color: var(--li-blue); font-weight: 600; border: 1px solid var(--li-line); border-radius: 4px; flex-shrink: 0; }
+.job-detail-company h2.company-link { cursor: pointer; color: var(--li-blue); }
+.job-detail-company h2.company-link:hover { text-decoration: underline; }
+.hint-text { margin: 8px 0 0; font-size: 12px; color: var(--li-muted); }
+.hint-text a { color: var(--li-blue); text-decoration: none; font-weight: 600; }
+.hint-text a:hover { text-decoration: underline; }
+
+/* Dismiss menu: LinkedIn-style white popover */
+.dismiss-menu { background: #fff; border: 1px solid var(--li-line); border-radius: 8px; min-width: 220px; max-width: 280px; padding: 4px 0; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.dismiss-menu button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--li-text); padding: 8px 16px; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dismiss-menu button:hover { background: var(--li-bg); }
+
+.auth-subtitle { margin: -8px 0 20px; color: var(--li-muted); font-size: 14px; line-height: 1.5; }
+
+@media (max-width: 768px) {
+  .nav { display: flex; gap: 0; }
+  .nav a { min-width: 0; padding: 0 8px; }
+  .nav a span { display: none; }
+  .nav-email { display: none; }
+  .hero-card { flex-direction: column; align-items: flex-start; margin: 8px 12px 0; }
+  .hero-stat:first-child { padding-left: 0; }
+}

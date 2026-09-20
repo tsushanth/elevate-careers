@@ -1,4 +1,5 @@
 import React from 'react';
+import { track } from './track';
 
 const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf';
 const STORAGE_KEY = 'sa_onboarding_done';
@@ -15,12 +16,14 @@ export function markOnboardingDone() {
 
 export default function OnboardingModal({ onDismiss }) {
   const handleInstall = () => {
+    track('onboarding_install_clicked');
     markOnboardingDone();
     window.open(EXTENSION_URL, '_blank', 'noopener,noreferrer');
     onDismiss();
   };
 
   const handleSkip = () => {
+    track('onboarding_skipped');
     markOnboardingDone();
     onDismiss();
   };

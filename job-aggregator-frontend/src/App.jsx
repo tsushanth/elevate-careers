@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink } from 'lucide-react';
+import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink, FileText, TrendingUp, Zap } from 'lucide-react';
 import { supabase } from './supabase';
 import { track } from './track';
 import AuthModal from './AuthModal';
@@ -16,13 +16,6 @@ const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%
 function slugify(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
-
-const dismissMenuItemStyle = {
-  display: 'block', width: '100%', textAlign: 'left',
-  background: 'none', border: 'none', color: '#cbd5e1',
-  padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderRadius: 6,
-  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-};
 
 function App() {
   const navigate = useNavigate();
@@ -296,11 +289,8 @@ function App() {
     const initials = (name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
     if (!src || failed) {
       return (
-        <div className={className} style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'linear-gradient(135deg, #1e3a5f, #1e40af)',
-          color: '#93c5fd', fontWeight: 700, fontSize: className?.includes('large') ? 20 : 14,
-          borderRadius: 8, flexShrink: 0,
+        <div className={`${className} company-fallback`} style={{
+          fontSize: className?.includes('large') ? 20 : 14,
         }}>{initials}</div>
       );
     }
@@ -312,12 +302,12 @@ function App() {
       {/* Header */}
       <header className="header">
         <div className="header-content">
-          <h1 className="logo">SimplyApply</h1>
+          <h1 className="logo"><span className="logo-mark"><Zap size={16} fill="currentColor" /></span>SimplyApply</h1>
           <nav className="nav">
-            <a href="#jobs" onClick={e => { e.preventDefault(); setActiveTab('jobs'); }} className={activeTab === 'jobs' ? 'nav-active' : ''}>Jobs</a>
-            <a href="#applications" onClick={e => { e.preventDefault(); setActiveTab('applications'); }} className={activeTab === 'applications' ? 'nav-active' : ''}>Applications</a>
+            <a href="#jobs" onClick={e => { e.preventDefault(); setActiveTab('jobs'); }} className={activeTab === 'jobs' ? 'nav-active' : ''}><Briefcase size={20} /><span>Jobs</span></a>
+            <a href="#applications" onClick={e => { e.preventDefault(); setActiveTab('applications'); }} className={activeTab === 'applications' ? 'nav-active' : ''}><FileText size={20} /><span>Applications</span></a>
             {session && (
-              <a href="#growth" onClick={e => { e.preventDefault(); setActiveTab('growth'); }} className={activeTab === 'growth' ? 'nav-active' : ''}>Growth</a>
+              <a href="#growth" onClick={e => { e.preventDefault(); setActiveTab('growth'); }} className={activeTab === 'growth' ? 'nav-active' : ''}><TrendingUp size={20} /><span>Growth</span></a>
             )}
             {session ? (
               <div className="nav-user">
@@ -341,37 +331,37 @@ function App() {
         </div>
       </header>
 
+      {/* Hero — logged-out visitors only. There was previously no stated value prop at
+          all above the fold for a first-time visitor (straight into a bare job list),
+          which is a likely factor in the near-total post-signup drop-off. Stats are
+          hardcoded from a 2026-08-17 DB snapshot — refresh periodically rather than
+          wiring a live count endpoint, since this is a low-traffic marketing surface. */}
+      {!session && (
+        <div className="hero-card">
+          <div className="hero-copy">
+            <h2>309,000+ Real Jobs. One-Click Apply.</h2>
+            <p>
+              Real openings sourced straight from 11,000+ companies' own career pages — then autofill the application on Greenhouse, Lever, Ashby, Workday, and more. Free.
+            </p>
+            <a className="hero-cta" href={EXTENSION_URL} target="_blank" rel="noopener noreferrer">
+              Add to Chrome — Free
+            </a>
+          </div>
+          <div className="hero-stats">
+            <div className="hero-stat"><b>309K+</b><span>Jobs</span></div>
+            <div className="hero-stat"><b>11,404</b><span>Companies</span></div>
+            <div className="hero-stat"><b>37K+</b><span>Remote roles</span></div>
+          </div>
+        </div>
+      )}
+
       {/* Extension install banner — signed-in users only */}
       {session && (
-        <div style={{
-          background: 'linear-gradient(90deg, rgba(37,99,235,0.18) 0%, rgba(16,185,129,0.12) 100%)',
-          borderBottom: '1px solid rgba(37,99,235,0.25)',
-          padding: '10px 24px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 16,
-          fontSize: 14,
-        }}>
-          <span style={{ color: '#1e3a8a' }}>
+        <div className="ext-banner">
+          <span>
             ⚡ Autofill any job application in one click with the SimplyApply Chrome extension
           </span>
-          <a
-            href={EXTENSION_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              background: '#2563eb',
-              color: '#fff',
-              padding: '5px 16px',
-              borderRadius: 6,
-              fontWeight: 600,
-              fontSize: 13,
-              textDecoration: 'none',
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-            }}
-          >
+          <a className="ext-banner-btn" href={EXTENSION_URL} target="_blank" rel="noopener noreferrer">
             Add to Chrome — Free
           </a>
         </div>
@@ -449,24 +439,16 @@ function App() {
 
       {/* Extension CTA — not signed in */}
       {!session && (
-        <div style={{
-          textAlign: 'center',
-          padding: '14px 24px',
-          background: 'rgba(37,99,235,0.08)',
-          borderBottom: '1px solid rgba(37,99,235,0.15)',
-          fontSize: 14,
-          color: '#94a3b8',
-        }}>
-          Find a job you like?{' '}
+        <div className="ext-banner">
+          <span>Find a job you like?{' '}
           <a
             href={EXTENSION_URL}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#60a5fa', fontWeight: 600 }}
           >
             Install the SimplyApply extension
           </a>
-          {' '}to autofill the application in one click.
+          {' '}to autofill the application in one click.</span>
         </div>
       )}
 
@@ -481,13 +463,7 @@ function App() {
               {session && appliedCount > 0 && (
                 <button
                   onClick={() => setShowApplied(v => !v)}
-                  style={{
-                    background: showApplied ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
-                    border: `1px solid ${showApplied ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.12)'}`,
-                    color: showApplied ? '#22c55e' : '#94a3b8',
-                    borderRadius: 6, padding: '4px 12px', fontSize: 12,
-                    fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}
+                  className={`toggle-applied${showApplied ? ' on' : ''}`}
                 >
                   {showApplied ? `✓ Showing applied (${appliedCount})` : `Hide applied (${appliedCount})`}
                 </button>
@@ -516,12 +492,7 @@ function App() {
                       <h3>{job.title}</h3>
                       <p className="company-name">{job.company_name}</p>
                       {appliedJobIds.has(job.id) && (
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          fontSize: 11, fontWeight: 600, color: '#22c55e',
-                          background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)',
-                          borderRadius: 4, padding: '2px 6px', marginTop: 4,
-                        }}>✓ Applied</span>
+                        <span className="applied-chip">✓ Applied</span>
                       )}
                     </div>
                     <div style={{ position: 'relative' }}>
@@ -537,33 +508,19 @@ function App() {
                       >×</button>
                       {dismissMenuJobId === job.id && dismissMenuPos && createPortal(
                         <div
+                          className="dismiss-menu"
                           onClick={e => e.stopPropagation()}
                           style={{
                             position: 'fixed', top: dismissMenuPos.top, left: dismissMenuPos.left,
                             transform: 'translateX(-100%)', zIndex: 1000,
-                            background: '#111827', border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: 8, minWidth: 220, maxWidth: 280, padding: 4,
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
                           }}
                         >
-                          <button
-                            onClick={() => dismissJob(job, 'company')}
-                            style={dismissMenuItemStyle}
-                          >Don't show jobs from {job.company_name}</button>
-                          <button
-                            onClick={() => dismissJob(job, 'title')}
-                            style={dismissMenuItemStyle}
-                          >Don't show "{job.title}" roles</button>
+                          <button onClick={() => dismissJob(job, 'company')}>Don't show jobs from {job.company_name}</button>
+                          <button onClick={() => dismissJob(job, 'title')}>Don't show "{job.title}" roles</button>
                           {(job.cities?.length > 0 || job.countries?.length > 0) && (
-                            <button
-                              onClick={() => dismissJob(job, 'location')}
-                              style={dismissMenuItemStyle}
-                            >Don't show jobs from {job.cities?.[0] || job.countries?.[0]}</button>
+                            <button onClick={() => dismissJob(job, 'location')}>Don't show jobs from {job.cities?.[0] || job.countries?.[0]}</button>
                           )}
-                          <button
-                            onClick={() => dismissJob(job, 'card')}
-                            style={dismissMenuItemStyle}
-                          >Just remove this card</button>
+                          <button onClick={() => dismissJob(job, 'card')}>Just remove this card</button>
                         </div>,
                         document.body
                       )}
@@ -632,8 +589,8 @@ function App() {
               <div className="job-detail-company">
                 <CompanyLogo name={selectedJob.company_name} domain={selectedJob.company_logo_domain || selectedJob.company_domain} className="company-logo-large" />
                 <h2
+                  className="company-link"
                   onClick={() => navigate(`/companies/${slugify(selectedJob.company_name)}`)}
-                  style={{ cursor: 'pointer', color: '#6366f1' }}
                 >{selectedJob.company_name}</h2>
               </div>
               <button className="more-button">⋯</button>
@@ -719,13 +676,13 @@ function App() {
               </button>
             </div>
             {extensionInstalled ? (
-              <p style={{ fontSize: 12, color: '#64748b', margin: '8px 0 0' }}>
+              <p className="hint-text">
                 ⚡ We'll auto-fill the form for you — just click Submit when ready.
               </p>
             ) : (
-              <p style={{ fontSize: 12, color: '#64748b', margin: '8px 0 0' }}>
+              <p className="hint-text">
                 ⚡ Auto-fill requires the{' '}
-                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'underline' }}>
+                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer">
                   SimplyApply Chrome extension
                 </a>
                 {' '}— install it once, then click Apply.
