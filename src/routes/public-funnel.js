@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 import { runStructuralAudit } from './ai-resume.js';
-import { sendEmail, makeToken, verifyToken, escapeHtml, SITE_URL, requireSendConfig } from '../services/email.js';
+import { sendEmail, verifyToken, escapeHtml, SITE_URL, API_URL, requireSendConfig } from '../services/email.js';
 import { confirmationEmail, CONSENT_TEXT, CONSENT_VERSION } from '../services/email-templates.js';
 
 // Public, unauthenticated funnel: free resume check -> double opt-in -> drip
@@ -102,7 +102,7 @@ router.post('/resume-check', async (req, res) => {
 
 // ── Subscribe (double opt-in) ──────────────────────────────────────────────────
 async function sendConfirmation(subscriber) {
-  const confirmUrl = `${SITE_URL()}/api/public/confirm?token=${encodeURIComponent(subscriber.confirm_token)}`;
+  const confirmUrl = `${API_URL()}/api/public/confirm?token=${encodeURIComponent(subscriber.confirm_token)}`;
   const mail = confirmationEmail({ confirmUrl });
   const out = await sendEmail({ to: subscriber.email, ...mail });
   if (out.ok) await db.query('update email_subscribers set last_confirm_sent_at = now() where id = $1', [subscriber.id]);

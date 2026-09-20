@@ -7,6 +7,8 @@ import crypto from 'crypto';
 const RESEND_ENDPOINT = () => process.env.RESEND_API_URL || 'https://api.resend.com/emails';
 
 export const SITE_URL = () => (process.env.PUBLIC_SITE_URL || 'https://www.simplyappl.ai').replace(/\/$/, '');
+// Confirm/unsubscribe links must hit the API app, which is a different host from the marketing site.
+export const API_URL = () => (process.env.PUBLIC_API_URL || 'https://elevate-careers-api.fly.dev').replace(/\/$/, '');
 export const FROM = () => process.env.EMAIL_FROM || 'SimplyApply <hello@simplyappl.ai>';
 
 // Signed tokens so an unsubscribe link only ever works for the address it was made for.
@@ -31,7 +33,7 @@ export function verifyToken(token) {
   try { return Buffer.from(payload, 'base64url').toString('utf8'); } catch { return null; }
 }
 
-export const unsubscribeUrl = (email) => `${SITE_URL()}/api/public/unsubscribe?token=${encodeURIComponent(makeToken(email))}`;
+export const unsubscribeUrl = (email) => `${API_URL()}/api/public/unsubscribe?token=${encodeURIComponent(makeToken(email))}`;
 
 export const escapeHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 

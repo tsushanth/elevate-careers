@@ -17,4 +17,4 @@ re-checked immediately before sending - refuses to run without a postal address 
 
 ## Env (`~/.simplyapply-drip/env`, chmod 600)
 `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `EMAIL_TOKEN_SECRET` (same value as the Fly app),
-`EMAIL_POSTAL_ADDRESS`, optional `EMAIL_FROM`, `PUBLIC_SITE_URL`, `DRIP_MAX_PER_RUN`.
+`EMAIL_POSTAL_ADDRESS`, optional `EMAIL_FROM`, `PUBLIC_SITE_URL`, `PUBLIC_API_URL`, `DRIP_MAX_PER_RUN`.

@@ -8,8 +8,11 @@ const input = { width: '100%', padding: '10px 12px', border: '1px solid #d1d5db'
 const button = { background: '#2563eb', color: '#fff', border: 0, borderRadius: 8, padding: '11px 18px', fontSize: 15, cursor: 'pointer' };
 const card = { border: '1px solid #e5e7eb', borderRadius: 12, padding: 20, marginTop: 20, background: '#fff' };
 
+// Same absolute API host the rest of the frontend uses (www is served by a separate app).
+const API_URL = 'https://elevate-careers-api.fly.dev';
+
 async function post(path, body) {
-  const res = await fetch(`/api/public/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetch(`${API_URL}/api/public/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || 'Something went wrong. Please try again.');
   return data;
