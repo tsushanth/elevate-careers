@@ -1,0 +1,7 @@
+{
+  "name": "simplyapply-email-drip-harness",
+  "private": true,
+  "type": "module",
+  "description": "Mac mini runner that sends the opt-in drip emails (see README.md)",
+  "dependencies": { "@supabase/supabase-js": "^2.76.1" }
+}

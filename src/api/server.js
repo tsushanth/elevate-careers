@@ -83,6 +83,9 @@ app.use('/api/apply', applyRoutes);
 import applyPreferencesRoutes from '../routes/apply-preferences.js';
 app.use('/api/preferences', applyPreferencesRoutes);
 
+import publicFunnelRoutes from '../routes/public-funnel.js';
+app.use('/api/public', publicFunnelRoutes);
+
 // Fetch GitHub ATS datasets and populate discovered_company table
 app.post('/ingest/bootstrap-discovery', async (req, res) => {
   try {

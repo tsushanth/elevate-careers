@@ -5,6 +5,7 @@ import './index.css';
 import App from './App';
 import Privacy from './Privacy';
 import CompanyPage from './CompanyPage';
+import ResumeCheck from './ResumeCheck';
 
 // Capture traffic source on first page load — persists through auth flow
 (function captureSource() {
@@ -27,6 +28,7 @@ root.render(
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/resume-check" element={<ResumeCheck />} />
         <Route path="/companies/:slug" element={<CompanyPage />} />
       </Routes>
     </BrowserRouter>

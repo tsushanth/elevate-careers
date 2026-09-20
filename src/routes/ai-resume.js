@@ -1460,4 +1460,6 @@ router.post('/ping', requireAuth, async (req, res) => {
   }
 });
 
+// Reused by the anonymous public resume check (src/routes/public-funnel.js).
+export { runStructuralAudit };
 export default router;
