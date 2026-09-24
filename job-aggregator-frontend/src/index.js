@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './index.css';
 import App from './App';
 import Privacy from './Privacy';
+import DeleteAccount from './DeleteAccount';
 import CompanyPage from './CompanyPage';
 import ResumeCheck from './ResumeCheck';
 
@@ -28,6 +29,7 @@ root.render(
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/resume-check" element={<ResumeCheck />} />
         <Route path="/companies/:slug" element={<CompanyPage />} />
       </Routes>

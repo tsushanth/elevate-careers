@@ -38,7 +38,7 @@ export default function Privacy() {
 
       <section style={{ marginBottom: 36 }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, color: '#f8fafc', marginBottom: 12 }}>Data Retention & Deletion</h2>
-        <p>Your profile is stored locally in your browser and on our servers while your account is active. You can delete your account and all associated data by emailing <a href="mailto:support@simplyappl.ai" style={{ color: '#3b82f6' }}>support@simplyappl.ai</a>.</p>
+        <p>Your profile is stored locally in your browser and on our servers while your account is active. You can delete your account and all associated data by emailing <a href="mailto:support@simplyappl.ai" style={{ color: '#3b82f6' }}>support@simplyappl.ai</a>. <a href="/delete-account" style={{ color: '#3b82f6' }}>See how deletion works</a>.</p>
       </section>
 
       <section style={{ marginBottom: 36 }}>
