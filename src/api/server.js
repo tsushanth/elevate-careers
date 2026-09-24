@@ -83,6 +83,9 @@ app.use('/api/apply', applyRoutes);
 import applyPreferencesRoutes from '../routes/apply-preferences.js';
 app.use('/api/preferences', applyPreferencesRoutes);
 
+import savedJobsRoutes from '../routes/saved-jobs.js';
+app.use('/api/saved-jobs', savedJobsRoutes);
+
 import publicFunnelRoutes from '../routes/public-funnel.js';
 app.use('/api/public', publicFunnelRoutes);
 
