@@ -114,6 +114,27 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
 
   useEffect(() => { fetchApplications(); }, [session]);
 
+  // ── Jobs shortlisted on the phone app ─────────────────────────────────────
+  const [saved, setSaved] = useState([]);
+  const authHeaders = () => ({ Authorization: `Bearer ${session.access_token}` });
+  const fetchSaved = async () => {
+    if (!session) { setSaved([]); return; }
+    try {
+      const r = await fetch(`${API_URL}/api/saved-jobs`, { headers: authHeaders() });
+      if (r.ok) setSaved((await r.json()).jobs || []);
+    } catch (e) {
+      console.error('Failed to fetch shortlist', e);
+    }
+  };
+  useEffect(() => { fetchSaved(); }, [session]); // eslint-disable-line
+  const removeSaved = async (id) => {
+    setSaved(prev => prev.filter(j => j.id !== id)); // optimistic; reload if the server refuses
+    try {
+      const r = await fetch(`${API_URL}/api/saved-jobs/${id}`, { method: 'DELETE', headers: authHeaders() });
+      if (!r.ok) fetchSaved();
+    } catch { fetchSaved(); }
+  };
+
   // Prepend pendingApply optimistically
   useEffect(() => {
     if (!pendingApply) return;
@@ -316,6 +337,47 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
             {prefsSaving ? 'Saving…' : 'Save'}
           </button>
           {prefsSaved && <span style={{ fontSize: 12, color: '#057642' }}>Saved ✓</span>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Shortlisted on the phone app ── */}
+      {session && saved.length > 0 && (
+        <div style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#000000e6', margin: 0 }}>Shortlisted on your phone</h2>
+            <span style={{
+              background: 'rgba(10,102,194,0.15)', color: '#0a66c2',
+              borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600,
+            }}>{saved.length}</span>
+          </div>
+          <p style={{ fontSize: 13, color: '#00000099', margin: '0 0 12px' }}>
+            Open each job to apply. The SimplyApply extension autofills the form.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {saved.map(job => (
+              <div key={job.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                padding: '12px 16px', background: '#fff', border: '1px solid #0000001a', borderRadius: 8,
+              }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: '#000000e6', fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.title}</div>
+                  <div style={{ fontSize: 13, color: '#00000099' }}>{job.company_name}{job.is_active === false ? ' (closed)' : ''}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  {/^https?:\/\//i.test(job.apply_url || '') && (
+                    <a href={job.apply_url} target="_blank" rel="noopener noreferrer" style={{
+                      background: '#0a66c2', color: '#fff', borderRadius: 20, padding: '6px 16px',
+                      fontSize: 13, fontWeight: 600, textDecoration: 'none',
+                    }}>Apply</a>
+                  )}
+                  <button onClick={() => removeSaved(job.id)} style={{
+                    background: 'transparent', color: '#00000099', border: '1px solid #00000033',
+                    borderRadius: 20, padding: '6px 14px', fontSize: 13, cursor: 'pointer',
+                  }}>Remove</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

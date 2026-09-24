@@ -71,7 +71,11 @@ function App() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [activeTab, setActiveTab] = useState('jobs');
+  // Honor a #jobs / #applications / #growth link, e.g. the phone app's "Finish on web" button.
+  const [activeTab, setActiveTab] = useState(() => {
+    const h = (window.location.hash || '').replace('#', '');
+    return ['jobs', 'applications', 'growth'].includes(h) ? h : 'jobs';
+  });
   const [extensionInstalled, setExtensionInstalled] = useState(false);
   const [seedingJob, setSeedingJob] = useState(null); // job id being seeded
   const [seedError, setSeedError] = useState('');
