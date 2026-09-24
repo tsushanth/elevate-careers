@@ -12,6 +12,7 @@ export default function DeleteAccount() {
   useEffect(() => { document.title = 'Delete your SimplyApply account'; }, []);
 
   return (
+    <div style={{ minHeight: '100vh', background: '#0f172a' }}>
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '60px 24px 120px', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', lineHeight: 1.7 }}>
       <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, color: '#f8fafc' }}>Delete your SimplyApply account</h1>
       <p style={{ color: '#94a3b8', marginBottom: 40 }}>
@@ -76,6 +77,7 @@ export default function DeleteAccount() {
       <p style={{ color: '#94a3b8' }}>
         See our <a href="/privacy" style={link}>Privacy Policy</a> for how we handle your data while your account is active.
       </p>
+    </div>
     </div>
   );
 }

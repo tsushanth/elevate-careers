@@ -1,5 +1,6 @@
 export default function Privacy() {
   return (
+    <div style={{ minHeight: '100vh', background: '#0f172a' }}>
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '60px 24px 120px', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', lineHeight: 1.7 }}>
       <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, color: '#f8fafc' }}>Privacy Policy</h1>
       <p style={{ color: '#64748b', marginBottom: 40 }}>Last updated: July 2026</p>
@@ -45,6 +46,7 @@ export default function Privacy() {
         <h2 style={{ fontSize: 18, fontWeight: 600, color: '#f8fafc', marginBottom: 12 }}>Contact</h2>
         <p>Questions about this policy: <a href="mailto:support@simplyappl.ai" style={{ color: '#3b82f6' }}>support@simplyappl.ai</a></p>
       </section>
+    </div>
     </div>
   );
 }
