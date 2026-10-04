@@ -89,7 +89,7 @@ if [ "$DB_SETUP" != "y" ]; then
     echo -e "${YELLOW}⚠️  Please set up database tables first${NC}"
     echo ""
     echo "Quick option - run this command:"
-    echo 'psql "postgresql://postgres:REDACTED_SECRET@db.uuntgvccvepqhfaupjqa.supabase.co:5432/postgres" < schema.sql'
+    echo 'psql "$SUPABASE_DB_URL" < schema.sql'
     echo ""
     read -p "Press Enter to continue after setting up tables..."
 fi
@@ -100,7 +100,7 @@ echo ""
 # Test database connection
 echo "🔍 Testing database connection..."
 if command -v psql &> /dev/null; then
-    if psql "postgresql://postgres:REDACTED_SECRET@db.uuntgvccvepqhfaupjqa.supabase.co:5432/postgres" -c "SELECT 1" &> /dev/null; then
+    if psql "${SUPABASE_DB_URL:?set SUPABASE_DB_URL}" -c "SELECT 1" &> /dev/null; then
         echo -e "${GREEN}✅ Database connection successful${NC}"
     else
         echo -e "${YELLOW}⚠️  Could not connect to database${NC}"

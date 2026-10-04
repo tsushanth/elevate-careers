@@ -13,7 +13,7 @@ class LinkedInManager: NSObject, ObservableObject {
     @Published var linkedInProfile: LinkedInProfile?
     
     private let clientID = "86fdw92kq8r7hg" // Your LinkedIn Client ID
-    private let clientSecret = "REDACTED_SECRET" // Your LinkedIn Client Secret
+    private let clientSecret = (Bundle.main.object(forInfoDictionaryKey: "LinkedInClientSecret") as? String) ?? "" // injected at build time, never commit
     // Use your own callback page hosted on Firebase
     private let redirectURI = "https://elevatecareers.us/linkedin-callback.html"
     private let scope = "openid profile email"

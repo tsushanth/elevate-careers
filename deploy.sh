@@ -10,10 +10,10 @@ echo ""
 PROJECT_ID="summarizerproxy"
 REGION="europe-west1"
 SERVICE_NAME="elevate-careers"
-DATABASE_URL="postgresql://postgres:REDACTED_SECRET@db.uuntgvccvepqhfaupjqa.supabase.co:5432/postgres"
+DATABASE_URL="${DATABASE_URL:?set DATABASE_URL in your environment}"
 REDIS_HOST="outgoing-worm-35597.upstash.io"
 REDIS_PORT="6379"
-REDIS_PASSWORD="REDACTED_SECRET"
+REDIS_PASSWORD="${REDIS_PASSWORD:?set REDIS_PASSWORD in your environment}"
 
 echo "📦 Building with fixes..."
 gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME --project=$PROJECT_ID

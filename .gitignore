@@ -6,3 +6,12 @@ node_modules/
 *.zip
 debug-shots/
 *.mjs.log
+
+# secrets / local env - never commit
+.env
+.env.*
+!.env.example
+!.env.sample
+.fly-secrets*
+serviceAccountKey*.json
+.next/

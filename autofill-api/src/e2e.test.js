@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 
 const BASE = 'https://elevate-autofill-api.fly.dev';
-const TOKEN = process.env.AUTH_TOKEN || 'REDACTED_SECRET';
+const TOKEN = process.env.AUTH_TOKEN || '';
 
 async function api(path, opts = {}) {
   const res = await fetch(`${BASE}${path}`, {
