@@ -3,7 +3,7 @@
   "name": "SimplyApply — AI Job Autofill",
   "version": "1.6.3",
   "description": "Autofill job applications in one click. Works on Greenhouse, Lever, Ashby, and more. Save your profile once, apply everywhere.",
-  "permissions": ["storage", "scripting", "activeTab", "tabs", "cookies", "alarms", "identity"],
+  "permissions": ["storage", "scripting", "activeTab", "tabs", "alarms", "identity"],
   "host_permissions": [
     "<all_urls>",
     "https://*.greenhouse.io/*",
