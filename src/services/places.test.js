@@ -58,6 +58,8 @@ test('unresolvable input is ZZ, never a guess', () => {
   assert.equal(n({ city: null, region: null, country: 'Full-time' }).country_code, 'ZZ');
   // A bare "CA" with no city or region could be California or Canada.
   assert.equal(n({ city: null, region: null, country: 'CA' }).country_code, 'ZZ');
+  assert.equal(n({ city: null, region: 'CA', country: 'CA' }).country_code, 'ZZ');
+  assert.equal(n({ city: 'Remote', region: 'CA', country: 'CA' }).country_code, 'ZZ');
 });
 
 test('city_key is the lower-cased city, empty when there is none', () => {

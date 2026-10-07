@@ -100,7 +100,7 @@ export function normalizeLocationRow(row) {
     const state = firstMatch(tokens, usState);
     // "Pune, IN": IN is also Indiana, but Pune is a known Indian city.
     const twoLetterIsCityCountry = tokens.some(t => TWO_LETTER_RE.test(t) && t.toUpperCase() === cityIso);
-    const bareCA = !city && tokens.length === 1 && tokens[0].toUpperCase() === 'CA';
+    const bareCA = !city && tokens.length > 0 && tokens.every(t => t.toUpperCase() === 'CA');
     if (twoLetterIsCityCountry) {
       iso = cityIso;
       region = iso === 'CA' ? prov : iso === 'US' ? state : null;
