@@ -135,10 +135,12 @@ test('R2 subnational names identify the country, region stays null', () => {
 test('R3 pieces of a field are candidates; a spelled country in any of them wins', () => {
   check('co-us', row('Brighton', 'CO - US', 'CO - US'), 'US/CO');
   check('unit-split', row('Springfield', 'Remote - Canada', null), 'CA/');
-  check('unit-slash', row(null, 'Germany/Austria', null), 'DE/');
+  check('unit-slash-conflict', row(null, 'Germany/Austria', null), 'ZZ/');
+  check('unit-slash-same', row(null, 'Germany/Deutschland', null), 'DE/');
   check('unit-city-piece', row('Remote - Poland', null, null), 'PL/');
-  // existing state precedence stays: Wales WI is a Wisconsin town
-  check('state-precedence', row('Wales', 'WI', 'WI'), 'US/WI');
+  // a city-field country name that contradicts an explicit state is a conflict, not a guess
+  check('city-name-vs-state', row('Wales', 'WI', null), 'ZZ/');
+  check('city-name-vs-state-repeated', row('Wales', 'WI', 'WI'), 'US/WI');
 });
 
 test('R4 embedded US state code', () => {
@@ -225,27 +227,114 @@ test('behaviour that must not change', () => {
   for (const [r, exp] of MUST_STAY) check('stay', r, exp);
 });
 
-test('property: normalising twice is identical and normalizeJobLocations is never empty', () => {
-  const existing = [
-    row('San Francisco', 'CA', 'CA'), row('Austin', 'TX', 'TX'), row('Atlanta', 'Georgia', 'Georgia'),
-    row('Toronto', 'ON', 'CA'), row('Vancouver', 'BC'), row('Pune', null, 'IN'), row('Berlin', null, 'DE'),
-    row('Indianapolis', 'IN', 'IN'), row('London', null, 'UK'), row('London', 'UK', 'UK'), row('Paris', null, 'France'),
-    row('San Francisco', 'California', 'United States'), row('Remote', null, 'United States'),
-    row('Manchester'), row(), row('Anywhere'), row(null, null, 'Full-time'), row(null, null, 'CA'),
-    row(null, 'CA', 'CA'), row('Remote', 'CA', 'CA'), row(null, null, 'United States'),
-  ];
-  const fixtures = [...existing, ...MUST_STAY.map(([r]) => r), row('Veenendaal', 'Utrecht', 'Nederland'),
-    row('Aurangabad', 'Bihar', 'Bihar'), row('Joliet IL'), row('Brighton', 'CO - US', 'CO - US'),
+// ---------------------------------------------------------------------------
+// Fix round 1: correctness over coverage. Conflicting evidence -> ZZ.
+// ---------------------------------------------------------------------------
+test('F1 Georgia: country only via a Georgian city, US state otherwise', () => {
+  check('tbilisi', row('Tbilisi'), 'GE/');
+  check('batumi', row('Batumi', null, 'Georgia'), 'GE/');
+  check('tbilisi-georgia-georgia', row('Tbilisi', 'Georgia', 'Georgia'), 'GE/');
+  check('tbilisi-comma', row('Tbilisi, Georgia'), 'GE/');
+  check('atlanta', row('Atlanta', 'Georgia', 'Georgia'), 'US/GA');
+  check('atlanta-comma', row('Atlanta, Georgia'), 'US/GA');
+  check('bare-city', row('Georgia'), 'ZZ/');
+});
+
+test('F2 trailing code colliding with an ISO country is a US state unless a foreign city or country says otherwise', () => {
+  check('hayward', row('Hayward CA'), 'US/CA');
+  check('fort-wayne', row('Fort Wayne IN'), 'US/IN');
+  check('boston-paren', row('Boston MA (Back Bay)'), 'US/MA');
+  check('remote-ca', row('Remote - CA'), 'US/CA');
+  check('chicago-paren', row('Chicago IL (Taylor St.)'), 'US/IL');
+  check('foreign-city-own-code', row('Bogota CO'), 'CO/');
+  check('foreign-city-other-code', row('Berlin PA'), 'ZZ/');
+  check('foreign-city-other-code-2', row('Paris IN'), 'ZZ/');
+  check('spelled-country-wins', row('Fort Wayne IN', null, 'India'), 'IN/');
+  check('remote-other-codes-not-guessed', row('Remote - DE'), 'ZZ/');
+  check('remote-in', row('Remote - IN'), 'ZZ/');
+  check('bare-ca', row(null, null, 'CA'), 'ZZ/');
+});
+
+test('F3 leading code: no bare dash, CA needs a ZIP', () => {
+  check('dash-no-space', row('Remote', 'IN-Office'), 'ZZ/');
+  check('ca-dash-no-zip', row('Springfield', 'CA - Hybrid'), 'ZZ/');
+  check('ca-zip', row('Fremont', 'CA 94538'), 'US/CA');
+  check('nc-zip', row('Concord', 'NC 28025'), 'US/NC');
+});
+
+test('F4 comma-form City, State vetoes leading-city inference', () => {
+  check('indiana-pennsylvania', row('Indiana, Pennsylvania'), 'US/PA');
+  check('delhi-ny', row('Delhi, NY'), 'US/NY');
+  check('delhi-ny-fields', row('Delhi', 'NY', 'NY'), 'US/NY');
+  check('london-ontario', row('London, Ontario'), 'CA/ON');
+  check('pune-in', row('Pune, IN'), 'IN/');
+  check('berlin-de', row('Berlin, DE'), 'DE/');
+  check('paris-texas', row('Paris, Texas'), 'US/TX');
+});
+
+test('F5 foreign city + state: corroboration required', () => {
+  check('paris-tx-tx', row('Paris', 'TX', 'TX'), 'US/TX');
+  check('dublin-oh-oh', row('Dublin', 'OH', 'OH'), 'US/OH');
+  check('paris-texas-name', row('Paris', 'Texas', null), 'US/TX');
+  check('berlin-pa-stray', row('Berlin', 'PA', null), 'ZZ/');
+  check('london-oh-stray', row('London', 'OH', null), 'ZZ/');
+  check('london-ontario-twice', row('London', 'Ontario', 'Ontario'), 'CA/ON');
+  check('london-on-stray', row('London', 'ON', null), 'ZZ/');
+});
+
+test('F6 dictionary city whose country has no ISO entry is not skipped', () => {
+  // Georgia was the only unmapped country in geo.js CITY_COUNTRY; now mapped, so Tbilisi resolves
+  // and conflicts with another city count rather than being dropped.
+  check('tbilisi-vs-london', row('Tbilisi', 'London', null), 'ZZ/');
+});
+
+test('F7 multi-candidate conflicts are tiered', () => {
+  check('two-countries', row('Bangkok | Thailand; Jakarta | Indonesia'), 'ZZ/');
+  check('two-countries-cities', row('Berlin | Germany; London | United Kingdom - Deliveroo'), 'ZZ/');
+  check('usa-or-canada', row('Americas (USA or Canada)'), 'ZZ/');
+  check('gmt-list', row('GMT / BST (UK | Portugal | Ireland)'), 'ZZ/');
+  check('two-states', row('Denver | CO - Hybrid; New York | NY - Hybrid; San Francisco'), 'US/');
+  check('dc-md-va', row('D.C./ MD / VA'), 'US/');
+  check('two-state-tokens', row('Austin', 'TX', 'CO'), 'US/');
+  check('two-cities', row('Paris', 'London', null), 'ZZ/');
+  check('spelled-vs-city-name', row('Paris, France', null, 'United States'), 'ZZ/');
+});
+
+test('input cap: very long values are ZZ', () => {
+  check('long', row('x'.repeat(201) + ' Berlin'), 'ZZ/');
+  check('long-region', row('Berlin', 'y'.repeat(300), 'Germany'), 'ZZ/');
+  check('at-cap', row('Berlin', null, 'Germany'), 'DE/');
+});
+
+test('normalisation is stable and never throws', () => {
+  const rows = [
+    ...MUST_STAY.map(([r]) => r),
+    row('Veenendaal', 'Utrecht', 'Nederland'), row('Joliet IL'), row('Brighton', 'CO - US', 'CO - US'),
     row('Mesa', 'AZ: Gilbert/McKellips', 'AZ: Gilbert/McKellips'), row('Zilch UK'),
     row('Kensington Office', 'London', 'London'), row('Florida', null, 'United States'),
-    row('Minnesota - Minneapolis'), row('Seoul South'), row('Washington DC Metro Area')];
-  for (const r of fixtures) {
-    assert.deepEqual(n(r), n(r));
-    assert.deepEqual(n({ ...r }), n(r));
-    const list = normalizeJobLocations([r]);
-    assert.ok(Array.isArray(list) && list.length > 0, JSON.stringify(r));
-    assert.deepEqual(normalizeJobLocations([r]), list);
+    row('Minnesota - Minneapolis'), row('Seoul South'), row('Washington DC Metro Area'),
+    row('Tbilisi'), row('Indiana, Pennsylvania'), row('D.C./ MD / VA'),
+  ];
+  for (const r of rows) {
+    const base = n(r);
+    // same input -> same output; extra whitespace and key order do not matter
+    assert.deepEqual(n({ country: r.country, region: r.region, city: r.city }), base);
+    const padded = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v == null ? v : `  ${v.replace(/ /g, '   ')}  `]));
+    assert.equal(out(n(padded)), out(base), JSON.stringify(r));
+    // an unresolved row never carries a region; city_key matches city
+    if (base.country_code === 'ZZ') assert.equal(base.region_code, null);
+    assert.equal(base.city_key, base.city ? base.city.toLowerCase() : '');
+    // normalizeJobLocations: duplicates and order do not change the set, never empty
+    const one = normalizeJobLocations([r]);
+    assert.ok(one.length > 0);
+    assert.deepEqual(normalizeJobLocations([r, r]), one);
   }
-  assert.ok(normalizeJobLocations(fixtures).length > 0);
+  const forward = normalizeJobLocations(rows);
+  const reversed = normalizeJobLocations([...rows].reverse());
+  const keyOf = (x) => `${x.country_code}|${x.region_code}|${x.city_key}`;
+  assert.deepEqual(forward.map(keyOf).sort(), reversed.map(keyOf).sort());
+  for (const junk of [{}, { city: 42 }, { city: {}, region: [], country: false }, { city: '\u0000' }]) {
+    assert.ok(normalizeJobLocations([junk]).length > 0);
+  }
   assert.equal(normalizeJobLocations(undefined).length, 1);
 });
