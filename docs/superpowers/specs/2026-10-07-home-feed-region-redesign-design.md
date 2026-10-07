@@ -82,6 +82,8 @@ Matching, following LinkedIn:
 - selecting a city returns jobs in that city;
 - Remote is a separate toggle, not a place. Remote jobs with a known country also appear under that country when Remote is off.
 
+A city is identified by (country, region, city). A city with no region means the unregioned city (region `''`), which is how cities of countries without regions (Berlin, London) are stored; the API binds that empty region, so a city never returns rows from other regions and its count matches its list.
+
 Jobs with no known country (`ZZ`) appear only when no place is selected, or when Remote is on and they are marked remote.
 
 ### 4. API
@@ -119,7 +121,7 @@ Header and layout follow LinkedIn: sticky top bar, no hero.
 Mobile: sticky search, pills scroll sideways, detail opens as a full-screen sheet.
 ```
 
-- Tokens: ink `#1d2226`, surface `#ffffff`, canvas `#f1f4f7`, line `#d9e0e7`, action blue `#0a66c2`, signal green `#12805c` used only for "autofill-ready". One typeface, Source Sans 3 (weights 400, 600, 700) with a system fallback. Sentence case.
+- Tokens: ink `#1d2226`, surface `#ffffff`, canvas `#f1f4f7`, line `#d9e0e7`, action blue `#0a66c2`, signal green `#0f7552` used only for "autofill-ready" (changed from #12805c: 4.46:1 on the selected-card canvas is below WCAG AA). One typeface, Source Sans 3 (weights 400, 600, 700) with a system fallback. Sentence case.
 - The memorable element is the autofill-ready mark on cards and the "Apply with autofill" primary action. Everything else stays quiet.
 - Default place: the user's saved preference if signed in, else the last choice (localStorage), else a guess from the browser timezone and locale, else United States. Cloudflare's trace endpoint is not available on `www`, so no server-side geo lookup is used.
 - Loading: an inline script in `index.html` starts the first-page request for the likely default place immediately, so it overlaps the JS download and the app consumes the in-flight request. Skeleton cards show until data arrives; a background refresh never blanks a visible list.

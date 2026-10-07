@@ -28,7 +28,7 @@
 - Redis errors fall through to the database and never fail the request.
 - Normaliser accuracy gate: at least 95% agreement on a 300-row hand-labelled sample before the place filter is enabled.
 - Unknown location is `ZZ`, never a guess. `ZZ` jobs appear only with no place selected, or with Remote on when the job is remote.
-- Design tokens: ink `#1d2226`, surface `#ffffff`, canvas `#f1f4f7`, line `#d9e0e7`, action blue `#0a66c2`, signal green `#12805c` (autofill-ready only). One typeface: Source Sans 3, weights 400, 600, 700, system fallback. Sentence case.
+- Design tokens: ink `#1d2226`, surface `#ffffff`, canvas `#f1f4f7`, line `#d9e0e7`, action blue `#0a66c2`, signal green `#0f7552` (autofill-ready only; was #12805c, which measured 4.46:1 on the selected-card canvas, below WCAG AA). One typeface: Source Sans 3, weights 400, 600, 700, system fallback. Sentence case.
 - Copy: primary action "Apply with autofill"; empty state "No jobs match. Try a wider place or turn off filters."; errors say what failed and offer Retry.
 - No hardcoded job, company or remote counts anywhere on the page; the hero card is removed.
 - `elevate-careers-api` auto-deploys on every push to `main` (GitHub Actions `fly-deploy.yml`). Work lands on feature branches and PRs; merging to `main` is the deploy.
@@ -64,7 +64,7 @@ Backend (repo root `src/`):
 | `src/services/normalizer.js` (modify) | Call `syncJobFeed` after create/update; `deactivateInFeed` on expiry |
 | `src/api/server.js` (modify) | Mount `/v2` and `/ingest/rebuild-geo-places` |
 | `supabase/migrations/20261008000000_job_feed.sql` (new) | `job_feed`, `geo_place` tables |
-| `supabase/migrations/20261008000100_job_feed_indexes.sql` (new) | Indexes, applied statement by statement with `CONCURRENTLY` |
+| `supabase/manual/20261008000100_job_feed_indexes.sql` (new) | Indexes, applied statement by statement with `CONCURRENTLY` |
 | `supabase/migrations/20261009000000_admin_feed_health.sql` (new) | Admin function for feed reconciliation |
 | `scripts/backfill-job-feed.js`, `scripts/feed-accuracy-sample.js`, `scripts/feed-accuracy-check.js`, `scripts/explain-feed.js` (new) | Backfill, accuracy gate, plan check |
 
@@ -529,7 +529,7 @@ git commit -m "feat(feed): build job_feed rows with representative-row flags"
 -- supabase/migrations/20261008000000_job_feed.sql
 -- Read model for the home feed. One row per (job, country, region, city) with
 -- everything a list card needs, so a feed page is one index range scan.
--- Indexes are created separately (20261008000100_job_feed_indexes.sql) after
+-- Indexes are created separately (supabase/manual/20261008000100_job_feed_indexes.sql) after
 -- the backfill, with CONCURRENTLY.
 create table if not exists public.job_feed (
   job_id bigint not null,
@@ -1134,7 +1134,7 @@ git commit -m "feat(feed): backfill script and normaliser accuracy gate"
 ### Task 6: Indexes, geo places, and the plan check
 
 **Files:**
-- Create: `supabase/migrations/20261008000100_job_feed_indexes.sql`
+- Create: `supabase/manual/20261008000100_job_feed_indexes.sql`
 - Create: `src/services/geoPlace.js`, `src/services/geoPlace.test.js`
 
 **Interfaces:**
@@ -1147,7 +1147,7 @@ git commit -m "feat(feed): backfill script and normaliser accuracy gate"
 - [ ] **Step 1: Write the index file**
 
 ```sql
--- supabase/migrations/20261008000100_job_feed_indexes.sql
+-- supabase/manual/20261008000100_job_feed_indexes.sql
 -- Run each statement on its own (CREATE INDEX CONCURRENTLY cannot run in a
 -- transaction), off-peak, AFTER the backfill. Safe to re-run.
 create index concurrently if not exists idx_feed_primary
@@ -1328,7 +1328,7 @@ In the Supabase SQL editor or via MCP `execute_sql`, run each `create index conc
 Check the indexes exist: `select indexname from pg_indexes where tablename = 'job_feed'` must list all five plus the primary key.
 
 ```bash
-git add supabase/migrations/20261008000100_job_feed_indexes.sql src/services/geoPlace.js src/services/geoPlace.test.js
+git add supabase/manual/20261008000100_job_feed_indexes.sql src/services/geoPlace.js src/services/geoPlace.test.js
 git commit -m "feat(feed): job_feed indexes and geo_place typeahead source"
 ```
 
@@ -3004,7 +3004,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
 /* job-aggregator-frontend/src/feed/feed.css */
 .feed-page {
   --ink: #1d2226; --surface: #ffffff; --canvas: #f1f4f7; --line: #d9e0e7;
-  --blue: #0a66c2; --green: #12805c; --muted: #5e6b78;
+  --blue: #0a66c2; --green: #0f7552; --muted: #5e6b78;
   font-family: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: var(--ink); background: var(--canvas); min-height: 100vh;
 }
