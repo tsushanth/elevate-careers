@@ -211,8 +211,8 @@ async function renderAuth() {
     document.getElementById('onboarding').style.display = 'none';
     document.getElementById('profile-sections').style.display = 'block';
 
-    const stored = await chrome.storage.local.get('session');
-    const email = stored.session?.user?.email || 'signed in';
+    const { email: storedEmail } = await sw('GET_EMAIL');
+    const email = storedEmail || 'signed in';
 
     const bar = document.getElementById('auth-bar');
     bar.style.display = 'flex';

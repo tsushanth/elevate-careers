@@ -5,15 +5,40 @@ const SITE_URL = 'https://simplyappl.ai';
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 
-// Read Supabase session from the simplyappl.ai cookie (same flow as Simplify)
-async function getSessionFromCookie() {
+// The website's session, pushed by detect.js (access token only, never the
+// refresh token — see detect.js). Valid until the access token expires; once it
+// does we re-read from an open simplyappl.ai tab, else fall back to our own session.
+async function getValidWebSession() {
+  let { webSession } = await chrome.storage.local.get('webSession');
+  if (!isFresh(webSession)) webSession = await readWebSessionFromOpenTab();
+  return isFresh(webSession) ? webSession : null;
+}
+
+function isFresh(s) {
+  if (!s?.access_token) return false;
+  const exp = jwtExp(s.access_token);
+  return !exp || Date.now() / 1000 < exp - 60;
+}
+
+async function readWebSessionFromOpenTab() {
   try {
-    const cookieName = `sb-owvvrljdfnhntwedepkl-auth-token`;
-    const cookie = await chrome.cookies.get({ url: SITE_URL, name: cookieName });
-    if (!cookie?.value) return null;
-    const parsed = JSON.parse(decodeURIComponent(cookie.value));
-    return Array.isArray(parsed) ? parsed[0] : parsed;
-  } catch (_) { return null; }
+    const tabs = await chrome.tabs.query({ url: ['https://simplyappl.ai/*', 'https://www.simplyappl.ai/*'] });
+    for (const tab of tabs) {
+      const [{ result } = {}] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: key => {
+          try { const s = JSON.parse(localStorage.getItem(key)); return s?.access_token ? { access_token: s.access_token, email: s.user?.email || null } : null; }
+          catch (_) { return null; }
+        },
+        args: ['sb-owvvrljdfnhntwedepkl-auth-token'],
+      });
+      if (isFresh(result)) {
+        await chrome.storage.local.set({ webSession: result });
+        return result;
+      }
+    }
+  } catch (_) {}
+  return null;
 }
 
 // Get stored session from extension storage (fallback / cached)
@@ -32,28 +57,9 @@ function jwtExp(token) {
 }
 
 async function resolveToken() {
-  // 1. Try cookie from simplyappl.ai (user is signed in on the site)
-  const cookieSession = await getSessionFromCookie();
-  if (cookieSession?.access_token) {
-    await chrome.storage.local.set({ session: cookieSession });
-    const exp = jwtExp(cookieSession.access_token);
-    if (!exp || Date.now() / 1000 < exp - 60) return cookieSession.access_token;
-    // Cookie token is expired — fall through to try refresh with its refresh_token
-    if (cookieSession.refresh_token) {
-      try {
-        const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
-          body: JSON.stringify({ refresh_token: cookieSession.refresh_token }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          await chrome.storage.local.set({ session: data });
-          return data.access_token;
-        }
-      } catch (_) {}
-    }
-  }
+  // 1. Reuse the website's session if the user is signed in there.
+  const web = await getValidWebSession();
+  if (web) return web.access_token;
 
   // 2. Try cached session in storage
   const stored = await getStoredSession();
@@ -158,7 +164,7 @@ async function signOut() {
       headers: { 'Authorization': `Bearer ${token}`, 'apikey': SUPABASE_ANON_KEY },
     }).catch(() => {});
   }
-  await chrome.storage.local.remove('session');
+  await chrome.storage.local.remove(['session', 'webSession']);
 }
 
 // ── Message handler ───────────────────────────────────────────────────────────
@@ -174,6 +180,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.storage.local.get('session').then(({ session }) => {
       resolveToken().then(token => sendResponse({ signedIn: !!token, token, email: session?.user?.email }));
     });
+    return true;
+  }
+
+  if (msg.type === 'WEB_SESSION') {
+    if (msg.session?.access_token) chrome.storage.local.set({ webSession: msg.session });
+    else chrome.storage.local.remove('webSession');
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (msg.type === 'GET_EMAIL') {
+    chrome.storage.local.get(['session', 'webSession']).then(({ session, webSession }) =>
+      sendResponse({ email: webSession?.email || session?.user?.email || null }));
     return true;
   }
 
