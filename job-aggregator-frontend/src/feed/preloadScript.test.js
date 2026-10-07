@@ -30,7 +30,7 @@ const US = { place: { country: 'US', region: '', city: '' }, q: '', remote: fals
 test('the script exists in index.html', () => { expect(code).toBeTruthy(); });
 
 test('does nothing unless v2 is on', () => {
-  const r = run({});
+  const r = run({ v2Default: false });
   expect(r.calls).toEqual([]);
   expect(r.win.__feedPreload).toBeUndefined();
 });
