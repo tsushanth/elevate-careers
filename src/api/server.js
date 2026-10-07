@@ -88,6 +88,9 @@ app.use('/api/saved-jobs', savedJobsRoutes);
 
 import publicFunnelRoutes from '../routes/public-funnel.js';
 app.use('/api/public', publicFunnelRoutes);
+import feedRoutes, { ingestRouter as feedIngestRoutes } from '../routes/feed.js';
+app.use('/v2', feedRoutes);
+app.use('/ingest', feedIngestRoutes);
 
 // Fetch GitHub ATS datasets and populate discovered_company table
 app.post('/ingest/bootstrap-discovery', async (req, res) => {

@@ -1,0 +1,47 @@
+// Idempotent and resumable. Run while ingestion is idle or accept some contention.
+//   node scripts/backfill-job-feed.js [--from=0] [--batch=500] [--sleep=100]
+import { db } from '../src/db/index.js';
+import { syncJobFeedBatch } from '../src/services/jobFeed.js';
+
+const arg = (name, dflt) => {
+  const hit = process.argv.find(a => a.startsWith(`--${name}=`));
+  return hit ? Number(hit.split('=')[1]) : dflt;
+};
+
+// Validate arguments before any database connection
+let from = arg('from', 0);
+const batch = arg('batch', 500);
+const sleepMs = arg('sleep', 100);
+
+if (Number.isNaN(from) || from < 0) {
+  console.error('Error: --from must be a non-negative number');
+  process.exit(2);
+}
+if (Number.isNaN(batch) || batch < 1) {
+  console.error('Error: --batch must be a positive number');
+  process.exit(2);
+}
+if (Number.isNaN(sleepMs) || sleepMs < 0) {
+  console.error('Error: --sleep must be a non-negative number');
+  process.exit(2);
+}
+
+let written = 0;
+try {
+  for (;;) {
+    const { rows } = await db.query(
+      'SELECT id::int AS id FROM job WHERE id > $1 AND is_active ORDER BY id LIMIT $2', [from, batch]);
+    if (!rows.length) break;
+    written += await syncJobFeedBatch(db, rows.map(r => r.id));
+    from = rows[rows.length - 1].id;
+    console.log(`last id ${from}, rows written so far ${written}`);
+    await new Promise(r => setTimeout(r, sleepMs));
+  }
+} catch (err) {
+  console.error(`backfill failed: ${err.message}`);
+  console.error(`failed after last id ${from}; resume with --from=${from}`);
+  await db.close().catch(() => {});
+  process.exit(1);
+}
+console.log(`done. rows written: ${written}`);
+await db.close();

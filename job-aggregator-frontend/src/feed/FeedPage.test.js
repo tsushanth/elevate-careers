@@ -1,0 +1,344 @@
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import FeedPage from './FeedPage';
+import { useFeed } from './useFeed';
+import { fetchStats, fetchSuggest } from './feedApi';
+import { guessPlace, savePlace as savePlaceSpy } from './place';
+
+jest.mock('./useFeed');
+jest.mock('./feedApi');
+jest.mock('./place', () => {
+  const actual = jest.requireActual('./place');
+  return {
+    ...actual,
+    guessPlace: jest.fn(),
+    savePlace: jest.fn(),
+  };
+});
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+const job = (id, over = {}) => ({
+  id, title: `Job ${id}`, company_name: 'Acme', city: 'Austin', region_code: 'TX', country: 'United States',
+  country_code: 'US', remote: false, autofill_ready: true, posted_at: new Date().toISOString(), ...over,
+});
+
+const baseFeed = () => ({
+  jobs: [], nextCursor: null, count: null, countIsCapped: false, loading: false, loadingMore: false,
+  error: null, loaded: true, loadMore: jest.fn(), retry: jest.fn(),
+});
+
+let feed;
+let container;
+let root;
+let onSelectJob;
+
+async function mount(props = {}) {
+  await act(async () => {
+    root.render(
+      <FeedPage apiBase="http://api" session={null} selectedJob={null} onSelectJob={onSelectJob}
+        detail={<div>DETAIL</div>} extensionUrl="http://ext" {...props} />
+    );
+  });
+}
+
+const text = () => container.textContent;
+const button = (label) => [...container.querySelectorAll('button')].find(b => b.textContent === label);
+
+beforeEach(() => {
+  localStorage.clear();
+  // CRA sets resetMocks, so implementations are installed per test.
+  guessPlace.mockImplementation(() => ({ country: 'US', region: '', city: '', label: 'United States' }));
+  savePlaceSpy.mockImplementation((p) => localStorage.setItem('sa_place', JSON.stringify(p)));
+  feed = baseFeed();
+  useFeed.mockImplementation(({ filters }) => ({ resultFilters: filters, ...feed }));
+  fetchStats.mockResolvedValue({ jobs: 1234, companies: 56, remote: 7 });
+  fetchSuggest.mockResolvedValue([]);
+  onSelectJob = jest.fn();
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(async () => {
+  await act(async () => { root.unmount(); });
+  container.remove();
+  jest.clearAllMocks();
+});
+
+const seedSaved = (p) => localStorage.setItem('sa_place', JSON.stringify(p));
+const lastFilters = () => useFeed.mock.calls[useFeed.mock.calls.length - 1][0].filters;
+
+test('before the first load completes skeletons show and no empty message', async () => {
+  feed = { ...baseFeed(), loaded: false, loading: true };
+  await mount();
+  expect(container.querySelector('.feed-skeleton')).not.toBeNull();
+  expect(text()).not.toContain('No jobs match');
+});
+
+test('loaded with zero jobs shows the empty copy', async () => {
+  await mount();
+  expect(text()).toContain('No jobs match. Try a wider place or turn off filters.');
+  expect(container.querySelector('.feed-skeleton')).toBeNull();
+});
+
+test('error shows message and Retry calls retry', async () => {
+  feed = { ...baseFeed(), error: new Error('x') };
+  await mount();
+  expect(text()).toContain("Couldn't load jobs.");
+  expect(text()).not.toContain('No jobs match');
+  await act(async () => { button('Retry').click(); });
+  expect(feed.retry).toHaveBeenCalledTimes(1);
+});
+
+test('cards render; Show more jobs only with a cursor, calls loadMore, shows Loading while loadingMore', async () => {
+  feed = { ...baseFeed(), jobs: [job(1), job(2)] };
+  await mount({ selectedJob: job(1) });
+  expect(container.querySelectorAll('.feed-card').length).toBe(2);
+  expect(button('Show more jobs')).toBeUndefined();
+
+  feed = { ...feed, nextCursor: 'c1' };
+  await mount({ selectedJob: job(1) });
+  await act(async () => { button('Show more jobs').click(); });
+  expect(feed.loadMore).toHaveBeenCalledTimes(1);
+
+  feed = { ...feed, loadingMore: true };
+  await mount({ selectedJob: job(1) });
+  expect(button('Loading…')).toBeDefined();
+  expect(button('Loading…').disabled).toBe(true);
+});
+
+test('heading shows count and place, with + when capped', async () => {
+  seedSaved({ country: 'US', region: '', city: '', label: 'United States' });
+  feed = { ...baseFeed(), jobs: [job(1)], count: 1234, countIsCapped: false };
+  await mount({ selectedJob: job(1) });
+  expect(container.querySelector('.feed-heading').textContent).toBe('1,234 jobs in United States');
+  feed = { ...feed, countIsCapped: true };
+  await mount({ selectedJob: job(1) });
+  expect(container.querySelector('.feed-heading').textContent).toBe('1,234+ jobs in United States');
+});
+
+test('clicking a card selects a mapped job and opens the mobile sheet; Back closes it', async () => {
+  feed = { ...baseFeed(), jobs: [job(1), job(2)] };
+  await mount({ selectedJob: job(1) });
+  const detail = container.querySelector('.feed-detail');
+  expect(detail.classList.contains('is-open')).toBe(false);
+  await act(async () => { container.querySelectorAll('.feed-card')[1].click(); });
+  expect(onSelectJob).toHaveBeenCalledTimes(1);
+  const arg = onSelectJob.mock.calls[0][0];
+  expect(arg.id).toBe(2);
+  expect(arg.cities).toEqual(['Austin']);
+  expect(arg.countries).toEqual(['United States']);
+  expect(detail.classList.contains('is-open')).toBe(true);
+  await act(async () => { button('Back to jobs').click(); });
+  expect(detail.classList.contains('is-open')).toBe(false);
+});
+
+test('first job is auto-selected once when nothing is selected, not when one is', async () => {
+  feed = { ...baseFeed(), jobs: [job(1), job(2)] };
+  await mount();
+  expect(onSelectJob).toHaveBeenCalledTimes(1);
+  expect(onSelectJob.mock.calls[0][0].id).toBe(1);
+  expect(onSelectJob.mock.calls[0][0].cities).toEqual(['Austin']);
+  await mount();
+  expect(onSelectJob).toHaveBeenCalledTimes(1);
+
+  onSelectJob.mockClear();
+  const jobs = [job(1), job(2)];
+  feed = { ...baseFeed(), jobs };
+  await mount({ selectedJob: job(2) });
+  expect(onSelectJob).not.toHaveBeenCalled();
+});
+
+test('a guessed place with zero jobs widens to everywhere', async () => {
+  await mount();
+  expect(lastFilters().place.country).toBe('');
+  expect(lastFilters().place.label).toBe('');
+});
+
+test('a saved place with zero jobs does not widen', async () => {
+  seedSaved({ country: 'DE', region: '', city: '', label: 'Germany' });
+  await mount();
+  expect(lastFilters().place.country).toBe('DE');
+  expect(text()).toContain('No jobs match');
+});
+
+test('a guessed place with jobs is kept', async () => {
+  feed = { ...baseFeed(), jobs: [job(1)], count: 1 };
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).not.toBe('');
+});
+
+test('stats line shows formatted real numbers', async () => {
+  await mount();
+  expect(text()).toContain('1,234 open jobs from 56 companies');
+});
+
+test('nothing is invented when stats fail', async () => {
+  fetchStats.mockRejectedValue(new Error('down'));
+  await mount();
+  expect(container.querySelector('.feed-stats')).toBeNull();
+  expect(text()).not.toContain('open jobs from');
+});
+
+// ---- fix round 1: widening rules and explicit place choice ----
+const setInput = (el, value) => {
+  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, value);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+};
+const placesSeen = () => {
+  const seen = [];
+  useFeed.mock.calls.forEach(([a]) => { if (!seen.includes(a.filters.place)) seen.push(a.filters.place); });
+  return seen;
+};
+const withJobs = () => ({ ...baseFeed(), jobs: [job(1)], count: 1 });
+
+test('guessed place + zero jobs + keyword does NOT widen', async () => {
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  await act(async () => { setInput(container.querySelector('input[type=search]'), 'rust'); });
+  await act(async () => { container.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(lastFilters().q).toBe('rust');
+  feed = baseFeed();
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('US');
+});
+
+test('guessed place + zero jobs + a pill on does NOT widen', async () => {
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  await act(async () => { button('Remote').click(); });
+  expect(lastFilters().remote).toBe(true);
+  feed = baseFeed();
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('US');
+});
+
+test('guessed place + zero jobs + no keyword/pills widens exactly once (no loop)', async () => {
+  await mount();
+  await mount();
+  const seen = placesSeen();
+  expect(seen.length).toBe(2);
+  expect(seen[0].country).toBe('US');
+  expect(seen[1].country).toBe('');
+  expect(container.querySelector('.feed-heading')).not.toBeNull();
+});
+
+test('choosing the same label as the guess saves it and later empty results do not widen', async () => {
+  fetchSuggest.mockResolvedValue([{ type: 'country', label: 'United States', country: 'US', region: '', city: '', count: 5 }]);
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  const input = container.querySelector('input[role=combobox]');
+  await act(async () => { input.focus(); setInput(input, 'Uni'); });
+  await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+  const opt = container.querySelector('[role=option]');
+  expect(opt).not.toBeNull();
+  await act(async () => { opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+  expect(savePlaceSpy).toHaveBeenCalledTimes(1);
+  expect(savePlaceSpy.mock.calls[0][0].label).toBe('United States');
+  feed = baseFeed();
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('US');
+});
+
+test('clearing the field is a user choice of everywhere (saved, no widen)', async () => {
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  const input = container.querySelector('input[role=combobox]');
+  await act(async () => { setInput(input, ''); });
+  expect(savePlaceSpy).toHaveBeenCalledTimes(1);
+  expect(savePlaceSpy.mock.calls[0][0].country).toBe('');
+  expect(lastFilters().place.country).toBe('');
+});
+
+test('combobox exposes active option id and only sets aria-controls while the list is shown', async () => {
+  fetchSuggest.mockResolvedValue([{ type: 'country', label: 'Canada', country: 'CA', region: '', city: '', count: 3 }]);
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  const input = container.querySelector('input[role=combobox]');
+  expect(input.hasAttribute('aria-controls')).toBe(false);
+  expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+  await act(async () => { input.focus(); setInput(input, 'Can'); });
+  await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+  const opt = container.querySelector('[role=option]');
+  expect(opt.id).toBeTruthy();
+  expect(input.getAttribute('aria-controls')).toBe('feed-place-list');
+  expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+  await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); });
+  expect(input.getAttribute('aria-activedescendant')).toBe(opt.id);
+});
+
+test('widen ignores a stale empty result: keyword cleared while the hook still holds the old refined result', async () => {
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  await act(async () => { setInput(container.querySelector('input[type=search]'), 'rust'); });
+  await act(async () => { container.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  const refined = lastFilters();
+  expect(refined.q).toBe('rust');
+  // refined query came back empty: no widen
+  useFeed.mockImplementation(() => ({ ...baseFeed(), resultFilters: refined }));
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('US');
+  // keyword cleared; the hook still reports the OLD empty result for the OLD filters
+  await act(async () => { setInput(container.querySelector('input[type=search]'), ''); });
+  await act(async () => { container.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(lastFilters().q).toBe('');
+  expect(lastFilters().place.country).toBe('US');
+  // the unrefined result lands (empty, for the current filters): now it widens, once
+  const current = lastFilters();
+  useFeed.mockImplementation(() => ({ ...baseFeed(), resultFilters: current }));
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('');
+  expect(placesSeen().filter(p => p.country === '').length).toBe(1);
+});
+
+test('Enter with no highlighted option chooses the first option (was: did nothing, leaving typed text that disagreed with the place)', async () => {
+  fetchSuggest.mockResolvedValue([{ type: 'country', label: 'Canada', country: 'CA', region: '', city: '', count: 3 }]);
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  const input = container.querySelector('input[role=combobox]');
+  await act(async () => { input.focus(); setInput(input, 'Can'); });
+  await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+  await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+  expect(savePlaceSpy).toHaveBeenCalledTimes(1);
+  expect(savePlaceSpy.mock.calls[0][0]).toMatchObject({ country: 'CA', label: 'Canada' });
+  expect(input.value).toBe('Canada');
+});
+
+describe('externalQuery (Growth tab links)', () => {
+  test('initial n=0 leaves q empty; a new n applies the keyword', async () => {
+    await mount({ externalQuery: { q: '', n: 0 } });
+    expect(lastFilters().q).toBe('');
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    expect(lastFilters().q).toBe('react');
+  });
+
+  test('re-rendering with the same n does not reset a q the user has since edited', async () => {
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    expect(lastFilters().q).toBe('react');
+    const input = container.querySelector('input');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'python');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    expect(lastFilters().q).not.toBe('react');
+  });
+
+  test('a new click (n=2) re-applies even the same keyword', async () => {
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    // the user changes the query away, via the controlled SearchBar callback path
+    const input = container.querySelector('input');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'go');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(lastFilters().q).toBe('go');
+    await mount({ externalQuery: { q: 'react', n: 2 } });
+    expect(lastFilters().q).toBe('react');
+  });
+});
