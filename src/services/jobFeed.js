@@ -40,11 +40,14 @@ export async function syncJobFeedBatch(db, jobIds) {
   if (rows.length) {
     const cols = JOB_FEED_COLUMNS.join(', ');
     const updates = JOB_FEED_COLUMNS.filter(c => !KEY_COLUMNS.includes(c)).map(c => `${c} = EXCLUDED.${c}`).join(', ');
+    // sort_at is stored with millisecond precision so the feed cursor (a JS ISO
+    // string) round-trips exactly against the keyset comparison.
+    const selectList = JOB_FEED_COLUMNS.map(c => (c === 'sort_at' ? "date_trunc('milliseconds', sort_at)" : c)).join(', ');
     // Upsert first, then delete stale rows, so readers never see a job with
     // fewer rows than it should have.
     await db.query(
       `INSERT INTO job_feed (${cols})
-       SELECT ${cols} FROM jsonb_to_recordset($1::jsonb) AS r(${RECORD_DEF})
+       SELECT ${selectList} FROM jsonb_to_recordset($1::jsonb) AS r(${RECORD_DEF})
        ON CONFLICT (job_id, country_code, region_code, city_key) DO UPDATE SET ${updates}`,
       [JSON.stringify(rows)]);
   }

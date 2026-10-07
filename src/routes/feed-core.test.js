@@ -137,3 +137,69 @@ test('suggest and stats', { skip }, async () => {
   assert.equal(st.body.jobs, 73);
   assert.equal(st.body.remote, 5);
 });
+
+const serve = async (router) => {
+  const app = express();
+  app.use('/v2', router);
+  const srv = http.createServer(app);
+  await new Promise(r => srv.listen(0, r));
+  return { srv, b: `http://127.0.0.1:${srv.address().port}/v2` };
+};
+
+test('geo suggest 500 is not publicly cacheable and is logged', { skip }, async () => {
+  const errors = [];
+  const { srv, b } = await serve(createFeedRouter({
+    db: { query: async () => { throw new Error('db down'); } },
+    cache: createFeedCache({ redis: null }),
+    getExclusions: async () => null,
+    logger: { warn() {}, error: (...a) => errors.push(a) },
+  }));
+  try {
+    const r = await fetch(b + '/geo/suggest?q=uni');
+    assert.equal(r.status, 500);
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0][0].error, 'db down');
+    const ok = await get('/geo/suggest?q=uni');
+    assert.equal(ok.headers.get('cache-control'), 'public, max-age=300');
+  } finally { srv.close(); }
+});
+
+test('feed 500 is logged with a generic response', { skip }, async () => {
+  const errors = [];
+  const { srv, b } = await serve(createFeedRouter({
+    db: { query: async () => { throw new Error('db down'); } },
+    cache: createFeedCache({ redis: null }),
+    getExclusions: async () => null,
+    logger: { warn() {}, error: (...a) => errors.push(a) },
+  }));
+  try {
+    const r = await fetch(b + '/jobs/feed?country=US');
+    assert.equal(r.status, 500);
+    assert.deepEqual(await r.json(), { error: 'Failed to load jobs' });
+    assert.equal(errors.length, 1);
+  } finally { srv.close(); }
+});
+
+test('getExclusions failure falls back to the anonymous feed', { skip }, async () => {
+  const warns = [];
+  const cache = createFeedCache({ redis: null });
+  const keys = [];
+  const spy = { ...cache, getOrLoad: (k, l) => { keys.push(k); return cache.getOrLoad(k, l); } };
+  const { srv, b } = await serve(createFeedRouter({
+    db: pool, cache: spy,
+    getExclusions: async () => { throw new Error('auth backend down'); },
+    logger: { warn: (...a) => warns.push(a), error() {} },
+  }));
+  try {
+    const r = await fetch(b + '/jobs/feed?country=US&limit=3', { headers: { authorization: 'Bearer x' } });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('x-exclusions'), 'unavailable');
+    assert.notEqual(r.headers.get('x-cache'), 'BYPASS');
+    assert.deepEqual((await r.json()).jobs.map(j => j.id), [1, 2, 3]);
+    assert.equal(keys.length, 1);
+    assert.ok(!keys[0].includes('u1'));
+    assert.equal(warns.length, 1);
+    assert.equal(warns[0][0].error, 'auth backend down');
+  } finally { srv.close(); }
+});

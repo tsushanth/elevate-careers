@@ -18,7 +18,7 @@ function toCard(row) {
   };
 }
 
-export function createFeedRouter({ db, cache, getExclusions }) {
+export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {}, error() {} } }) {
   const router = express.Router();
 
   // The page itself (rows, next cursor, count). Reused by the warmer.
@@ -28,6 +28,7 @@ export function createFeedRouter({ db, cache, getExclusions }) {
     const hasMore = rows.length > params.limit;
     const page = rows.slice(0, params.limit);
     const last = page[page.length - 1];
+    // Invariant: job_feed.sort_at is always written with millisecond precision (see jobFeed.js), so this cursor round-trips exactly.
     const nextCursor = hasMore && last ? encodeCursor(new Date(last.posted_at).toISOString(), Number(last.id)) : null;
 
     let count = null;
@@ -52,7 +53,16 @@ export function createFeedRouter({ db, cache, getExclusions }) {
     const parsed = parseFeedParams(req.query);
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
     try {
-      const exclusions = req.headers.authorization ? await getExclusions(req) : null;
+      let exclusions = null;
+      if (req.headers.authorization) {
+        try {
+          exclusions = await getExclusions(req);
+        } catch (e) {
+          // Auxiliary: serve the anonymous (cacheable) feed rather than failing.
+          logger.warn({ error: e.message }, 'getExclusions failed; serving anonymous feed');
+          res.set('X-Exclusions', 'unavailable');
+        }
+      }
       if (exclusions && (exclusions.dismissed.length || exclusions.excludedCompanies.length)) {
         // Per-user results are never shared through the cache.
         res.set('X-Cache', 'BYPASS');
@@ -62,15 +72,19 @@ export function createFeedRouter({ db, cache, getExclusions }) {
       res.set('X-Cache', status);
       return res.json(value);
     } catch (e) {
+      logger.error({ error: e.message }, 'feed load failed');
       return res.status(500).json({ error: 'Failed to load jobs' });
     }
   });
 
   router.get('/geo/suggest', async (req, res) => {
     try {
+      const places = await suggestPlaces(db, req.query.q);
       res.set('Cache-Control', 'public, max-age=300');
-      res.json({ places: await suggestPlaces(db, req.query.q) });
-    } catch {
+      res.json({ places });
+    } catch (e) {
+      logger.error({ error: e.message }, 'geo suggest failed');
+      res.set('Cache-Control', 'no-store');
       res.status(500).json({ error: 'Failed to load places' });
     }
   });
@@ -87,7 +101,9 @@ export function createFeedRouter({ db, cache, getExclusions }) {
       });
       res.set('Cache-Control', `public, max-age=${STATS_TTL_MS / 1000}`);
       res.json(value);
-    } catch {
+    } catch (e) {
+      logger.error({ error: e.message }, 'stats failed');
+      res.set('Cache-Control', 'no-store');
       res.status(500).json({ error: 'Failed to load stats' });
     }
   });

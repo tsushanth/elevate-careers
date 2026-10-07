@@ -20,8 +20,7 @@ before(async () => {
   await admin.query('DROP SCHEMA IF EXISTS job_feed_test CASCADE');
   await admin.query('CREATE SCHEMA job_feed_test');
   await admin.end();
-  pool = new pg.Pool({ connectionString: url, max: 2 });
-  pool.on('connect', c => c.query('SET search_path TO job_feed_test'));
+  pool = new pg.Pool({ connectionString: url, max: 2, options: '-c search_path=job_feed_test' });
   await pool.query(`
     CREATE TABLE company (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, domain TEXT, logo_domain TEXT, name_normalized TEXT);
     CREATE TABLE job (id BIGSERIAL PRIMARY KEY, company_id BIGINT REFERENCES company(id), provider TEXT,
@@ -42,7 +41,7 @@ const addJob = async (title, locs, over = {}) => {
   const { rows: [j] } = await pool.query(
     `INSERT INTO job (company_id, provider, apply_url, title, posted_at, is_active)
      VALUES (1, 'greenhouse', 'https://boards.greenhouse.io/acme/jobs/' || $1, $1, $2, $3) RETURNING id`,
-    [title, over.posted_at ?? '2026-10-01T00:00:00Z', over.is_active ?? true]);
+    [title, ('posted_at' in over ? over.posted_at : '2026-10-01T00:00:00Z'), over.is_active ?? true]);
   for (const l of locs) {
     await pool.query('INSERT INTO job_location (job_id, city, region, country) VALUES ($1,$2,$3,$4)', [j.id, l.city, l.region, l.country]);
   }
@@ -94,4 +93,14 @@ test('batch sync handles many jobs in one call', { skip }, async () => {
   const ids = [];
   for (let i = 0; i < 5; i++) ids.push(await addJob(`B${i}`, [{ city: 'Austin', region: 'TX', country: 'TX' }]));
   assert.equal(await syncJobFeedBatch(pool, ids), 5);
+});
+
+test('sort_at is stored with millisecond precision (cursor round-trips)', { skip }, async () => {
+  const id = await addJob('A-ms', [{ city: 'Austin', region: 'TX', country: 'US' }], { posted_at: null });
+  await pool.query("UPDATE job SET created_at = '2026-10-01 00:00:00.123456+00' WHERE id = $1", [id]);
+  await syncJobFeed(pool, id);
+  const { rows: [r] } = await pool.query(
+    'SELECT (extract(microseconds from sort_at)::bigint % 1000) AS sub, sort_at FROM job_feed WHERE job_id = $1', [id]);
+  assert.equal(Number(r.sub), 0);
+  assert.equal(r.sort_at.toISOString(), '2026-10-01T00:00:00.123Z');
 });
