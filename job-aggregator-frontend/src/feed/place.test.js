@@ -1,5 +1,13 @@
 import { guessPlace, placeFromSuggestion, EMPTY_PLACE, loadSavedPlace, savePlace } from './place';
 
+beforeEach(() => {
+  localStorage.clear();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 test('timezone decides the default country', () => {
   expect(guessPlace({ timeZone: 'America/New_York', languages: ['en-US'] }).country).toBe('US');
   expect(guessPlace({ timeZone: 'America/Toronto', languages: ['en-CA'] }).country).toBe('CA');
@@ -58,7 +66,6 @@ test('loadSavedPlace validates and coerces stored data', () => {
   // Test: corrupt JSON returns null
   const getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockReturnValueOnce('not json');
   expect(loadSavedPlace()).toBeNull();
-  getItemSpy.mockRestore();
 
   // Test: array returns null
   jest.spyOn(Storage.prototype, 'getItem').mockReturnValueOnce('[]');
@@ -73,8 +80,13 @@ test('loadSavedPlace validates and coerces stored data', () => {
   expect(loadSavedPlace()).toBeNull();
 
   // Test: setItem throws does not throw
-  jest.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('blocked'); });
+  const setItemSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('blocked'); });
   expect(() => savePlace({ country: 'GB' })).not.toThrow();
+  expect(setItemSpy).toHaveBeenCalled();
+});
 
-  jest.restoreAllMocks();
+test('loadSavedPlace coerces non-string fields to empty strings', () => {
+  // Test: non-string region/city/label coerced to empty string
+  jest.spyOn(Storage.prototype, 'getItem').mockReturnValueOnce('{"country":"US","region":5,"city":null,"label":7}');
+  expect(loadSavedPlace()).toEqual({ country: 'US', region: '', city: '', label: '' });
 });
