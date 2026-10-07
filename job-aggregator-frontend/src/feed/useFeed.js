@@ -46,7 +46,10 @@ export function useFeed({ apiBase, filters, token, preload }) {
   // Refetch from the top whenever the filters or the signed-in token change.
   useEffect(() => {
     run(false, '');
-    return () => { seq.current++; busyRef.current = false; abort.current?.abort(); };
+    // The cleanup intentionally bumps the counter to supersede in-flight requests,
+    // so it must read the live ref values, not values captured at effect time.
+    const seqRef = seq, busy = busyRef, ctl = abort;
+    return () => { seqRef.current++; busy.current = false; ctl.current?.abort(); };
   }, [run]);
 
   // Ignore load-more while a request is in flight: it would abort a pending

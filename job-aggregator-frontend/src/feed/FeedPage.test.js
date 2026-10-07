@@ -302,3 +302,41 @@ test('Enter with an out-of-range active option does nothing', async () => {
   await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
   expect(savePlaceSpy).not.toHaveBeenCalled();
 });
+
+describe('externalQuery (Growth tab links)', () => {
+  test('initial n=0 leaves q empty; a new n applies the keyword', async () => {
+    await mount({ externalQuery: { q: '', n: 0 } });
+    expect(lastFilters().q).toBe('');
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    expect(lastFilters().q).toBe('react');
+  });
+
+  test('re-rendering with the same n does not reset a q the user has since edited', async () => {
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    expect(lastFilters().q).toBe('react');
+    const input = container.querySelector('input');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'python');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    expect(lastFilters().q).not.toBe('react');
+  });
+
+  test('a new click (n=2) re-applies even the same keyword', async () => {
+    await mount({ externalQuery: { q: 'react', n: 1 } });
+    // the user changes the query away, via the controlled SearchBar callback path
+    const input = container.querySelector('input');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'go');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(lastFilters().q).toBe('go');
+    await mount({ externalQuery: { q: 'react', n: 2 } });
+    expect(lastFilters().q).toBe('react');
+  });
+});

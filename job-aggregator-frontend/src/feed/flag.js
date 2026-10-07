@@ -2,9 +2,11 @@
 export const FEED_V2_DEFAULT = false;
 
 export function isFeedV2Enabled(search, storage, defaultOn = FEED_V2_DEFAULT) {
-  const param = new URLSearchParams(search).get('feed');
+  const raw = new URLSearchParams(search).get('feed');
+  // Only v1/v2 count; anything else falls through to storage, then the default.
+  const param = raw === 'v1' || raw === 'v2' ? raw : null;
   try {
-    if (param === 'v2' || param === 'v1') { storage.setItem('sa_feed', param); }
+    if (param) { storage.setItem('sa_feed', param); }
     const v = param || storage.getItem('sa_feed');
     if (v === 'v2') return true;
     if (v === 'v1') return false;

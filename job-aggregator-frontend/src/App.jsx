@@ -31,6 +31,10 @@ function App() {
   const [selectedJob, setSelectedJob] = useState(() => {
     try { const s = sessionStorage.getItem('sa_selectedJob'); return s ? JSON.parse(s) : null; } catch { return null; }
   });
+  // Feed v2 flag. Hook position: top of the body so the effects below can read it.
+  const feedV2 = React.useMemo(() => isFeedV2Enabled(window.location.search, window.localStorage), []);
+  // Growth-tab skill/title click while v2 is on: FeedPage applies it as its keyword.
+  const [feedQuery, setFeedQuery] = useState({ q: '', n: 0 });
   const selectJob = (job) => {
     setSelectedJob(job);
     try { sessionStorage.setItem('sa_selectedJob', JSON.stringify(job)); } catch {}
@@ -141,6 +145,7 @@ function App() {
   }, [dismissMenuJobId]);
 
   useEffect(() => {
+    if (feedV2) return; // v2: the feed owns data loading; don't hit the old /jobs endpoints
     if (!sessionChecked) return; // wait for the real session before fetching
     setPage(0);
     fetchJobs(0);
@@ -215,7 +220,7 @@ function App() {
   };
 
   // Re-fetch when showApplied toggle changes
-  useEffect(() => { if (session) { setPage(0); fetchJobs(0); } }, [showApplied]); // eslint-disable-line
+  useEffect(() => { if (!feedV2 && session) { setPage(0); fetchJobs(0); } }, [showApplied]); // eslint-disable-line
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -225,6 +230,11 @@ function App() {
   // Jump to the Jobs tab pre-searched for a term — used by clickable
   // skills/titles in the Growth tab (skill gap path, AI-era opportunities).
   const searchJobs = (keyword) => {
+    if (feedV2) {
+      setActiveTab('jobs');
+      setFeedQuery(prev => ({ q: keyword, n: prev.n + 1 }));
+      return;
+    }
     setActiveTab('jobs');
     setFilters(prev => ({ ...prev, keyword }));
     setPage(0);
@@ -449,8 +459,6 @@ function App() {
             )}
           </div>
   );
-
-  const feedV2 = React.useMemo(() => isFeedV2Enabled(window.location.search, window.localStorage), []);
 
   return (
     <div className="app">
@@ -749,6 +757,7 @@ function App() {
           detail={renderJobDetail()}
           extensionUrl={EXTENSION_URL}
           preload={window.__feedPreload}
+          externalQuery={feedQuery}
         />
       )}
       {showAuthModal && (

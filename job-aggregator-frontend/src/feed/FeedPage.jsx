@@ -15,7 +15,7 @@ const toDetailJob = (card) => ({
   countries: card.country ? [card.country] : [],
 });
 
-export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, detail, extensionUrl, preload }) {
+export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, detail, extensionUrl, preload, externalQuery }) {
   const initial = useMemo(() => {
     const saved = loadSavedPlace();
     if (saved) return { place: saved, source: 'saved' };
@@ -27,6 +27,12 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const [pills, setPills] = useState({ remote: false, type: '', days: '' });
   const [stats, setStats] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);   // mobile: the detail pane as a full-screen sheet
+
+  // A new click on a Growth-tab skill/title (externalQuery.n increments) sets the keyword.
+  // Keyed on n only, so re-renders with the same n never override what the user typed.
+  const externalN = externalQuery?.n || 0;
+  const externalQ = externalQuery?.q || '';
+  useEffect(() => { if (externalN > 0) setQ(externalQ); }, [externalN]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filters = useMemo(() => ({ place, q, ...pills }), [place, q, pills]);
   const token = session?.access_token;

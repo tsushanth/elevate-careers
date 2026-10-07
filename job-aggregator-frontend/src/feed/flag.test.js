@@ -23,3 +23,14 @@ test('broken storage does not throw', () => {
   expect(isFeedV2Enabled('?feed=v2', bad, false)).toBe(true);
   expect(isFeedV2Enabled('', bad, true)).toBe(true);
 });
+
+test('an unrecognized ?feed= value falls through to storage, then the default', () => {
+  expect(isFeedV2Enabled('?feed=v3', store({ sa_feed: 'v2' }), false)).toBe(true);
+  expect(isFeedV2Enabled('?feed=v3', store(), false)).toBe(false);
+  expect(isFeedV2Enabled('?feed=v3', store(), true)).toBe(true);
+});
+
+test('getItem throwing while ?feed=v2 is still on', () => {
+  const bad = { getItem() { throw new Error('denied'); }, setItem() {} };
+  expect(isFeedV2Enabled('?feed=v2', bad, false)).toBe(true);
+});
