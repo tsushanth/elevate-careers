@@ -1,5 +1,7 @@
-// Prints ~300 rows to label by hand: proportional to the 20 most common raw
-// country values among active jobs, plus 60 from the long tail.
+// Usage: node scripts/feed-accuracy-sample.js > sample.csv
+// Prints ~300 rows to label by hand: stratified sampling. Takes 12 random rows from each of
+// the 20 most common raw country values among active jobs, plus 60 random rows from the long tail.
+// This tests per-value correctness of the normaliser, not population distribution.
 import { db } from '../src/db/index.js';
 
 const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;

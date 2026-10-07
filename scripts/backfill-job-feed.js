@@ -7,19 +7,40 @@ const arg = (name, dflt) => {
   const hit = process.argv.find(a => a.startsWith(`--${name}=`));
   return hit ? Number(hit.split('=')[1]) : dflt;
 };
+
+// Validate arguments before any database connection
 let from = arg('from', 0);
 const batch = arg('batch', 500);
 const sleepMs = arg('sleep', 100);
 
-let written = 0;
-for (;;) {
-  const { rows } = await db.query(
-    'SELECT id::int AS id FROM job WHERE id > $1 ORDER BY id LIMIT $2', [from, batch]);
-  if (!rows.length) break;
-  written += await syncJobFeedBatch(db, rows.map(r => r.id));
-  from = rows[rows.length - 1].id;
-  console.log(`last id ${from}, rows written so far ${written}`);
-  await new Promise(r => setTimeout(r, sleepMs));
+if (Number.isNaN(from) || from < 0) {
+  console.error('Error: --from must be a non-negative number');
+  process.exit(2);
 }
-console.log(`done. rows written: ${written}`);
-await db.close();
+if (Number.isNaN(batch) || batch < 1) {
+  console.error('Error: --batch must be a positive number');
+  process.exit(2);
+}
+if (Number.isNaN(sleepMs) || sleepMs < 0) {
+  console.error('Error: --sleep must be a non-negative number');
+  process.exit(2);
+}
+
+try {
+  let written = 0;
+  for (;;) {
+    const { rows } = await db.query(
+      'SELECT id::int AS id FROM job WHERE id > $1 ORDER BY id LIMIT $2', [from, batch]);
+    if (!rows.length) break;
+    written += await syncJobFeedBatch(db, rows.map(r => r.id));
+    from = rows[rows.length - 1].id;
+    console.log(`last id ${from}, rows written so far ${written}`);
+    await new Promise(r => setTimeout(r, sleepMs));
+  }
+  console.log(`done. rows written: ${written}`);
+  await db.close();
+} catch (err) {
+  console.error(`failed after last id ${from}; resume with --from=${from}`);
+  await db.close();
+  process.exit(1);
+}
