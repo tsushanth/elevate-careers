@@ -292,7 +292,7 @@ test('widen ignores a stale empty result: keyword cleared while the hook still h
   expect(placesSeen().filter(p => p.country === '').length).toBe(1);
 });
 
-test('Enter with an out-of-range active option does nothing', async () => {
+test('Enter with no highlighted option chooses the first option (was: did nothing, leaving typed text that disagreed with the place)', async () => {
   fetchSuggest.mockResolvedValue([{ type: 'country', label: 'Canada', country: 'CA', region: '', city: '', count: 3 }]);
   feed = withJobs();
   await mount({ selectedJob: job(1) });
@@ -300,7 +300,9 @@ test('Enter with an out-of-range active option does nothing', async () => {
   await act(async () => { input.focus(); setInput(input, 'Can'); });
   await act(async () => { await new Promise(r => setTimeout(r, 250)); });
   await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
-  expect(savePlaceSpy).not.toHaveBeenCalled();
+  expect(savePlaceSpy).toHaveBeenCalledTimes(1);
+  expect(savePlaceSpy.mock.calls[0][0]).toMatchObject({ country: 'CA', label: 'Canada' });
+  expect(input.value).toBe('Canada');
 });
 
 describe('externalQuery (Growth tab links)', () => {

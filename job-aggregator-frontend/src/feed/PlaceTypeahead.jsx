@@ -1,13 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { fetchSuggest } from './feedApi';
 import { placeFromSuggestion, EMPTY_PLACE } from './place';
 
-export default function PlaceTypeahead({ apiBase, place, onChange }) {
+// The box must never show text that disagrees with the place in use: Enter (or
+// the form's Search button, via ref.resolve()) with typed text picks the first
+// suggestion, or resets the text to the current place when there is none.
+const PlaceTypeahead = forwardRef(function PlaceTypeahead({ apiBase, place, onChange }, ref) {
   const [text, setText] = useState(place.label || '');
   const [options, setOptions] = useState([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const seq = useRef(0);
+  const latest = useRef({});
+  latest.current = { text, options };
 
   useEffect(() => { setText(place.label || ''); }, [place.label]);
 
@@ -26,10 +31,23 @@ export default function PlaceTypeahead({ apiBase, place, onChange }) {
 
   const choose = (opt) => { onChange(placeFromSuggestion(opt)); setText(opt.label); setOpen(false); };
 
+  // Returns true when it picked a suggestion (onChange has been called).
+  const resolve = () => {
+    const { text: typed, options: opts } = latest.current;
+    if (typed.trim() === (place.label || '')) return false;
+    if (opts.length) { choose(opts[0]); return true; }
+    setText(place.label || ''); setOpen(false);
+    return false;
+  };
+  useImperativeHandle(ref, () => ({ resolve }));
+
   const onKeyDown = (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, options.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
-    else if (e.key === 'Enter' && open && active >= 0 && active < options.length) { e.preventDefault(); choose(options[active]); }
+    else if (e.key === 'Enter') {
+      if (open && options.length) { e.preventDefault(); choose(options[active >= 0 && active < options.length ? active : 0]); }
+      else if (text.trim() !== (place.label || '')) { e.preventDefault(); resolve(); }
+    }
     else if (e.key === 'Escape') setOpen(false);
   };
 
@@ -57,4 +75,6 @@ export default function PlaceTypeahead({ apiBase, place, onChange }) {
       )}
     </div>
   );
-}
+});
+
+export default PlaceTypeahead;

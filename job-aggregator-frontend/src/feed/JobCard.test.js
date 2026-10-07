@@ -39,3 +39,11 @@ test('skeleton renders placeholder cards without text content', () => {
   expect(html).toContain('feed-skeleton');
   expect(html).toContain('aria-hidden="true"');
 });
+
+test('no age text when posted_at is missing or the 1970 epoch fallback', () => {
+  const epoch = renderToStaticMarkup(<JobCard job={card({ posted_at: '1970-01-01T00:00:00.000Z' })} selected={false} onSelect={() => {}} />);
+  expect(epoch).not.toMatch(/\d+d ago/);
+  expect(epoch).not.toContain('Today');
+  const missing = renderToStaticMarkup(<JobCard job={card({ posted_at: null })} selected={false} onSelect={() => {}} />);
+  expect(missing).not.toMatch(/\d+d ago/);
+});

@@ -5,6 +5,12 @@ function age(iso) {
   return d === 0 ? 'Today' : `${d}d ago`;
 }
 
+// sort_at falls back to the 1970 epoch when a job has no date: show no age then.
+function hasRealDate(iso) {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  return Number.isFinite(t) && t >= Date.UTC(2000, 0, 1);
+}
+
 function place(job) {
   const bits = [job.city, job.region_code, job.city ? null : job.country].filter(Boolean);
   return bits.length ? bits.join(', ') : '';
@@ -32,7 +38,7 @@ export default function JobCard({ job, selected, onSelect }) {
       </span>
       <span className="feed-card-foot">
         {job.autofill_ready && <span className="feed-autofill" title="The extension can autofill this application">Autofill</span>}
-        <span className="feed-card-age">{job.posted_at ? age(job.posted_at) : ''}</span>
+        <span className="feed-card-age">{hasRealDate(job.posted_at) ? age(job.posted_at) : ''}</span>
       </span>
     </button>
   );
