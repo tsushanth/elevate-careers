@@ -10,6 +10,90 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // Start the first page of jobs before the JS bundle has loaded. The app
+      // picks this request up (see src/feed/useFeed.js); if its place or filters
+      // differ, the app simply makes its own request. Mirrors isFeedV2Enabled()
+      // in src/feed/flag.js and guessPlace()/loadSavedPlace() in src/feed/place.js;
+      // keep them in step (preloadScript.test.js has a parity test).
+      (function () {
+        try {
+          if (location.pathname !== '/') return;
+          var pm = /(?:^|[?&])feed=([^&]*)/.exec(location.search || '');
+          var raw = null;
+          if (pm) { try { raw = decodeURIComponent(pm[1].replace(/\+/g, ' ')); } catch (e) {} }
+          var mode = raw === 'v1' || raw === 'v2' ? raw : null;
+          if (!mode) {
+            var stored = localStorage.getItem('sa_feed');
+            if (stored === 'v1' || stored === 'v2') mode = stored;
+          }
+          if (mode === 'v1') return;
+          if (mode !== 'v2' && !window.__FEED_V2_DEFAULT) return;
+
+          var country, region = '', city = '';
+          var saved = null;
+          try {
+            var p = JSON.parse(localStorage.getItem('sa_place') || 'null');
+            if (p && typeof p === 'object' && !Array.isArray(p) && typeof p.country === 'string') saved = p;
+          } catch (e) {}
+          if (saved) {
+            country = saved.country;
+            region = typeof saved.region === 'string' ? saved.region : '';
+            city = typeof saved.city === 'string' ? saved.city : '';
+          } else {
+            var supported = ['US', 'CA', 'GB', 'IE', 'IN', 'AU', 'NZ', 'DE', 'FR', 'ES', 'NL', 'SG', 'JP', 'AE', 'BR', 'MX'];
+            var canada = ['Toronto', 'Vancouver', 'Edmonton', 'Winnipeg', 'Halifax', 'St_Johns', 'Regina', 'Montreal', 'Calgary', 'Ottawa', 'Moncton', 'Whitehorse', 'Yellowknife', 'Iqaluit', 'Glace_Bay', 'Goose_Bay', 'Thunder_Bay', 'Nipigon', 'Rainy_River', 'Dawson', 'Dawson_Creek', 'Fort_Nelson', 'Swift_Current', 'Cambridge_Bay', 'Inuvik', 'Rankin_Inlet', 'Resolute', 'Atikokan', 'Blanc-Sablon', 'Creston'];
+            var mexico = ['Tijuana', 'Monterrey', 'Merida', 'Cancun', 'Chihuahua', 'Mazatlan', 'Hermosillo'];
+            var exact = {
+              'Europe/London': 'GB', 'Europe/Dublin': 'IE', 'Europe/Berlin': 'DE', 'Europe/Paris': 'FR',
+              'Europe/Madrid': 'ES', 'Europe/Amsterdam': 'NL', 'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN',
+              'Asia/Singapore': 'SG', 'Asia/Tokyo': 'JP', 'Asia/Dubai': 'AE', 'Pacific/Auckland': 'NZ',
+              'America/Sao_Paulo': 'BR', 'America/Mexico_City': 'MX'
+            };
+            var endsIn = function (tz, zones) {
+              for (var j = 0; j < zones.length; j++) {
+                var s = '/' + zones[j];
+                if (tz.length >= s.length && tz.slice(tz.length - s.length) === s) return true;
+              }
+              return false;
+            };
+            var tz = '';
+            try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+            country = null;
+            if (tz) {
+              if (Object.prototype.hasOwnProperty.call(exact, tz)) country = exact[tz];
+              else if (tz.indexOf('Australia/') === 0) country = 'AU';
+              else if (tz.indexOf('America/') === 0) country = endsIn(tz, canada) ? 'CA' : endsIn(tz, mexico) ? 'MX' : 'US';
+            }
+            var langs = navigator.languages || [];
+            for (var i = 0; i < langs.length && !country; i++) {
+              var m = /^[a-z]{2,3}(?:-[A-Za-z]{4})?-([A-Za-z]{2})(?:-|$)/.exec(langs[i]);
+              if (m && supported.indexOf(m[1].toUpperCase()) >= 0) country = m[1].toUpperCase();
+            }
+            country = country || 'US';
+          }
+
+          var qs = [];
+          if (country) qs.push('country=' + encodeURIComponent(country));
+          if (region) qs.push('region=' + encodeURIComponent(region));
+          if (city) qs.push('city=' + encodeURIComponent(city));
+          var url = 'https://elevate-careers-api.fly.dev/v2/jobs/feed' + (qs.length ? '?' + qs.join('&') : '');
+          var key = country + '|' + region + '|' + city;
+          var pending = fetch(url).then(function (r) {
+            if (!r.ok) throw new Error('preload ' + r.status);
+            return r.json();
+          });
+          pending.catch(function () {});   // never an unhandled rejection; the app falls back
+          window.__feedPreload = function (filters) {
+            var pl = (filters && filters.place) || {};
+            var k = (pl.country || '') + '|' + (pl.region || '') + '|' + (pl.city || '');
+            if (k !== key || filters.q || filters.remote || filters.type || filters.days) return undefined;
+            window.__feedPreload = undefined;   // one use only
+            return pending;
+          };
+        } catch (e) { /* preload is an optimisation only */ }
+      })();
+    </script>
     <title>SimplyApply — AI Job Autofill</title>
   </head>
   <body>
