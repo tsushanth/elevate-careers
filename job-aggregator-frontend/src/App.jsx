@@ -9,6 +9,8 @@ import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './Onb
 import ApplicationsTab from './ApplicationsTab';
 import GrowthTab from './GrowthTab';
 import './App.css';
+import FeedPage from './feed/FeedPage';
+import { isFeedV2Enabled } from './feed/flag';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf';
@@ -40,15 +42,24 @@ function App() {
       fetch(`${API_URL}/jobs/${job.id}`)
         .then(r => r.ok ? r.json() : null)
         .then(full => {
-          if (!full?.description_md) return;
+          // '' (not undefined) marks "fetched, none available" so the feed's
+          // detail pane can tell it apart from "still loading".
+          const md = full?.description_md || '';
           setSelectedJob(prev => {
             if (!prev || prev.id !== job.id) return prev;
-            const updated = { ...prev, description_md: full.description_md };
+            const updated = { ...prev, description_md: md };
             try { sessionStorage.setItem('sa_selectedJob', JSON.stringify(updated)); } catch {}
             return updated;
           });
         })
-        .catch(() => {});
+        .catch(() => {
+          setSelectedJob(prev => {
+            if (!prev || prev.id !== job.id) return prev;
+            const updated = { ...prev, description_md: '' };
+            try { sessionStorage.setItem('sa_selectedJob', JSON.stringify(updated)); } catch {}
+            return updated;
+          });
+        });
     }
   };
   // Only true while there's no cached list to show yet — a background
@@ -301,6 +312,146 @@ function App() {
     return <img src={src} alt={name} className={className} onError={() => setFailed(true)} />;
   };
 
+  const renderJobDetail = () => selectedJob && (
+          <div className="job-detail">
+            <div className="job-detail-header">
+              <div className="job-detail-company">
+                <CompanyLogo name={selectedJob.company_name} domain={selectedJob.company_logo_domain || selectedJob.company_domain} className="company-logo-large" />
+                <h2
+                  className="company-link"
+                  onClick={() => navigate(`/companies/${slugify(selectedJob.company_name)}`)}
+                >{selectedJob.company_name}</h2>
+              </div>
+              <button className="more-button">⋯</button>
+            </div>
+
+            <h1 className="job-detail-title">{selectedJob.title}</h1>
+
+            <div className="job-detail-meta">
+              <span>
+                {(selectedJob.cities?.[0] || selectedJob.countries?.[0])
+                  ? [selectedJob.cities?.[0], selectedJob.countries?.[0]].filter(Boolean).join(', ')
+                  : 'Location not specified'}
+              </span>
+              {selectedJob.posted_at && !isNaN(new Date(selectedJob.posted_at)) && (
+                <>
+                  <span>•</span>
+                  <span>
+                    Posted{' '}
+                    {Math.max(0, Math.floor(
+                      (Date.now() - new Date(selectedJob.posted_at)) / (1000 * 60 * 60 * 24)
+                    ))}{' '}
+                    days ago
+                  </span>
+                </>
+              )}
+              {/* feed v2 drops this claim: the data does not support it */}
+              {!feedV2 && <span>•</span>}
+              {!feedV2 && <span>Over 100 people clicked apply</span>}
+            </div>
+
+            <div className="job-detail-badges">
+              {formatSalary(selectedJob) && (
+                <span className="badge">{formatSalary(selectedJob)}</span>
+              )}
+              {selectedJob.remote && <span className="badge badge-remote">✓ Remote</span>}
+              {selectedJob.employment_type && (
+                <span className="badge">✓ {selectedJob.employment_type.replace('_', '-')}</span>
+              )}
+            </div>
+
+            <div className="job-detail-actions">
+              <button
+                className="apply-button"
+                disabled={seedingJob === selectedJob.id}
+                onClick={async () => {
+                  if (!session) { setShowAuthModal(true); return; }
+                  setSeedingJob(selectedJob.id);
+                  const url = new URL(selectedJob.apply_url);
+                  url.searchParams.set('sa_autofill', '1');
+                  window.open(url.toString(), '_blank', 'noopener,noreferrer');
+                  setPendingApply({
+                    id: `pending-${Date.now()}`,
+                    job_url: selectedJob.apply_url,
+                    job_title: selectedJob.title,
+                    company: selectedJob.company_name,
+                    status: 'opened',
+                    created_at: new Date().toISOString(),
+                  });
+                  markApplied(selectedJob.id);
+                  setSeedingJob(null);
+
+                  // Persist the application — without this it only lived in
+                  // local React state, so it vanished on refresh, never
+                  // counted toward appliedCount, and never got excluded from
+                  // future "Recommended for you" results.
+                  try {
+                    await fetch(`${API_URL}/api/ai-resume/applications/track`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                      body: JSON.stringify({
+                        jobUrl: selectedJob.apply_url,
+                        jobTitle: selectedJob.title,
+                        company: selectedJob.company_name,
+                      }),
+                    });
+                  } catch (e) {
+                    console.error('Failed to record application', e);
+                  }
+                }}
+              >
+                {seedingJob === selectedJob.id
+                  ? 'Opening…'
+                  : appliedJobIds.has(selectedJob.id) ? '✓ Applied — Apply again?' : (feedV2 ? 'Apply with autofill' : '⚡ Apply')} <ExternalLink size={16} />
+              </button>
+            </div>
+            {extensionInstalled ? (
+              <p className="hint-text">
+                ⚡ We'll auto-fill the form for you — just click Submit when ready.
+              </p>
+            ) : (
+              <p className="hint-text">
+                ⚡ Auto-fill requires the{' '}
+                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer">
+                  SimplyApply Chrome extension
+                </a>
+                {' '}— install it once, then click Apply.
+              </p>
+            )}
+
+            <div className="job-detail-description">
+              <h3>About the job</h3>
+              {selectedJob.description_md || selectedJob.description_excerpt ? (
+                <div
+                  className="description-content"
+                  dangerouslySetInnerHTML={{ __html: selectedJob.description_md || selectedJob.description_excerpt }}
+                />
+              ) : feedV2 && selectedJob.description_md === undefined ? (
+                // feed v2 only: cards carry no excerpt, so undefined means the
+                // lazy description_md fetch in selectJob is still in flight
+                <p>Loading description…</p>
+              ) : (
+                <p>No description available.</p>
+              )}
+            </div>
+
+            {selectedJob.skills && selectedJob.skills.length > 0 && (
+              <div className="job-skills">
+                <h3>Skills</h3>
+                <div className="skills-list">
+                  {selectedJob.skills.map((skill, index) => (
+                    <span key={index} className="skill-tag">
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+  );
+
+  const feedV2 = React.useMemo(() => isFeedV2Enabled(window.location.search, window.localStorage), []);
+
   return (
     <div className="app">
       {/* Header */}
@@ -340,7 +491,7 @@ function App() {
           which is a likely factor in the near-total post-signup drop-off. Stats are
           hardcoded from a 2026-08-17 DB snapshot — refresh periodically rather than
           wiring a live count endpoint, since this is a low-traffic marketing surface. */}
-      {!session && (
+      {!feedV2 && !session && (
         <div className="hero-card">
           <div className="hero-copy">
             <h2>309,000+ Real Jobs. One-Click Apply.</h2>
@@ -393,7 +544,7 @@ function App() {
       )}
 
       {/* Search Bar */}
-      {activeTab === 'jobs' && <>
+      {activeTab === 'jobs' && !feedV2 && <>
       <div className="search-section">
         <form onSubmit={handleSearch} className="search-form">
           <div className="search-input-group">
@@ -586,141 +737,20 @@ function App() {
           )}
         </div>
 
-        {/* Job Detail */}
-        {selectedJob && (
-          <div className="job-detail">
-            <div className="job-detail-header">
-              <div className="job-detail-company">
-                <CompanyLogo name={selectedJob.company_name} domain={selectedJob.company_logo_domain || selectedJob.company_domain} className="company-logo-large" />
-                <h2
-                  className="company-link"
-                  onClick={() => navigate(`/companies/${slugify(selectedJob.company_name)}`)}
-                >{selectedJob.company_name}</h2>
-              </div>
-              <button className="more-button">⋯</button>
-            </div>
-
-            <h1 className="job-detail-title">{selectedJob.title}</h1>
-
-            <div className="job-detail-meta">
-              <span>
-                {(selectedJob.cities?.[0] || selectedJob.countries?.[0])
-                  ? [selectedJob.cities?.[0], selectedJob.countries?.[0]].filter(Boolean).join(', ')
-                  : 'Location not specified'}
-              </span>
-              {selectedJob.posted_at && !isNaN(new Date(selectedJob.posted_at)) && (
-                <>
-                  <span>•</span>
-                  <span>
-                    Posted{' '}
-                    {Math.max(0, Math.floor(
-                      (Date.now() - new Date(selectedJob.posted_at)) / (1000 * 60 * 60 * 24)
-                    ))}{' '}
-                    days ago
-                  </span>
-                </>
-              )}
-              <span>•</span>
-              <span>Over 100 people clicked apply</span>
-            </div>
-
-            <div className="job-detail-badges">
-              {formatSalary(selectedJob) && (
-                <span className="badge">{formatSalary(selectedJob)}</span>
-              )}
-              {selectedJob.remote && <span className="badge badge-remote">✓ Remote</span>}
-              {selectedJob.employment_type && (
-                <span className="badge">✓ {selectedJob.employment_type.replace('_', '-')}</span>
-              )}
-            </div>
-
-            <div className="job-detail-actions">
-              <button
-                className="apply-button"
-                disabled={seedingJob === selectedJob.id}
-                onClick={async () => {
-                  if (!session) { setShowAuthModal(true); return; }
-                  setSeedingJob(selectedJob.id);
-                  const url = new URL(selectedJob.apply_url);
-                  url.searchParams.set('sa_autofill', '1');
-                  window.open(url.toString(), '_blank', 'noopener,noreferrer');
-                  setPendingApply({
-                    id: `pending-${Date.now()}`,
-                    job_url: selectedJob.apply_url,
-                    job_title: selectedJob.title,
-                    company: selectedJob.company_name,
-                    status: 'opened',
-                    created_at: new Date().toISOString(),
-                  });
-                  markApplied(selectedJob.id);
-                  setSeedingJob(null);
-
-                  // Persist the application — without this it only lived in
-                  // local React state, so it vanished on refresh, never
-                  // counted toward appliedCount, and never got excluded from
-                  // future "Recommended for you" results.
-                  try {
-                    await fetch(`${API_URL}/api/ai-resume/applications/track`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-                      body: JSON.stringify({
-                        jobUrl: selectedJob.apply_url,
-                        jobTitle: selectedJob.title,
-                        company: selectedJob.company_name,
-                      }),
-                    });
-                  } catch (e) {
-                    console.error('Failed to record application', e);
-                  }
-                }}
-              >
-                {seedingJob === selectedJob.id
-                  ? 'Opening…'
-                  : appliedJobIds.has(selectedJob.id) ? '✓ Applied — Apply again?' : '⚡ Apply'} <ExternalLink size={16} />
-              </button>
-            </div>
-            {extensionInstalled ? (
-              <p className="hint-text">
-                ⚡ We'll auto-fill the form for you — just click Submit when ready.
-              </p>
-            ) : (
-              <p className="hint-text">
-                ⚡ Auto-fill requires the{' '}
-                <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer">
-                  SimplyApply Chrome extension
-                </a>
-                {' '}— install it once, then click Apply.
-              </p>
-            )}
-
-            <div className="job-detail-description">
-              <h3>About the job</h3>
-              {selectedJob.description_md || selectedJob.description_excerpt ? (
-                <div
-                  className="description-content"
-                  dangerouslySetInnerHTML={{ __html: selectedJob.description_md || selectedJob.description_excerpt }}
-                />
-              ) : (
-                <p>No description available.</p>
-              )}
-            </div>
-
-            {selectedJob.skills && selectedJob.skills.length > 0 && (
-              <div className="job-skills">
-                <h3>Skills</h3>
-                <div className="skills-list">
-                  {selectedJob.skills.map((skill, index) => (
-                    <span key={index} className="skill-tag">
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {renderJobDetail()}
       </div>
       </>}
+      {activeTab === 'jobs' && feedV2 && (
+        <FeedPage
+          apiBase={API_URL}
+          session={session}
+          selectedJob={selectedJob}
+          onSelectJob={selectJob}
+          detail={renderJobDetail()}
+          extensionUrl={EXTENSION_URL}
+          preload={window.__feedPreload}
+        />
+      )}
       {showAuthModal && (
         <AuthModal
           onSuccess={(s, isNewUser) => {
