@@ -1,12 +1,21 @@
 // Stale-while-revalidate cache with request coalescing. Every Redis call is
-// wrapped: on any error we behave as if the cache were empty.
-export function createFeedCache({ redis, ttlMs = 60_000, staleMs = 300_000, now = Date.now, prefix = 'feed:v2:' }) {
+// wrapped: on any error we behave as if the cache were empty. On a cache miss,
+// the write is not awaited on the request path (fired in background to avoid blocking).
+// Reads are raced against readTimeoutMs: if redis.get doesn't resolve in time, treated as miss.
+export function createFeedCache({ redis, ttlMs = 60_000, staleMs = 300_000, now = Date.now, prefix = 'feed:v2:', readTimeoutMs = 100 }) {
   const inflight = new Map();
 
   async function read(key) {
     if (!redis) return null;
     try {
-      const raw = await redis.get(prefix + key);
+      let timer;
+      const racePromise = Promise.race([
+        redis.get(prefix + key).finally(() => clearTimeout(timer)),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('read timeout')), readTimeoutMs);
+        }),
+      ]);
+      const raw = await racePromise;
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       return typeof parsed?.t === 'number' ? parsed : null;
@@ -20,7 +29,7 @@ export function createFeedCache({ redis, ttlMs = 60_000, staleMs = 300_000, now 
 
   function load(key, loader) {
     if (inflight.has(key)) return inflight.get(key);
-    const p = (async () => { const v = await loader(); await write(key, v); return v; })()
+    const p = (async () => { const v = await loader(); write(key, v).catch(() => {}); return v; })()
       .finally(() => inflight.delete(key));
     inflight.set(key, p);
     return p;
