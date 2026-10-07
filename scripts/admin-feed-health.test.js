@@ -3,8 +3,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import pg from 'pg';
 
-const URL_ = process.env.TEST_DATABASE_URL;
+// DB-backed test for simplyapply_admin_feed_health().
+// SAFETY: it drops/creates the database admin_feed_health_test and creates the
+// cluster-wide roles anon/authenticated if missing, so it only runs against a
+// local server (127.0.0.1, localhost, ::1); any other TEST_DATABASE_URL skips
+// the DB tests. The roles persist in the throwaway container (harmless).
 const DB = 'admin_feed_health_test';
+
+export function isLocalTestUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  let host;
+  try { host = new URL(url).hostname; } catch { return false; }
+  host = host.replace(/^\[|\]$/g, '');
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+const RAW_URL = process.env.TEST_DATABASE_URL;
+const URL_ = isLocalTestUrl(RAW_URL) ? RAW_URL : undefined;
 const root = new URL('..', import.meta.url);
 const read = (p) => fs.readFileSync(new URL(p, root), 'utf8');
 
@@ -74,7 +89,6 @@ before(async () => {
     insert into public.geo_place (type, label, name_key, country_code) values
       ('country', 'United States', 'united states', 'US'),
       ('country', 'United Kingdom', 'united kingdom', 'GB');
-    analyze public.job_feed;
   `);
 });
 
@@ -86,9 +100,30 @@ after(async () => {
   await admin.end();
 });
 
-const skip = URL_ ? false : 'TEST_DATABASE_URL not set';
+const skip = URL_ ? false
+  : (RAW_URL ? 'TEST_DATABASE_URL is not a local server (127.0.0.1, localhost, ::1); refusing to run' : 'TEST_DATABASE_URL not set');
+
+test('isLocalTestUrl only allows local servers', () => {
+  assert.equal(isLocalTestUrl('postgresql://postgres:test@127.0.0.1:54329/postgres'), true);
+  assert.equal(isLocalTestUrl('postgresql://postgres:test@localhost:5432/postgres'), true);
+  assert.equal(isLocalTestUrl('postgresql://postgres:test@[::1]:5432/postgres'), true);
+  assert.equal(isLocalTestUrl('postgresql://postgres:pw@db.example.supabase.co:5432/postgres'), false);
+  assert.equal(isLocalTestUrl('postgresql://postgres:pw@127.0.0.1.evil.com/postgres'), false);
+  assert.equal(isLocalTestUrl(undefined), false);
+  assert.equal(isLocalTestUrl(''), false);
+  assert.equal(isLocalTestUrl('not a url'), false);
+});
+
+// Must run before anything analyzes job_feed: reltuples is -1 on PG14+ here.
+test('feed_rows is never negative on a never-analyzed table', { skip }, async () => {
+  const { rows } = await pool.query(`select reltuples from pg_class where oid = 'public.job_feed'::regclass`);
+  assert.ok(Number(rows[0].reltuples) <= 0, 'fixture precondition: not analyzed yet');
+  const h = await callAs(ADMIN);
+  assert.ok(h.feed_rows >= 0, `feed_rows was ${h.feed_rows}`);
+});
 
 test('an admin gets the reconciliation counts', { skip }, async () => {
+  await pool.query('analyze public.job_feed');
   const h = await callAs(ADMIN);
   assert.deepEqual(Object.keys(h).sort(),
     ['active_jobs_missing_from_feed', 'feed_rows', 'inactive_job_active_in_feed', 'places', 'unknown_location_jobs']);

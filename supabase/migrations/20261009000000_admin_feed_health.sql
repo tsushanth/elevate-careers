@@ -17,7 +17,8 @@ begin
   if not coalesce(v_ok, false) then raise exception 'not found' using errcode = 'P0002'; end if;
 
   return jsonb_build_object(
-    'feed_rows', (select reltuples::bigint from pg_class where oid = 'public.job_feed'::regclass),
+    -- reltuples is -1 on PostgreSQL 14+ for a never-analyzed table; clamp so the card never shows -1.
+    'feed_rows', (select greatest(reltuples, 0)::bigint from pg_class where oid = 'public.job_feed'::regclass),
     'active_jobs_missing_from_feed', (
       select count(*) from (select id from job where is_active order by id desc limit 50000) j
       where not exists (select 1 from job_feed f where f.job_id = j.id)),
