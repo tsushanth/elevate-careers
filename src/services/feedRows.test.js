@@ -50,3 +50,13 @@ test('a job with no locations gets a single ZZ row; autofill flag follows the ap
   assert.equal(rows[0].apply_provider, null);
   assert.equal(buildFeedRows(job(), [])[0].autofill_ready, true);
 });
+
+test('sort_at falls back to Unix epoch when both posted_at and created_at are missing', () => {
+  const rows = buildFeedRows(job({ posted_at: null, created_at: null }), [{ city: 'Austin', region: 'TX', country: 'TX' }]);
+  assert.equal(new Date(rows[0].sort_at).toISOString(), '1970-01-01T00:00:00.000Z');
+});
+
+test('sort_at falls back to Unix epoch when created_at is undefined', () => {
+  const rows = buildFeedRows(job({ posted_at: null, created_at: undefined }), [{ city: 'Austin', region: 'TX', country: 'TX' }]);
+  assert.equal(new Date(rows[0].sort_at).toISOString(), '1970-01-01T00:00:00.000Z');
+});

@@ -35,7 +35,7 @@ export function buildFeedRows(job, locations) {
       region_code: regionCode,
       city_key: p.city_key,
       city: p.city,
-      sort_at: job.posted_at || job.created_at,
+      sort_at: job.posted_at || job.created_at || new Date(0).toISOString(),
       remote: !!job.remote,
       employment_type: job.employment_type || null,
       salary_min: job.salary_min ?? null,
