@@ -819,3 +819,14 @@
   .hero-card { flex-direction: column; align-items: flex-start; margin: 8px 12px 0; }
   .hero-stat:first-child { padding-left: 0; }
 }
+
+.auth-google {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 11px; margin-bottom: 14px;
+  background: #fff; color: #1f1f1f; border: 1px solid #00000033;
+  border-radius: 20px; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.auth-google:hover:not(:disabled) { background: #f5f5f5; }
+.auth-google:disabled { opacity: 0.6; cursor: not-allowed; }
+.auth-or { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; color: #666; font-size: 13px; }
+.auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: #0000001f; }

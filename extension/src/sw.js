@@ -109,6 +109,46 @@ async function signUp(email, password) {
   return data;
 }
 
+// Sign in with Google via Supabase OAuth (PKCE) in a browser auth popup.
+// Requires the "identity" permission, and chrome.identity.getRedirectURL()
+// to be in Supabase's allowed redirect URLs.
+function b64url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function signInWithGoogle() {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
+  const challenge = b64url(new Uint8Array(
+    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+  ));
+  const redirectTo = chrome.identity.getRedirectURL();
+  const authUrl = `${SUPABASE_URL}/auth/v1/authorize?` + new URLSearchParams({
+    provider: 'google',
+    redirect_to: redirectTo,
+    code_challenge: challenge,
+    code_challenge_method: 's256',
+    prompt: 'select_account',
+  });
+
+  const finalUrl = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
+  if (!finalUrl) throw new Error('Google sign-in was cancelled');
+  const u = new URL(finalUrl);
+  const err = u.searchParams.get('error_description') || u.searchParams.get('error');
+  if (err) throw new Error(err);
+  const code = u.searchParams.get('code');
+  if (!code) throw new Error('Google sign-in returned no code');
+
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=pkce`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || data.msg || 'Google sign-in failed');
+  await chrome.storage.local.set({ session: data });
+  return data;
+}
+
 // Sign out
 async function signOut() {
   const token = await resolveToken();
@@ -139,6 +179,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.type === 'SIGN_IN') {
     signIn(msg.email, msg.password)
+      .then(data => sendResponse({ ok: true, email: data.user?.email }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'SIGN_IN_GOOGLE') {
+    signInWithGoogle()
       .then(data => sendResponse({ ok: true, email: data.user?.email }))
       .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;

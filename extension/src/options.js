@@ -275,6 +275,17 @@ function wireOnboarding() {
 
   document.getElementById('ob-signin').onclick  = () => attempt('SIGN_IN');
   document.getElementById('ob-signup').onclick  = () => attempt('SIGN_UP');
+  document.getElementById('ob-google').onclick  = async () => {
+    msg.style.color = '#94a3b8';
+    msg.textContent = 'Opening Google…';
+    const r = await sw('SIGN_IN_GOOGLE');
+    if (r && r.ok) {
+      renderAuth();
+    } else {
+      msg.style.color = '#ef4444';
+      msg.textContent = r?.error || 'Google sign-in failed.';
+    }
+  };
 
   // Allow Enter key in password field
   document.getElementById('ob-pass').onkeydown = e => {
