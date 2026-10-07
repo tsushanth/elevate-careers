@@ -15,3 +15,11 @@ debug-shots/
 .fly-secrets*
 serviceAccountKey*.json
 .next/
+
+# Generated / local-only (do not track)
+node_modules/
+job-aggregator-frontend/build/
+extension/dist/
+supabase/.temp/
+design-loop/
+.DS_Store
