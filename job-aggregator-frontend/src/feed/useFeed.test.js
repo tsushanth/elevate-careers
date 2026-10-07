@@ -148,3 +148,71 @@ test('unmounting aborts the in-flight request', async () => {
   expect(signal.aborted).toBe(true);
   root = createRoot(container); // so afterEach can unmount cleanly
 });
+
+test('two loadMore calls in one tick request the cursor once', async () => {
+  fetchFeed.mockResolvedValueOnce(page([1], 'c1'));
+  await render({ apiBase: 'http://x', filters: F1, token: null });
+  const d = deferred();
+  fetchFeed.mockReturnValueOnce(d.promise);
+  await act(async () => { result.current.loadMore(); result.current.loadMore(); });
+  expect(fetchFeed).toHaveBeenCalledTimes(2);
+  expect(fetchFeed.mock.calls[1][1]).toMatchObject({ cursor: 'c1' });
+  await act(async () => { d.resolve(page([2])); });
+  expect(ids(result)).toEqual([1, 2]);
+});
+
+test('loadMore during a refresh does nothing', async () => {
+  fetchFeed.mockResolvedValueOnce(page([1], 'c1'));
+  await render({ apiBase: 'http://x', filters: F1, token: null });
+  const d = deferred();
+  fetchFeed.mockReturnValueOnce(d.promise);
+  await render({ apiBase: 'http://x', filters: F2, token: null });
+  await act(async () => { result.current.loadMore(); });
+  expect(fetchFeed).toHaveBeenCalledTimes(2);
+  await act(async () => { d.resolve(page([9])); });
+  expect(ids(result)).toEqual([9]);
+});
+
+test('loadMore guard is released after success and after an error', async () => {
+  fetchFeed.mockResolvedValueOnce(page([1], 'c1'));
+  await render({ apiBase: 'http://x', filters: F1, token: null });
+  fetchFeed.mockResolvedValueOnce(page([2], 'c2'));
+  await act(async () => { result.current.loadMore(); });
+  expect(ids(result)).toEqual([1, 2]);
+  fetchFeed.mockRejectedValueOnce(new Error('nope'));
+  await act(async () => { result.current.loadMore(); });
+  expect(result.current.error).toBe('nope');
+  expect(ids(result)).toEqual([1, 2]);
+  fetchFeed.mockResolvedValueOnce(page([3], null));
+  await act(async () => { result.current.loadMore(); });
+  expect(fetchFeed.mock.calls[3][1]).toMatchObject({ cursor: 'c2' });
+  expect(ids(result)).toEqual([1, 2, 3]);
+});
+
+test('a preload resolving after the run was superseded neither dispatches nor fetches', async () => {
+  const d = deferred();
+  const preload = jest.fn().mockReturnValue(d.promise);
+  fetchFeed.mockResolvedValueOnce(page([5]));
+  await render({ apiBase: 'http://x', filters: F1, token: null, preload });
+  await render({ apiBase: 'http://x', filters: F2, token: null, preload });
+  expect(fetchFeed).toHaveBeenCalledTimes(1);
+  expect(fetchFeed.mock.calls[0][1]).toMatchObject({ q: 'b' });
+  await act(async () => { d.resolve(page([1])); });
+  expect(fetchFeed).toHaveBeenCalledTimes(1);
+  expect(ids(result)).toEqual([5]);
+});
+
+test('a preload resolving after unmount does not dispatch', async () => {
+  const d = deferred();
+  const preload = jest.fn().mockReturnValue(d.promise);
+  const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+  await render({ apiBase: 'http://x', filters: F1, token: null, preload });
+  const before = result.current;
+  await act(async () => { root.unmount(); });
+  await act(async () => { d.resolve(page([1])); });
+  expect(fetchFeed).not.toHaveBeenCalled();
+  expect(result.current).toBe(before);
+  expect(err).not.toHaveBeenCalled();
+  err.mockRestore();
+  root = createRoot(container);
+});

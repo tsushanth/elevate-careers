@@ -48,3 +48,12 @@ test('error keeps existing jobs and records the message', () => {
   expect(s.error).toBe('Feed request failed (500)');
   expect(s.loading).toBe(false);
 });
+
+test('error after a load-more start keeps jobs and cursor and clears loadingMore', () => {
+  let s = feedReducer(initialFeedState, { type: 'success', append: false, data: page([1], 'c1') });
+  s = feedReducer(s, { type: 'start', append: true });
+  s = feedReducer(s, { type: 'error', message: 'x' });
+  expect(s.jobs.map(j => j.id)).toEqual([1]);
+  expect(s.nextCursor).toBe('c1');
+  expect(s.loadingMore).toBe(false);
+});

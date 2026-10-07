@@ -9,6 +9,7 @@ export function useFeed({ apiBase, filters, token, preload }) {
   const seq = useRef(0);
   const abort = useRef(null);
   const nextCursorRef = useRef(null);
+  // Synchronous in-flight flag for the current run (not derived from state).
   const busyRef = useRef(false);
   const usedPreload = useRef(false);
   // Captured at mount only. The inline script clears window.__feedPreload
@@ -16,12 +17,12 @@ export function useFeed({ apiBase, filters, token, preload }) {
   // change `run` and trigger a second fetch.
   const preloadRef = useRef(preload);
   nextCursorRef.current = state.nextCursor;
-  busyRef.current = state.loading || state.loadingMore;
 
   const run = useCallback(async (append, cursor) => {
     const mySeq = ++seq.current;
     if (abort.current) abort.current.abort();
     abort.current = new AbortController();
+    busyRef.current = true;
     dispatch({ type: 'start', append });
     try {
       let data;
@@ -32,9 +33,12 @@ export function useFeed({ apiBase, filters, token, preload }) {
       if (mySeq !== seq.current) return;   // superseded while the preload was pending
       if (!data) data = await fetchFeed(apiBase, { ...filters, cursor }, { signal: abort.current.signal, token });
       if (mySeq !== seq.current) return;   // a newer request superseded this one
+      busyRef.current = false;
       dispatch({ type: 'success', append, data });
     } catch (e) {
-      if (e.name === 'AbortError' || mySeq !== seq.current) return;
+      if (mySeq !== seq.current) return;
+      busyRef.current = false;
+      if (e.name === 'AbortError') return;
       dispatch({ type: 'error', message: e.message });
     }
   }, [apiBase, filters, token]);
@@ -42,7 +46,7 @@ export function useFeed({ apiBase, filters, token, preload }) {
   // Refetch from the top whenever the filters or the signed-in token change.
   useEffect(() => {
     run(false, '');
-    return () => { seq.current++; abort.current?.abort(); };
+    return () => { seq.current++; busyRef.current = false; abort.current?.abort(); };
   }, [run]);
 
   // Ignore load-more while a request is in flight: it would abort a pending
