@@ -66,3 +66,10 @@ test('submitting with an unchanged place just searches', async () => {
   await submit();
   expect(onSearch).toHaveBeenCalledWith('', CURRENT, false);
 });
+
+test('mousedown on the Search button does not pull focus off the place box (typed city survives a slow click)', async () => {
+  const btn = container.querySelector('button[type="submit"]');
+  const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+  await act(async () => { btn.dispatchEvent(ev); });
+  expect(ev.defaultPrevented).toBe(true);
+});

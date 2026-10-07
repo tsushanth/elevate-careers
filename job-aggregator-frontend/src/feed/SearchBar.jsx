@@ -17,7 +17,9 @@ export default function SearchBar({ apiBase, q, place, onSearch }) {
       <input type="search" aria-label="Job title, skill or company" placeholder="Title, skill or company"
         value={text} onChange={(e) => setText(e.target.value)} />
       <PlaceTypeahead ref={typeahead} apiBase={apiBase} place={pendingPlace} onChange={(p) => { setPendingPlace(p); onSearch(text.trim(), p, true); }} />
-      <button type="submit" className="feed-search-btn">Search</button>
+      {/* Keep focus in the place box on mousedown: otherwise the box blurs, its suggestions clear ~120 ms later, and a
+          slow click on Search finds no suggestion to pick (the typed city would be discarded). */}
+      <button type="submit" className="feed-search-btn" onMouseDown={(e) => e.preventDefault()}>Search</button>
     </form>
   );
 }
