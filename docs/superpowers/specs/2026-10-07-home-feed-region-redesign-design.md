@@ -35,24 +35,25 @@ The slowness and the region filter share one cause: location lives in a messy, u
 
 ### 1. Read model: `job_feed`
 
-One row per (job, place-country), holding everything a list card needs, so the feed query is a single index range scan with no joins or aggregation.
+One row per (job, country, region, city), holding everything a list card needs, so the feed query is a single index range scan with no joins or aggregation. Three flags mark one representative row per job (`is_primary`), per job and country (`is_country_primary`) and per job, country and region (`is_region_primary`), so broader views never list a job twice. A row per city is needed because a state or city filter would otherwise miss jobs that list several cities in one country.
 
 Columns (names indicative):
 
-- `job_id`, `country_code` (ISO-2, or `ZZ` when unknown), `region_code` (state or province), `city`
-- `posted_at`, `remote`, `employment_type`, `salary_min`, `salary_max`
-- card fields copied from `job` and `company`: `title`, `company_name`, `company_logo_domain`, `provider`, `apply_provider` (greenhouse, lever, ashby and so on)
+- `job_id`, `country_code` (ISO-2, or `ZZ` when unknown), `region_code` (state or province, empty string when none), `city_key` (lower-case city, empty string when none), `city`
+- `sort_at` (`posted_at`, or the job's `created_at` when it has none, so the sort key is never null), `remote`, `employment_type`, `salary_min`, `salary_max`, `salary_currency`
+- card fields copied from `job` and `company`: `title`, `company_name`, `company_key` (the normalised company name, for excluded-company filtering), `company_logo_domain`, `provider`, `apply_url` (so Apply works before the detail request returns), `apply_provider` (greenhouse, lever, ashby and so on)
 - `autofill_ready` (true when the apply link is on an ATS the extension supports)
 - `is_active`
 
 Indexes (created `CONCURRENTLY`, off-peak):
 
-- `(country_code, posted_at DESC, job_id DESC) WHERE is_active`
-- `(posted_at DESC, job_id DESC) WHERE is_active` for the worldwide view
-- `(country_code, region_code, posted_at DESC, job_id DESC) WHERE is_active`
-- a remote-only variant `(posted_at DESC, job_id DESC) WHERE is_active AND remote`
+- `(sort_at DESC, job_id DESC) WHERE is_active AND is_primary` for the worldwide view
+- `(sort_at DESC, job_id DESC) WHERE is_active AND is_primary AND remote` for worldwide Remote
+- `(country_code, sort_at DESC, job_id DESC) WHERE is_active AND is_country_primary`
+- `(country_code, region_code, sort_at DESC, job_id DESC) WHERE is_active AND is_region_primary`
+- `(country_code, region_code, city_key, sort_at DESC, job_id DESC) WHERE is_active`
 
-Jobs with several locations get one row per distinct country. A job with no resolvable country gets one row with `country_code = 'ZZ'`.
+Jobs with several locations get one row per distinct (country, region, city). A job with no resolvable country gets one row with `country_code = 'ZZ'`.
 
 Maintenance:
 
@@ -72,7 +73,7 @@ Acceptance check for the backfill: sample 300 rows across the top 20 raw values,
 
 ### 3. Places for the typeahead: `geo_place`
 
-A small table of selectable places (`name`, `type` = country, state or city, `country_code`, `region_code`, `job_count`), rebuilt from `job_feed` counts daily and after large ingests. Only places with at least one active job are included.
+A small table of selectable places (`label`, `name_key` for prefix matching, `type` = country, state or city, `country_code`, `region_code`, `city_key`, `job_count`), rebuilt from `job_feed` counts by the API process at start-up and then hourly. Cities appear only with at least three active jobs. Only places with at least one active job are included.
 
 Matching, following LinkedIn:
 
