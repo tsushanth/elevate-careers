@@ -34,22 +34,27 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
 
   useEffect(() => { fetchStats(apiBase).then(setStats).catch(() => {}); }, [apiBase]);
 
-  // A guessed (not chosen) place with no jobs widens to everywhere.
+  // A guessed (never chosen) place with no jobs widens to everywhere, at most once,
+  // and only when no keyword or filter could be the reason for the empty result.
+  const noRefinement = q === '' && !pills.remote && !pills.type && !pills.days;
   useEffect(() => {
-    if (feed.loaded && !feed.loading && placeSource === 'guess' && feed.jobs.length === 0 && !feed.error && place.country) {
+    if (feed.loaded && !feed.loading && !feed.error && feed.jobs.length === 0
+      && placeSource === 'guess' && noRefinement && place.country) {
       setPlace(EMPTY_PLACE);
+      setPlaceSource('widened');
     }
-  }, [feed.loaded, feed.loading, feed.jobs.length, feed.error, placeSource, place.country]);
+  }, [feed.loaded, feed.loading, feed.jobs.length, feed.error, placeSource, noRefinement, place.country]);
 
   // Select the first job once, so the detail pane is never empty on desktop.
   useEffect(() => {
     if (!selectedJob && feed.jobs.length > 0) onSelectJob(toDetailJob(feed.jobs[0]));
   }, [feed.jobs, selectedJob, onSelectJob]);
 
-  const onSearch = useCallback((nextQ, nextPlace) => {
+  // `chosen` is true when the place came from an explicit typeahead choice (including clearing it).
+  const onSearch = useCallback((nextQ, nextPlace, chosen) => {
     setQ(nextQ);
-    if (nextPlace.label !== place.label) { setPlace(nextPlace); setPlaceSource('user'); savePlace(nextPlace); }
-  }, [place.label]);
+    if (chosen) { setPlace(nextPlace); setPlaceSource('user'); savePlace(nextPlace); }
+  }, []);
 
   const choose = useCallback((job) => { onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
 

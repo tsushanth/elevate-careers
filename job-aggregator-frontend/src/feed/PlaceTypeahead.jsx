@@ -33,19 +33,22 @@ export default function PlaceTypeahead({ apiBase, place, onChange }) {
     else if (e.key === 'Escape') setOpen(false);
   };
 
+  const listShown = open && options.length > 0;
+
   return (
     <div className="feed-place">
       <input
-        type="text" role="combobox" aria-expanded={open && options.length > 0} aria-controls="feed-place-list"
+        type="text" role="combobox" aria-expanded={listShown} aria-controls={listShown ? 'feed-place-list' : undefined}
+        aria-activedescendant={listShown && options[active] ? `feed-place-opt-${active}` : undefined}
         aria-autocomplete="list" aria-label="Location" placeholder="City, state or country"
         value={text} autoComplete="off"
         onChange={(e) => { setText(e.target.value); setOpen(true); if (!e.target.value) onChange(EMPTY_PLACE); }}
         onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 120)} onKeyDown={onKeyDown}
       />
-      {open && options.length > 0 && (
+      {listShown && (
         <ul id="feed-place-list" role="listbox" className="feed-place-list">
           {options.map((o, i) => (
-            <li key={`${o.type}-${o.label}`} role="option" aria-selected={i === active}
+            <li key={`${o.type}-${o.label}`} id={`feed-place-opt-${i}`} role="option" aria-selected={i === active}
               className={i === active ? 'is-active' : ''} onMouseDown={() => choose(o)}>
               <span>{o.label}</span><span className="feed-place-count">{o.count.toLocaleString()}</span>
             </li>

@@ -1,17 +1,17 @@
 /* job-aggregator-frontend/src/feed/feed.css */
 .feed-page {
   --ink: #1d2226; --surface: #ffffff; --canvas: #f1f4f7; --line: #d9e0e7;
-  --blue: #0a66c2; --green: #12805c; --muted: #5e6b78;
+  --blue: #0a66c2; --blue-fill: #0a66c2; --on-blue: #ffffff; --green: #0f7552; --muted: #5e6b78;
   font-family: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: var(--ink); background: var(--canvas); min-height: 100vh;
 }
 @media (prefers-color-scheme: dark) {
-  .feed-page { --ink: #e6e9ec; --surface: #1b1f24; --canvas: #12161a; --line: #2b323a; --blue: #58a6ff; --green: #3fb98a; --muted: #9aa6b2; }
+  .feed-page { --ink: #e6e9ec; --surface: #1b1f24; --canvas: #12161a; --line: #2b323a; --blue: #58a6ff; --blue-fill: #58a6ff; --on-blue: #0d1117; --green: #3fb98a; --muted: #9aa6b2; }
 }
 .feed-top { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); padding: 10px 16px; }
 .feed-search { display: flex; gap: 8px; max-width: 1100px; margin: 0 auto; }
 .feed-search input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
-.feed-search-btn { padding: 9px 18px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.feed-search-btn { padding: 9px 18px; border: 0; border-radius: 6px; background: var(--blue-fill); color: var(--on-blue); font: inherit; font-weight: 600; cursor: pointer; }
 .feed-place { position: relative; flex: 1; display: flex; }
 .feed-place input { width: 100%; }
 .feed-place-list { position: absolute; top: 100%; left: 0; right: 0; margin: 4px 0 0; padding: 4px 0; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.12); z-index: 10; }
@@ -20,7 +20,7 @@
 .feed-place-count { color: var(--muted); font-size: 13px; }
 .feed-pills { display: flex; gap: 8px; max-width: 1100px; margin: 8px auto 0; overflow-x: auto; }
 .feed-pill { padding: 5px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
-.feed-pill.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.feed-pill.on { background: var(--blue-fill); border-color: var(--blue-fill); color: var(--on-blue); }
 .feed-clear { border: 0; background: none; color: var(--blue); font: inherit; font-size: 14px; cursor: pointer; }
 .feed-stats { max-width: 1100px; margin: 8px auto 0; font-size: 13px; color: var(--muted); }
 .feed-stats a { color: var(--blue); }
