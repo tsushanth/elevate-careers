@@ -3,7 +3,7 @@
 // The ingest parser stored "City, ST" with country repeating the state code,
 // "London, UK" with country "UK", and so on, so country is not reliable on
 // its own. Unresolvable input is ZZ ("unknown"), never a guess.
-import { matchCountryOrRegion } from './geo.js';
+import { matchCountryOrRegion, tokenizeLocation } from './geo.js';
 
 export const UNKNOWN_COUNTRY = 'ZZ';
 
@@ -41,7 +41,7 @@ const ISO_BY_DISPLAY = {
   Australia: 'AU', 'New Zealand': 'NZ', Azerbaijan: 'AZ', Kazakhstan: 'KZ', Russia: 'RU',
   Cyprus: 'CY', Moldova: 'MD', Armenia: 'AM', Belarus: 'BY', Slovakia: 'SK', Slovenia: 'SI',
   Lithuania: 'LT', Latvia: 'LV', Estonia: 'EE', Luxembourg: 'LU', Malta: 'MT', Iceland: 'IS',
-  'United States': 'US',
+  'United States': 'US', Georgia: 'GE',
 };
 
 export const COUNTRY_NAME_BY_ISO = Object.fromEntries(
@@ -78,45 +78,382 @@ const firstMatch = (tokens, fn) => {
   return null;
 };
 
+// ---------------------------------------------------------------------------
+// Feed-only dictionaries (kept here so geo.js and the older feed filter are untouched)
+// ---------------------------------------------------------------------------
+
+// R1: native-language / alternate country names, keyed accent-folded and lower-case.
+const EXTRA_COUNTRY_NAMES = {
+  nederland: 'NL', 'the netherlands': 'NL', belgie: 'BE', deutschland: 'DE', osterreich: 'AT',
+  schweiz: 'CH', suisse: 'CH', svizzera: 'CH', espana: 'ES', italia: 'IT', mexico: 'MX',
+  polska: 'PL', sverige: 'SE', norge: 'NO', danmark: 'DK', suomi: 'FI', turkiye: 'TR', eire: 'IE',
+  england: 'GB', scotland: 'GB', wales: 'GB', 'northern ireland': 'GB',
+};
+
+// R2: subnational names that identify exactly one country. Ambiguous ones
+// (Punjab, Georgia, Victoria, Mizoram...) are deliberately left out.
+const SUBNATIONAL_COUNTRY = {
+  ...Object.fromEntries([
+    'andhra pradesh', 'arunachal pradesh', 'assam', 'bihar', 'chhattisgarh', 'goa', 'gujarat', 'haryana',
+    'himachal pradesh', 'jharkhand', 'karnataka', 'kerala', 'madhya pradesh', 'maharashtra', 'manipur',
+    'meghalaya', 'odisha', 'rajasthan', 'sikkim', 'tamil nadu', 'telangana', 'tripura', 'uttar pradesh',
+    'uttarakhand', 'west bengal', 'delhi',
+  ].map(name => [name, 'IN'])),
+  leinster: 'IE', munster: 'IE', connacht: 'IE',
+};
+
+// R5: trailing words that identify a country on their own (case-sensitive; never "US").
+const TRAILING_COUNTRY_WORDS = { UK: 'GB', USA: 'US', UAE: 'AE' };
+const MIN_TRAILING_NAME_LENGTH = 5;
+const LIST_CONNECTORS = new Set(['or', 'and', '&', '+', 'and/or']);
+
+// R7: state names too ambiguous to infer a state from when nothing else is known.
+const AMBIGUOUS_STATE_NAMES = new Set(['georgia', 'washington']);
+// R7: names that are also major cities; a city-field piece with this name is the city, not a stated state.
+const CITY_NAMED_STATES = new Set(['washington', 'new york']);
+// R6: city names too ambiguous to trust as the first word of a longer piece.
+const AMBIGUOUS_LEAD_CITIES = new Set(['santiago']);
+// Words that carry no place information in front of a bare state code ("Remote - CA").
+const NOISE_PREFIXES = new Set(['remote', 'hybrid', 'onsite', 'on-site']);
+
+// Longer raw values are paragraphs, not places.
+const MAX_FIELD_LENGTH = 200;
+const NONE = Object.freeze({ iso: null, region: null });
+
+// ---------------------------------------------------------------------------
+// Module-scope regexes
+// ---------------------------------------------------------------------------
+const COMMA_RE = /\s*,\s*/;
+const SEGMENT_SPLIT_RE = /\s*[|;>/()]\s*/; // hard separators
+const SOFT_SPLIT_RE = /\s+-\s+|\s*:\s*/; // " - " and ":"
+// "NC 28025", "AZ: Gilbert", "CO - US": a state code first, then a ZIP / ':' / ' - '.
+const LEADING_CODE_RE = /^([A-Z]{2})(?=\s+\d{5}\b|\s*:|\s+-\s)/;
+const ZIP_AFTER_CODE_RE = /^[A-Z]{2}\s+\d{5}\b/;
+const TRAILING_PARENS_RE = /(\s*\([^)]*\))+\s*$/;
+const TRAILING_METRO_RE = /\s+metro(politan)?(\s+area)?$/i;
+const TRAILING_CODE_RE = /^(.*\S)\s+([A-Z]{2})$/;
+const NOISE_DASH_CODE_RE = /^(\S+)\s+-\s+([A-Z]{2})$/;
+const DC_DOTTED_RE = /^D\.C\.$/;
+const CAPS_WORD_RE = /^[A-Z]{2}$/;
+const HAS_DIGIT_RE = /\d/;
+const DIACRITICS_RE = /\p{M}/gu;
+
+// Memoised: fold() is called many times per row on the same few strings.
+const foldCache = new Map();
+function fold(s) {
+  let v = foldCache.get(s);
+  if (v === undefined) {
+    v = s.normalize('NFD').replace(DIACRITICS_RE, '').toLowerCase().trim();
+    if (foldCache.size > 5000) foldCache.clear();
+    foldCache.set(s, v);
+  }
+  return v;
+}
+
+// R1+R2: a whole token that names a country. Weak names (R1/R2 extras) are skipped for vetoed pieces.
+function countryFromAnyName(t, { weak = true } = {}) {
+  const iso = countryFromName(t);
+  if (iso || !weak) return iso;
+  const key = fold(t);
+  return EXTRA_COUNTRY_NAMES[key] || SUBNATIONAL_COUNTRY[key] || null;
+}
+
+// A dictionary city: { iso } (iso null when its country has no ISO entry), or null if not a city.
+function cityLookup(text) {
+  const m = matchCountryOrRegion(text);
+  return m && m.type === 'city' ? { iso: ISO_BY_DISPLAY[m.country] || null } : null;
+}
+
+// R6: the first one or two words of a longer piece, when the remainder carries no state/province/ZIP info.
+const remainderIsPlain = (words) => !words.some(w => CAPS_WORD_RE.test(w) || HAS_DIGIT_RE.test(w)
+  || usState(w) || caProvince(w)) && !usState(words.join(' ')) && !caProvince(words.join(' '));
+function leadingCity(piece) {
+  const words = piece.split(' ');
+  for (let k = Math.min(2, words.length - 1); k >= 1; k--) {
+    const lead = words.slice(0, k).join(' ');
+    const found = AMBIGUOUS_LEAD_CITIES.has(fold(lead)) ? null : cityLookup(lead);
+    if (found && remainderIsPlain(words.slice(k))) return found;
+  }
+  return null;
+}
+const cityOf = (text) => cityLookup(text) || leadingCity(text);
+
+// R5: "Zilch UK", "Munich Germany" -> { iso, rest }; a list like "USA or Canada" -> { conflict }.
+function trailingCountry(piece) {
+  const words = piece.split(' ');
+  if (words.length < 2) return null;
+  const last = words[words.length - 1];
+  let found = null;
+  if (TRAILING_COUNTRY_WORDS[last]) {
+    found = { iso: TRAILING_COUNTRY_WORDS[last], k: 1 };
+  } else {
+    for (let k = Math.min(3, words.length - 1); k >= 1 && !found; k--) {
+      const phrase = words.slice(-k).join(' ');
+      if (fold(phrase).length < MIN_TRAILING_NAME_LENGTH) continue;
+      if (fold(phrase) === 'mexico' && fold(words[words.length - 2]) === 'new') continue; // New Mexico
+      const iso = countryFromName(phrase) || EXTRA_COUNTRY_NAMES[fold(phrase)];
+      if (iso) found = { iso, k };
+    }
+  }
+  if (!found) return null;
+  const restWords = words.slice(0, -found.k);
+  if (LIST_CONNECTORS.has(fold(restWords[restWords.length - 1]))) return { conflict: true };
+  return { iso: found.iso, rest: restWords.join(' ') };
+}
+
+// ---------------------------------------------------------------------------
+// Field analysis: pieces, state-code hits, comma-form
+// ---------------------------------------------------------------------------
+
+// R4: "Joliet IL", "Boston MA (Back Bay)", "Washington DC Metro Area" -> { code, rest }.
+function trailingCode(piece) {
+  const m = TRAILING_CODE_RE.exec(piece.replace(TRAILING_PARENS_RE, '').replace(TRAILING_METRO_RE, '').trim());
+  if (!m || !US_STATES[m[2]] || tokenizeLocation(m[1]).length === 0) return null;
+  return { code: m[2], rest: m[1] };
+}
+
+// Comma-form "City, ST" / "City, Province": the tail is the state/province and vetoes city readings of the head.
+function commaTail(parts) {
+  const tail = parts[parts.length - 1];
+  const code = usState(tail);
+  const prov = caProvince(tail);
+  if (!code && !prov) return null;
+  return { tail, code, prov, rest: parts.slice(0, -1).join(', ') };
+}
+
+// Splits one raw field into pieces (each flagged vetoed or not), segments and state-code hits.
+function analyzeField(text, extraSubPieces = []) {
+  const out = { pieces: [], hits: [], comma: null };
+  if (!text) return out;
+  const seen = new Set();
+  const add = (t, vetoed) => {
+    const key = `${vetoed ? 1 : 0}|${t}`;
+    if (t && !seen.has(key)) { seen.add(key); out.pieces.push({ text: t, vetoed }); }
+  };
+  const parts = text.split(COMMA_RE).filter(Boolean);
+  out.comma = parts.length > 1 ? commaTail(parts) : null;
+  add(text, false);
+  parts.forEach((part, i) => {
+    const vetoed = !!out.comma && i < parts.length - 1;
+    for (const seg of part.split(SEGMENT_SPLIT_RE)) {
+      if (!seg) continue;
+      if (!vetoed) collectHits(seg, out.hits);
+      for (const sub of seg.split(SOFT_SPLIT_RE)) add(sub, vetoed);
+    }
+    for (const t of tokenizeLocation(part)) add(t, vetoed);
+  });
+  for (const sub of extraSubPieces) { add(sub, false); collectHits(sub, out.hits); }
+  if (out.comma) {
+    out.hits.push({ kind: 'comma', code: out.comma.code, prov: out.comma.prov, rest: out.comma.rest, tail: out.comma.tail });
+  }
+  return out;
+}
+
+// R4 hits within one segment: leading code, trailing code, "Remote - CA".
+function collectHits(seg, hits) {
+  const lead = LEADING_CODE_RE.exec(seg);
+  if (lead && US_STATES[lead[1]]) hits.push({ kind: 'lead', code: lead[1], zip: ZIP_AFTER_CODE_RE.test(seg) });
+  const noisy = NOISE_DASH_CODE_RE.exec(seg);
+  if (noisy && NOISE_PREFIXES.has(fold(noisy[1])) && noisy[2] === 'CA') hits.push({ kind: 'noise', code: 'CA' });
+  for (const sub of seg.split(SOFT_SPLIT_RE)) {
+    const t = trailingCode(sub);
+    if (t) hits.push({ kind: 'trail', code: t.code, rest: t.rest });
+  }
+}
+
+// Whole-token / bare-piece state evidence: "Florida", "MD", "D.C.".
+function bareStateCode(text) {
+  if (DC_DOTTED_RE.test(text)) return 'DC';
+  return CAPS_WORD_RE.test(text) && US_STATES[text] ? text : null;
+}
+function stateFromName(text, { inCity, bare }) {
+  const key = text.toLowerCase();
+  const code = US_STATE_BY_NAME[key];
+  if (!code) return null;
+  if (bare && AMBIGUOUS_STATE_NAMES.has(key)) return null;
+  if (inCity && CITY_NAMED_STATES.has(key) && (!bare || key === 'washington')) return null;
+  return code;
+}
+
+// ---------------------------------------------------------------------------
+// Context: everything the steps need, computed once per row
+// ---------------------------------------------------------------------------
+function buildContext(city, regionRaw, countryRaw) {
+  const tokens = [countryRaw, regionRaw].filter(Boolean);
+  const cityTrailing = analyzeField(city).pieces.map(p => (p.vetoed ? null : trailingCountry(p.text)));
+  const trailingConflict = cityTrailing.some(t => t && t.conflict);
+  const trailing = cityTrailing.filter(t => t && !t.conflict);
+  const fields = {
+    country: analyzeField(countryRaw),
+    region: analyzeField(regionRaw),
+    city: analyzeField(city, trailing.map(t => t.rest)),
+  };
+  const live = (f) => f.pieces.filter(p => !p.vetoed);
+  const spell = (pieces) => pieces.map(p => countryFromAnyName(p.text, { weak: !p.vetoed })).filter(Boolean);
+  const hits = [...fields.country.hits, ...fields.region.hits, ...fields.city.hits];
+
+  const cityIsos = new Set();
+  let unmapped = false;
+  const noteCity = (found) => { if (found) { if (found.iso) cityIsos.add(found.iso); else unmapped = true; } };
+  for (const t of [city, regionRaw, countryRaw]) if (t) noteCity(cityLookup(t));
+  for (const f of Object.values(fields)) for (const p of live(f)) noteCity(cityLookup(p.text));
+  for (const p of live(fields.city)) noteCity(leadingCity(p.text));
+
+  return {
+    tokens, city, countryRaw, fields, hits, trailingConflict, cityIsos, unmapped,
+    cityWholeIso: city ? (cityLookup(city) || {}).iso || null : null,
+    spelledStrong: [...new Set(spell([...live(fields.country), ...live(fields.region)]))],
+    spelledCity: [...new Set([...spell(live(fields.city)), ...trailing.map(t => t.iso)])],
+    tokenStates: new Set(tokens.map(usState).filter(Boolean)),
+    tokenProvs: new Set(tokens.map(caProvince).filter(Boolean)),
+  };
+}
+
+const onlyOne = (set) => (set.size === 1 ? [...set][0] : null);
+
+// States named by hits and pieces once the country is already US: one state -> it, several/none -> null.
+function usRegion(ctx) {
+  const states = new Set(ctx.tokenStates);
+  for (const h of ctx.hits) if (h.code) states.add(h.code);
+  for (const [name, f] of Object.entries(ctx.fields)) {
+    for (const p of f.pieces) {
+      const code = p.vetoed ? null : stateFromName(p.text, { inCity: name === 'city', bare: false });
+      if (code) states.add(code);
+      if (!p.vetoed && bareStateCode(p.text)) states.add(bareStateCode(p.text)); // country is already US
+    }
+  }
+  return onlyOne(states);
+}
+function caRegion(ctx) {
+  const provs = new Set(ctx.tokenProvs);
+  for (const h of ctx.hits) if (h.prov) provs.add(h.prov);
+  return onlyOne(provs);
+}
+const regionFor = (iso, ctx) => (iso === 'US' ? usRegion(ctx) : iso === 'CA' ? caRegion(ctx) : null);
+
+// ---------------------------------------------------------------------------
+// Steps. Each returns a result, NONE (conflict -> ZZ), or null (no opinion, try next step).
+// ---------------------------------------------------------------------------
+
+// 1. A spelled country. Distinct spelled countries conflict -> ZZ. A city-field name that
+// contradicts an explicit state/province token ("Wales | WI | WI") is a conflict as well.
+function stepSpelled(ctx) {
+  const all = new Set([...ctx.spelledStrong, ...ctx.spelledCity]);
+  if (ctx.trailingConflict || all.size > 1) return NONE;
+  if (all.size === 0) return null;
+  if (!ctx.spelledStrong.length && (ctx.tokenStates.size || ctx.tokenProvs.size)) {
+    // Explicit state tokens repeated in country AND region ("Delhi | NY | NY") outrank a city-field name.
+    const repeated = tokensCorroborate(ctx, usState) || tokensCorroborate(ctx, caProvince);
+    return repeated ? null : NONE;
+  }
+  const iso = onlyOne(all);
+  return { iso, region: regionFor(iso, ctx) };
+}
+
+// 2. A dictionary city whose country has no ISO entry cannot be resolved.
+const stepUnmapped = (ctx) => (ctx.unmapped ? NONE : null);
+
+// A token that repeats the same state/province (country AND region), or spells it out, is
+// corroboration for it sitting next to a foreign dictionary city ("Paris | TX | TX", "London | Ontario | Ontario").
+function tokensCorroborate(ctx, lookup) {
+  const [a, b] = [lookup(ctx.countryRaw || ''), lookup(ctx.tokens[ctx.tokens.length - 1] || '')];
+  return (a && a === b && ctx.tokens.length > 1) || ctx.tokens.some(t => !CAPS_WORD_RE.test(t) && lookup(t));
+}
+
+// 3. Explicit US state / CA province tokens in the country/region fields.
+//
+// Foreign dictionary city + state/province code: the code decides only when it IS that city's
+// own country code (Pune IN, Berlin DE, Toronto CA) or when it is corroborated (repeated in
+// country and region, or spelled out). A single stray code next to a foreign city is ZZ.
+function stepExplicit(ctx) {
+  const { tokens, tokenStates, tokenProvs } = ctx;
+  if (!tokens.length) return null;
+  const cityIso = ctx.cityWholeIso;
+  const countryName = cityIso && COUNTRY_NAME_BY_ISO[cityIso] ? fold(COUNTRY_NAME_BY_ISO[cityIso]) : null;
+  if (cityIso && tokens.some(t => (TWO_LETTER_RE.test(t) && t.toUpperCase() === cityIso) || fold(t) === countryName)) {
+    return { iso: cityIso, region: cityIso === 'CA' ? caRegion(ctx) : null };
+  }
+  if (!ctx.city && tokens.every(t => t.toUpperCase() === 'CA')) return NONE; // bare CA: California or Canada
+  const foreign = ctx.cityIsos.size > 0;
+  if (tokenProvs.size && (ctx.countryRaw.toUpperCase() === 'CA' || !tokenStates.size)) {
+    if (foreign && !ctx.cityIsos.has('CA') && ctx.countryRaw.toUpperCase() !== 'CA' && !tokensCorroborate(ctx, caProvince)) return NONE;
+    return { iso: 'CA', region: caRegion(ctx) };
+  }
+  if (tokenStates.size) {
+    if (foreign && !tokensCorroborate(ctx, usState)) return NONE;
+    return { iso: 'US', region: usRegion(ctx) };
+  }
+  return null;
+}
+
+// 4. Embedded state codes ("Joliet IL", "NC 28025", "Remote - CA", "City, ST") and 2+ bare codes ("D.C./ MD / VA").
+// A foreign dictionary city next to a code: the code's own country wins (Berlin DE); a different
+// code needs corroboration (comma-form, or the same code twice), else ZZ. Plain "CA" never
+// corroborates itself; a leading CA needs a ZIP.
+function stepEmbedded(ctx) {
+  const usable = ctx.hits.filter(h => h.code && !(h.kind === 'lead' && h.code === 'CA' && !h.zip));
+  const bare = new Set();
+  for (const f of Object.values(ctx.fields)) {
+    for (const p of f.pieces) if (!p.vetoed && bareStateCode(p.text)) bare.add(bareStateCode(p.text));
+  }
+  const provHit = ctx.hits.find(h => h.prov);
+  if (!usable.length && bare.size < 2 && !provHit) return null;
+
+  const foreign = new Set(ctx.cityIsos);
+  for (const h of ctx.hits) {
+    const found = h.rest ? cityOf(h.rest) : null;
+    if (found) { if (found.iso) foreign.add(found.iso); else return NONE; }
+  }
+  const tailNames = ctx.hits.filter(h => h.tail).map(h => fold(h.tail));
+  for (const iso of foreign) {
+    const own = COUNTRY_NAME_BY_ISO[iso] && fold(COUNTRY_NAME_BY_ISO[iso]);
+    if (usable.some(h => h.code === iso) || (provHit && provHit.prov === iso) || tailNames.includes(own)) {
+      return { iso, region: null };
+    }
+  }
+  if (provHit) return { iso: 'CA', region: provHit.prov }; // comma-form is its own corroboration
+  const codeCounts = {};
+  for (const h of usable) codeCounts[h.code] = (codeCounts[h.code] || 0) + 1;
+  const corroborated = (h) => h.kind === 'comma' ? h.code !== 'CA' : (codeCounts[h.code] > 1);
+  if (foreign.size && usable.some(h => !corroborated(h))) return NONE;
+  const states = new Set([...usable.map(h => h.code), ...(usable.length || bare.size >= 2 ? bare : [])]);
+  if (foreign.size && !states.size) return NONE;
+  return states.size ? { iso: 'US', region: onlyOne(states) } : null;
+}
+
+// 5. A state named by a whole piece ("Minnesota - Minneapolis", bare "New York"); several -> US, region null.
+function stepStateNames(ctx) {
+  const states = new Set();
+  for (const [name, f] of Object.entries(ctx.fields)) {
+    for (const p of f.pieces) {
+      const code = p.vetoed ? null : stateFromName(p.text, { inCity: name === 'city', bare: true });
+      if (code) states.add(code);
+    }
+  }
+  return states.size ? { iso: 'US', region: onlyOne(states) } : null;
+}
+
+// 6. Dictionary cities among the tokens; cities in different countries do not guess.
+function stepCities(ctx) {
+  return ctx.cityIsos.size === 1 ? { iso: onlyOne(ctx.cityIsos), region: null } : null;
+}
+
+const STEPS = [stepSpelled, stepUnmapped, stepExplicit, stepEmbedded, stepStateNames, stepCities];
+
+function resolveLocation(city, regionRaw, countryRaw) {
+  if ([city, regionRaw, countryRaw].some(f => f && f.length > MAX_FIELD_LENGTH)) return NONE;
+  const ctx = buildContext(city, regionRaw, countryRaw);
+  for (const step of STEPS) {
+    const r = step(ctx);
+    if (r) return r;
+  }
+  return NONE;
+}
+
 export function normalizeLocationRow(row) {
   const rawCity = clean(row.city);
   const city = rawCity && !NO_CITY_RE.test(rawCity) ? rawCity : null;
-  const regionRaw = clean(row.region);
-  const countryRaw = clean(row.country);
-  const tokens = [countryRaw, regionRaw].filter(Boolean);
-  const cityIso = city ? countryFromCity(city) : null;
-
-  let iso = null;
-  let region = null;
-
-  for (const t of tokens) { iso = countryFromName(t); if (iso) break; }
-
-  if (iso === 'US') {
-    region = firstMatch(tokens, usState);
-  } else if (iso === 'CA') {
-    region = firstMatch(tokens, caProvince);
-  } else if (!iso) {
-    const prov = firstMatch(tokens, caProvince);
-    const state = firstMatch(tokens, usState);
-    // "Pune, IN": IN is also Indiana, but Pune is a known Indian city.
-    const twoLetterIsCityCountry = tokens.some(t => TWO_LETTER_RE.test(t) && t.toUpperCase() === cityIso);
-    const bareCA = !city && tokens.length > 0 && tokens.every(t => t.toUpperCase() === 'CA');
-    if (twoLetterIsCityCountry) {
-      iso = cityIso;
-      region = iso === 'CA' ? prov : iso === 'US' ? state : null;
-    } else if (bareCA) {
-      // California or Canada: cannot tell, leave iso unset.
-    } else if (prov && (countryRaw.toUpperCase() === 'CA' || !state)) {
-      iso = 'CA';
-      region = prov;
-    } else if (state) {
-      iso = 'US';
-      region = state;
-    } else if (cityIso) {
-      iso = cityIso;
-    }
-  }
-
+  const { iso, region } = resolveLocation(city, clean(row.region), clean(row.country));
   return {
     country_code: iso || UNKNOWN_COUNTRY,
     region_code: iso ? region : null,
