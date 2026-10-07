@@ -7,7 +7,6 @@ const MIN_CITY_JOBS = 3;
 const stateName = (cc, rc) => (cc === 'US' ? US_STATES[rc] : cc === 'CA' ? CA_PROVINCES[rc] : null);
 
 export async function rebuildGeoPlaces(db) {
-  const startedAt = new Date().toISOString();
   const places = [];
 
   const countries = await db.query(
@@ -49,7 +48,13 @@ export async function rebuildGeoPlaces(db) {
        DO UPDATE SET label = EXCLUDED.label, name_key = EXCLUDED.name_key, job_count = EXCLUDED.job_count, updated_at = now()`,
       [JSON.stringify(places)]);
   }
-  await db.query('DELETE FROM geo_place WHERE updated_at < $1', [startedAt]);
+  // Remove places no longer present, by key (no clock comparison). Runs after the
+  // upsert so readers never see an empty table; no places at all deletes everything.
+  await db.query(
+    `DELETE FROM geo_place g WHERE NOT EXISTS (
+       SELECT 1 FROM jsonb_to_recordset($1::jsonb) AS r(type text, country_code text, region_code text, city_key text)
+       WHERE r.type = g.type AND r.country_code = g.country_code AND r.region_code = g.region_code AND r.city_key = g.city_key)`,
+    [JSON.stringify(places.map(({ type, country_code, region_code, city_key }) => ({ type, country_code, region_code, city_key })))]);
   return { countries: countries.rowCount, states: states.rowCount, cities: cities.rowCount };
 }
 
