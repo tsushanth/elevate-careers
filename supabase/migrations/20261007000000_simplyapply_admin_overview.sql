@@ -97,11 +97,14 @@ begin
           count(*) filter (where created_at > now() - make_interval(days => v_days)) n_window,
           max(created_at) last_seen
         from analytics_events group by 1) x),
+    -- Avoid scanning the 300k-row job table: the authenticated role has an 8s
+    -- statement timeout. Total is the planner estimate; recent counts look only
+    -- at the newest 50k rows by primary key.
     'jobs', (select jsonb_build_object(
-        'active', count(*) filter (where is_active),
+        'total_approx', (select reltuples::bigint from pg_class where oid = 'public.job'::regclass),
         'added_24h', count(*) filter (where created_at > now() - interval '1 day'),
         'added_7d', count(*) filter (where created_at > now() - interval '7 days'),
-        'latest_added', max(created_at)) from job),
+        'latest_added', max(created_at)) from (select created_at from job order by id desc limit 50000) recent),
     'ingestion', (select jsonb_build_object(
         'sources_enabled', count(*) filter (where enabled),
         'sources_total', count(*),

@@ -190,7 +190,7 @@ export default function Admin() {
 
       <h2>Jobs & ingestion</h2>
       <div className="adm-grid">
-        <Card n={d.jobs.active} l="Active jobs" /><Card n={d.jobs.added_24h} l="Added (24h)" /><Card n={d.jobs.added_7d} l="Added (7d)" />
+        <Card n={d.jobs.total_approx} l="Jobs (approx.)" /><Card n={d.jobs.added_24h} l="Added (24h)" /><Card n={d.jobs.added_7d} l="Added (7d, newest 50k)" />
         <Card n={d.ingestion.sources_enabled} l="Sources enabled" /><Card n={d.ingestion.ingested_24h} l="Sources ingested (24h)" />
       </div>
 
