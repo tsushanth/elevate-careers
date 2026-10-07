@@ -1,5 +1,11 @@
 // Pure: query-string parsing, the keyset cursor and the SQL builder for the
 // v2 feed. Every user-supplied value is a bound parameter.
+// Index selection in buildFeedQuery:
+//   worldwide          -> idx_feed_primary (+ idx_feed_primary_remote if remote=true)
+//   country            -> idx_feed_country (country_code, is_country_primary)
+//   country + region   -> idx_feed_region (country_code, region_code, is_region_primary)
+//   country + region + city -> idx_feed_city (country_code, region_code, city_key)
+//   country + city (no region) -> idx_feed_city_only (country_code, city_key)
 export const FEED_LIMIT_DEFAULT = 25;
 export const COUNT_CAP = 1000;
 
@@ -10,7 +16,8 @@ export function encodeCursor(sortAt, jobId) {
 export function decodeCursor(s) {
   try {
     const [sortAt, jobId] = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8'));
-    if (typeof sortAt !== 'string' || Number.isNaN(Date.parse(sortAt)) || !Number.isInteger(jobId)) throw new Error('bad');
+    if (typeof sortAt !== 'string' || !Number.isSafeInteger(jobId) || jobId <= 0) throw new Error('bad');
+    if (new Date(sortAt).toISOString() !== sortAt) throw new Error('bad');
     return { sortAt, jobId };
   } catch { throw new Error('invalid cursor'); }
 }
@@ -20,7 +27,7 @@ const TYPE_RE = /^[a-z_]{1,30}$/;
 
 export function parseFeedParams(query) {
   const country = String(query.country || '').toUpperCase();
-  if (country && !/^[A-Z]{2}$/.test(country)) return { ok: false, error: 'invalid country' };
+  if (country && (!/^[A-Z]{2}$/.test(country) || country === 'ZZ')) return { ok: false, error: 'invalid country' };
   const region = String(query.region || '').toUpperCase();
   if (region && !REGION_RE.test(region)) return { ok: false, error: 'invalid region' };
   const city = String(query.city || '').trim().slice(0, 80);

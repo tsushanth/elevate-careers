@@ -81,3 +81,57 @@ test('cache key ignores parameter order and differs by filter', () => {
   assert.equal(feedCacheKey(ok({ country: 'US', remote: 'true' })), feedCacheKey(ok({ remote: 'true', country: 'US' })));
   assert.notEqual(feedCacheKey(ok({ country: 'US' })), feedCacheKey(ok({ country: 'GB' })));
 });
+
+test('cursor rejects unsafe integers, negatives, zero, and non-ISO timestamps', () => {
+  assert.throws(() => decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 1e300)), /invalid cursor/);
+  assert.throws(() => decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 2 ** 60)), /invalid cursor/);
+  assert.throws(() => decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', -1)), /invalid cursor/);
+  assert.throws(() => decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 0)), /invalid cursor/);
+  assert.throws(() => decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 3.14)), /invalid cursor/);
+  assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(['Oct 1 2026', 42])).toString('base64url')), /invalid cursor/);
+  assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(['2026', 42])).toString('base64url')), /invalid cursor/);
+  assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(['1', 42])).toString('base64url')), /invalid cursor/);
+  assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(['2026-13-45T00:00:00.000Z', 42])).toString('base64url')), /invalid cursor/);
+  const valid = encodeCursor('2026-10-01T00:00:00.000Z', 42);
+  assert.deepEqual(decodeCursor(valid), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42 });
+});
+
+test('country ZZ (unknown location) is rejected', () => {
+  assert.equal(parseFeedParams({ country: 'ZZ' }).ok, false);
+});
+
+test('limit edge cases', () => {
+  assert.equal(ok({ limit: '-5' }).limit, 1);
+  assert.equal(ok({ limit: 'abc' }).limit, 25);
+});
+
+test('days range validation', () => {
+  assert.equal(parseFeedParams({ days: '0' }).ok, false);
+  assert.equal(parseFeedParams({ days: '366' }).ok, false);
+  assert.equal(parseFeedParams({ days: '1.5' }).ok, false);
+  assert.equal(ok({ days: '365' }).days, 365);
+  assert.equal(ok({ days: '1' }).days, 1);
+});
+
+test('employment type validation', () => {
+  assert.equal(parseFeedParams({ country: 'US', type: 'Full Time!' }).ok, false);
+});
+
+test('region or city without country is rejected', () => {
+  assert.equal(parseFeedParams({ region: 'TX' }).ok, false);
+  assert.equal(parseFeedParams({ city: 'Austin' }).ok, false);
+});
+
+test('parameter placeholder order matches values array', () => {
+  const p = ok({ q: 'engineer', days: '30', type: 'full_time', country: 'US' });
+  const { text, values } = buildFeedQuery(p, { dismissed: [1, 2, 3] });
+  // Extract all $n from the query text
+  const placeholders = text.match(/\$\d+/g) || [];
+  const maxPlaceholder = Math.max(...placeholders.map(p => parseInt(p.slice(1), 10)));
+  assert.equal(maxPlaceholder, values.length, `Placeholders go up to $${maxPlaceholder} but values array has ${values.length} items`);
+  // Verify no gaps: check that placeholder set is {1..values.length}
+  const placeholderSet = new Set(placeholders.map(p => parseInt(p.slice(1), 10)));
+  for (let i = 1; i <= values.length; i++) {
+    assert.ok(placeholderSet.has(i), `Missing placeholder $${i}`);
+  }
+});
