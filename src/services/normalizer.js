@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 import { resolveLocationToken, tokenizeLocation } from './geo.js';
 import { sitemapSlug, pingIndexNowForCompanies } from './indexnow.js';
+import { syncJobFeed, deactivateInFeed } from './jobFeed.js';
 
 const turndownService = new TurndownService();
 
@@ -95,9 +96,11 @@ export class NormalizerService {
             AND j.external_id IS NOT NULL
             AND j.external_id != ALL($3)
             AND j.is_active = true
-          RETURNING c.name
+          RETURNING j.id, c.name
         `, [`%${org}%`, provider, [...liveIds]]);
         results.expired = expired.rowCount;
+        await deactivateInFeed(db, expired.rows.map(r => Number(r.id))).catch(e =>
+          logger.warn({ error: e.message }, 'job_feed deactivate failed'));
         if (expired.rowCount > 0) {
           logger.info({ org, provider, expired: expired.rowCount }, 'Marked jobs inactive');
           for (const row of expired.rows) changedCompanySlugs.add(sitemapSlug(row.name));
@@ -134,6 +137,7 @@ export class NormalizerService {
       if (this.hasSignificantChanges(existing, rawJob, descriptionMd)) {
         await this.updateJob(existing, rawJob, company.id, descriptionMd, descriptionExcerpt);
         await this.createJobVersion(existing.id, descriptionMd);
+        await this.syncFeed(existing.id);
         changed = true;
       }
     } else {
@@ -141,6 +145,7 @@ export class NormalizerService {
       const jobId = await this.createJob(rawJob, company.id, dedupeKey, descriptionMd, descriptionExcerpt);
       await this.createJobVersion(jobId, descriptionMd);
       await this.createJobLocations(jobId, rawJob);
+      await this.syncFeed(jobId);
       changed = true;
     }
 
@@ -309,6 +314,16 @@ export class NormalizerService {
     );
     
     return result.rows[0].id;
+  }
+
+  // The feed is a derived read model: log and carry on if it fails, the
+  // backfill/reconciliation will repair it.
+  async syncFeed(jobId) {
+    try {
+      await syncJobFeed(db, Number(jobId));
+    } catch (error) {
+      logger.warn({ error: error.message, jobId }, 'job_feed sync failed');
+    }
   }
 
   async createJobLocations(jobId, job) {
