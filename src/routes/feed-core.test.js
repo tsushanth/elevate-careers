@@ -203,3 +203,26 @@ test('getExclusions failure falls back to the anonymous feed', { skip }, async (
     assert.equal(warns[0][0].error, 'auth backend down');
   } finally { srv.close(); }
 });
+
+test('city without region is the unregioned city only; with region it is that region only', { skip }, async () => {
+  const ins = async (id, rc) => {
+    await pool.query('INSERT INTO job (id, tsv) VALUES ($1, to_tsvector(\'english\', \'x\'))', [id]);
+    await pool.query(
+      `INSERT INTO job_feed (job_id,country_code,region_code,city_key,city,sort_at,title,company_name,apply_url,is_primary,is_country_primary,is_region_primary)
+       VALUES ($1,'CA',$2,'toronto','Toronto', now() - ($3::int * interval '1 minute'),'T','Acme','https://x',true,true,true)`, [id, rc, id]);
+  };
+  await ins(501, 'ON'); await ins(502, ''); await ins(503, 'ON');
+  // job 502 exists once in the unregioned city; a job with both rows must appear once per query
+  await ins(504, 'ON');
+  await pool.query(`INSERT INTO job_feed (job_id,country_code,region_code,city_key,city,sort_at,title,company_name,apply_url)
+                    VALUES (504,'CA','','toronto','Toronto', now() - interval '504 minutes','T','Acme','https://x')`);
+  await rebuildGeoPlaces(pool);
+  const bare = await get('/jobs/feed?country=CA&city=Toronto&limit=50');
+  assert.deepEqual(bare.body.jobs.map(j => j.id).sort(), [502, 504]);
+  assert.equal(bare.body.count, 2);
+  const on = await get('/jobs/feed?country=CA&region=ON&city=Toronto&limit=50');
+  assert.deepEqual(on.body.jobs.map(j => j.id).sort(), [501, 503, 504]);
+  await pool.query('DELETE FROM job_feed WHERE job_id >= 501');
+  await pool.query('DELETE FROM job WHERE id >= 501');
+  await rebuildGeoPlaces(pool);
+});

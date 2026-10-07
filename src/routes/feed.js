@@ -55,7 +55,7 @@ if (process.env.FEED_WARMER !== 'off') {
 
 export const ingestRouter = express.Router();
 ingestRouter.post('/rebuild-geo-places', async (req, res) => {
-  if (req.body?.secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+  if (!process.env.INGEST_SECRET || req.body?.secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
   try { res.json({ ok: true, ...(await rebuildGeoPlaces(db)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });

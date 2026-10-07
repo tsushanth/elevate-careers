@@ -105,7 +105,7 @@ export function normalizeLocationRow(row) {
       iso = cityIso;
       region = iso === 'CA' ? prov : iso === 'US' ? state : null;
     } else if (bareCA) {
-      iso = null; // California or Canada: cannot tell.
+      // California or Canada: cannot tell, leave iso unset.
     } else if (prov && (countryRaw.toUpperCase() === 'CA' || !state)) {
       iso = 'CA';
       region = prov;

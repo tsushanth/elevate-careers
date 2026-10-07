@@ -1,10 +1,15 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { agreement, parseCsv } from './feed-accuracy-check.js';
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+const tempFiles = [];
+after(() => { for (const f of tempFiles) rmSync(f, { force: true }); });
 
 test('parseCsv reads quoted fields and ignores blank lines', () => {
   const rows = parseCsv('city,region,country,label_country,label_region\n"San Francisco, CA",CA,CA,US,CA\n\n');
@@ -42,9 +47,10 @@ test('CLI exits 0 when all rows labelled and agreement >= 95%', () => {
   const csv = 'city,region,country,label_country,label_region\n' +
               'Austin,TX,US,US,TX\nLondon,,UK,GB,\n';
   const path = join(tmpdir(), `test-${Date.now()}-all-labelled.csv`);
+  tempFiles.push(path);
   writeFileSync(path, csv);
   const result = spawnSync(process.execPath, ['scripts/feed-accuracy-check.js', path], {
-    cwd: '/Users/sushanthtiruvaipati/Documents/elevate-careers-feed'
+    cwd: repoRoot
   });
   assert.equal(result.status, 0, `expected exit 0 but got ${result.status}: stderr=${result.stderr.toString()}`);
 });
@@ -55,9 +61,10 @@ test('CLI exits 1 when all rows labelled and agreement < 95%', () => {
   const csv = 'city,region,country,label_country,label_region\n' +
               'Austin,TX,US,US,TX\nInvalidCity,InvalidRegion,InvalidCountry,GB,\n';
   const path = join(tmpdir(), `test-${Date.now()}-low-agreement.csv`);
+  tempFiles.push(path);
   writeFileSync(path, csv);
   const result = spawnSync(process.execPath, ['scripts/feed-accuracy-check.js', path], {
-    cwd: '/Users/sushanthtiruvaipati/Documents/elevate-careers-feed'
+    cwd: repoRoot
   });
   assert.equal(result.status, 1, `expected exit 1 but got ${result.status}; stdout: ${result.stdout.toString()}`);
 });
@@ -66,9 +73,10 @@ test('CLI exits 2 with message when any row is unlabelled', () => {
   const csv = 'city,region,country,label_country,label_region\n' +
               'Austin,TX,US,US,TX\nLondon,,UK,,\n';
   const path = join(tmpdir(), `test-${Date.now()}-unlabelled.csv`);
+  tempFiles.push(path);
   writeFileSync(path, csv);
   const result = spawnSync(process.execPath, ['scripts/feed-accuracy-check.js', path], {
-    cwd: '/Users/sushanthtiruvaipati/Documents/elevate-careers-feed'
+    cwd: repoRoot
   });
   assert.equal(result.status, 2, `expected exit 2 but got ${result.status}`);
   const output = result.stdout.toString() + result.stderr.toString();
@@ -77,7 +85,7 @@ test('CLI exits 2 with message when any row is unlabelled', () => {
 
 test('CLI exits 2 with message when no file argument provided', () => {
   const result = spawnSync(process.execPath, ['scripts/feed-accuracy-check.js'], {
-    cwd: '/Users/sushanthtiruvaipati/Documents/elevate-careers-feed'
+    cwd: repoRoot
   });
   assert.equal(result.status, 2, `expected exit 2 but got ${result.status}`);
   const output = result.stdout.toString() + result.stderr.toString();

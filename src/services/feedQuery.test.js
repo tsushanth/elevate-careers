@@ -135,3 +135,25 @@ test('parameter placeholder order matches values array', () => {
     assert.ok(placeholderSet.has(i), `Missing placeholder $${i}`);
   }
 });
+
+test('a city without a region binds the empty region (the unregioned city)', () => {
+  const q = buildFeedQuery(ok({ country: 'DE', city: 'Berlin' }));
+  assert.match(q.text, /f\.country_code = \$1 AND f\.city_key = \$2 AND f\.region_code = \$3/);
+  assert.deepEqual(q.values.slice(0, 3), ['DE', 'berlin', '']);
+  const c = buildCountQuery(ok({ country: 'DE', city: 'Berlin' }));
+  assert.match(c.text, /f\.region_code = \$3/);
+  assert.deepEqual(c.values.slice(0, 3), ['DE', 'berlin', '']);
+});
+
+test('a city with a region binds that region', () => {
+  const q = buildFeedQuery(ok({ country: 'CA', region: 'on', city: 'Toronto' }));
+  assert.match(q.text, /f\.region_code = \$3/);
+  assert.deepEqual(q.values.slice(0, 3), ['CA', 'toronto', 'ON']);
+});
+
+test('city is lower-cased and trimmed so Austin and austin share one cache key', () => {
+  const a = ok({ country: 'US', region: 'TX', city: ' Austin ' });
+  const b = ok({ country: 'US', region: 'TX', city: 'austin' });
+  assert.equal(a.city, 'austin');
+  assert.equal(feedCacheKey(a), feedCacheKey(b));
+});

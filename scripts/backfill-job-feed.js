@@ -26,21 +26,22 @@ if (Number.isNaN(sleepMs) || sleepMs < 0) {
   process.exit(2);
 }
 
+let written = 0;
 try {
-  let written = 0;
   for (;;) {
     const { rows } = await db.query(
-      'SELECT id::int AS id FROM job WHERE id > $1 ORDER BY id LIMIT $2', [from, batch]);
+      'SELECT id::int AS id FROM job WHERE id > $1 AND is_active ORDER BY id LIMIT $2', [from, batch]);
     if (!rows.length) break;
     written += await syncJobFeedBatch(db, rows.map(r => r.id));
     from = rows[rows.length - 1].id;
     console.log(`last id ${from}, rows written so far ${written}`);
     await new Promise(r => setTimeout(r, sleepMs));
   }
-  console.log(`done. rows written: ${written}`);
-  await db.close();
 } catch (err) {
+  console.error(`backfill failed: ${err.message}`);
   console.error(`failed after last id ${from}; resume with --from=${from}`);
-  await db.close();
+  await db.close().catch(() => {});
   process.exit(1);
 }
+console.log(`done. rows written: ${written}`);
+await db.close();

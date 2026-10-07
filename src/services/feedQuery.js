@@ -4,8 +4,8 @@
 //   worldwide          -> idx_feed_primary (+ idx_feed_primary_remote if remote=true)
 //   country            -> idx_feed_country (country_code, is_country_primary)
 //   country + region   -> idx_feed_region (country_code, region_code, is_region_primary)
-//   country + region + city -> idx_feed_city (country_code, region_code, city_key)
-//   country + city (no region) -> idx_feed_city_only (country_code, city_key)
+//   country + [region] + city -> idx_feed_city (country_code, region_code, city_key);
+//     a city without a region means the unregioned city (region_code = '').
 export const FEED_LIMIT_DEFAULT = 25;
 export const COUNT_CAP = 1000;
 
@@ -30,7 +30,7 @@ export function parseFeedParams(query) {
   if (country && (!/^[A-Z]{2}$/.test(country) || country === 'ZZ')) return { ok: false, error: 'invalid country' };
   const region = String(query.region || '').toUpperCase();
   if (region && !REGION_RE.test(region)) return { ok: false, error: 'invalid region' };
-  const city = String(query.city || '').trim().slice(0, 80);
+  const city = String(query.city || '').trim().slice(0, 80).toLowerCase();
   const q = String(query.q || '').trim().slice(0, 100);
   const type = String(query.type || '');
   if (type && !TYPE_RE.test(type)) return { ok: false, error: 'invalid type' };
@@ -55,6 +55,8 @@ export function parseFeedParams(query) {
   };
 }
 
+// A city without a region means the unregioned city (region_code = ''), the
+// same key geo_place and the typeahead use; the region predicate is always bound.
 function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor }) {
   const values = [];
   const add = (v) => { values.push(v); return `$${values.length}`; };
@@ -63,8 +65,7 @@ function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor 
   if (p.country) {
     where.push(`f.country_code = ${add(p.country)}`);
     if (p.city) {
-      where.push(`f.city_key = ${add(p.city.toLowerCase())}`);
-      if (p.region) where.push(`f.region_code = ${add(p.region)}`);
+      where.push(`f.city_key = ${add(p.city.toLowerCase())}`, `f.region_code = ${add(p.region || '')}`);
     } else if (p.region) {
       where.push(`f.region_code = ${add(p.region)}`, 'f.is_region_primary');
     } else {

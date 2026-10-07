@@ -1,8 +1,8 @@
 -- supabase/migrations/20261008000000_job_feed.sql
 -- Read model for the home feed. One row per (job, country, region, city) with
 -- everything a list card needs, so a feed page is one index range scan.
--- Indexes are created separately (20261008000100_job_feed_indexes.sql) after
--- the backfill, with CONCURRENTLY.
+-- Indexes are created separately by hand (supabase/manual/20261008000100_job_feed_indexes.sql) after
+-- the backfill, with CONCURRENTLY; it must not run inside a migration transaction.
 create table if not exists public.job_feed (
   job_id bigint not null,
   country_code text not null,

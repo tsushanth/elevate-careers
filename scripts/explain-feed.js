@@ -4,8 +4,8 @@
 //   worldwide          -> idx_feed_primary (+ idx_feed_primary_remote if remote=true)
 //   country            -> idx_feed_country (country_code, is_country_primary)
 //   country + region   -> idx_feed_region (country_code, region_code, is_region_primary)
-//   country + region + city -> idx_feed_city (country_code, region_code, city_key)
-//   country + city (no region) -> idx_feed_city_only (country_code, city_key)
+//   country + [region] + city -> idx_feed_city (country_code, region_code, city_key);
+//     a city without a region means region_code = ''.
 //   keyword            -> job.tsv (GIN index)
 //   node scripts/explain-feed.js
 import { db } from '../src/db/index.js';

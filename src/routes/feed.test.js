@@ -49,3 +49,18 @@ test('POST /ingest/rebuild-geo-places rejects a missing body with 401', async ()
   const res = await fetch(`${base}/ingest/rebuild-geo-places`, { method: 'POST' });
   assert.equal(res.status, 401);
 });
+
+test('POST /ingest/rebuild-geo-places is closed (401) when INGEST_SECRET is unset', async () => {
+  const saved = process.env.INGEST_SECRET;
+  delete process.env.INGEST_SECRET;
+  try {
+    const res = await fetch(`${base}/ingest/rebuild-geo-places`, { method: 'POST' });
+    assert.equal(res.status, 401);
+    const res2 = await fetch(`${base}/ingest/rebuild-geo-places`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}),
+    });
+    assert.equal(res2.status, 401);
+  } finally {
+    process.env.INGEST_SECRET = saved;
+  }
+});
