@@ -51,7 +51,7 @@ beforeEach(() => {
   guessPlace.mockImplementation(() => ({ country: 'US', region: '', city: '', label: 'United States' }));
   savePlaceSpy.mockImplementation((p) => localStorage.setItem('sa_place', JSON.stringify(p)));
   feed = baseFeed();
-  useFeed.mockImplementation(() => feed);
+  useFeed.mockImplementation(({ filters }) => ({ resultFilters: filters, ...feed }));
   fetchStats.mockResolvedValue({ jobs: 1234, companies: 56, remote: 7 });
   fetchSuggest.mockResolvedValue([]);
   onSelectJob = jest.fn();
@@ -266,4 +266,39 @@ test('combobox exposes active option id and only sets aria-controls while the li
   expect(input.hasAttribute('aria-activedescendant')).toBe(false);
   await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); });
   expect(input.getAttribute('aria-activedescendant')).toBe(opt.id);
+});
+
+test('widen ignores a stale empty result: keyword cleared while the hook still holds the old refined result', async () => {
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  await act(async () => { setInput(container.querySelector('input[type=search]'), 'rust'); });
+  await act(async () => { container.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  const refined = lastFilters();
+  expect(refined.q).toBe('rust');
+  // refined query came back empty: no widen
+  useFeed.mockImplementation(() => ({ ...baseFeed(), resultFilters: refined }));
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('US');
+  // keyword cleared; the hook still reports the OLD empty result for the OLD filters
+  await act(async () => { setInput(container.querySelector('input[type=search]'), ''); });
+  await act(async () => { container.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(lastFilters().q).toBe('');
+  expect(lastFilters().place.country).toBe('US');
+  // the unrefined result lands (empty, for the current filters): now it widens, once
+  const current = lastFilters();
+  useFeed.mockImplementation(() => ({ ...baseFeed(), resultFilters: current }));
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('');
+  expect(placesSeen().filter(p => p.country === '').length).toBe(1);
+});
+
+test('Enter with an out-of-range active option does nothing', async () => {
+  fetchSuggest.mockResolvedValue([{ type: 'country', label: 'Canada', country: 'CA', region: '', city: '', count: 3 }]);
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  const input = container.querySelector('input[role=combobox]');
+  await act(async () => { input.focus(); setInput(input, 'Can'); });
+  await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+  await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+  expect(savePlaceSpy).not.toHaveBeenCalled();
 });

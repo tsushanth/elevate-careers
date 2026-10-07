@@ -34,7 +34,7 @@ export function useFeed({ apiBase, filters, token, preload }) {
       if (!data) data = await fetchFeed(apiBase, { ...filters, cursor }, { signal: abort.current.signal, token });
       if (mySeq !== seq.current) return;   // a newer request superseded this one
       busyRef.current = false;
-      dispatch({ type: 'success', append, data });
+      dispatch({ type: 'success', append, data, filters });
     } catch (e) {
       if (mySeq !== seq.current) return;
       busyRef.current = false;

@@ -216,3 +216,16 @@ test('a preload resolving after unmount does not dispatch', async () => {
   err.mockRestore();
   root = createRoot(container);
 });
+
+test('resultFilters is the filters object that produced the page; stays old until the new page lands', async () => {
+  fetchFeed.mockResolvedValueOnce(page([1]));
+  await render({ apiBase: 'http://x', filters: F1, token: null });
+  expect(result.current.resultFilters).toBe(F1);
+  const d = deferred();
+  fetchFeed.mockReturnValueOnce(d.promise);
+  await render({ apiBase: 'http://x', filters: F2, token: null });
+  expect(result.current.loading).toBe(true);
+  expect(result.current.resultFilters).toBe(F1);
+  await act(async () => { d.resolve(page([2])); });
+  expect(result.current.resultFilters).toBe(F2);
+});

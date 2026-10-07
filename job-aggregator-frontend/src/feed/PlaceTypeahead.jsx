@@ -29,7 +29,7 @@ export default function PlaceTypeahead({ apiBase, place, onChange }) {
   const onKeyDown = (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, options.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
-    else if (e.key === 'Enter' && open && options[active]) { e.preventDefault(); choose(options[active]); }
+    else if (e.key === 'Enter' && open && active >= 0 && active < options.length) { e.preventDefault(); choose(options[active]); }
     else if (e.key === 'Escape') setOpen(false);
   };
 

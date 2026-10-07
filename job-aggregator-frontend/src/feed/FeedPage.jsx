@@ -38,12 +38,12 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   // and only when no keyword or filter could be the reason for the empty result.
   const noRefinement = q === '' && !pills.remote && !pills.type && !pills.days;
   useEffect(() => {
-    if (feed.loaded && !feed.loading && !feed.error && feed.jobs.length === 0
+    if (feed.loaded && !feed.loading && feed.resultFilters === filters && !feed.error && feed.jobs.length === 0
       && placeSource === 'guess' && noRefinement && place.country) {
       setPlace(EMPTY_PLACE);
       setPlaceSource('widened');
     }
-  }, [feed.loaded, feed.loading, feed.jobs.length, feed.error, placeSource, noRefinement, place.country]);
+  }, [feed.loaded, feed.loading, feed.resultFilters, filters, feed.jobs.length, feed.error, placeSource, noRefinement, place.country]);
 
   // Select the first job once, so the detail pane is never empty on desktop.
   useEffect(() => {

@@ -1,6 +1,7 @@
 export const initialFeedState = {
   jobs: [], nextCursor: null, count: null, countIsCapped: false,
   loading: false, loadingMore: false, error: '', loaded: false,
+  resultFilters: null,   // the filters object that produced the current first page
 };
 
 export function feedReducer(state, action) {
@@ -13,7 +14,7 @@ export function feedReducer(state, action) {
       const { data, append } = action;
       if (!append) {
         return { ...state, jobs: data.jobs, nextCursor: data.nextCursor, count: data.count, countIsCapped: data.countIsCapped,
-          loading: false, loadingMore: false, error: '', loaded: true };
+          loading: false, loadingMore: false, error: '', loaded: true, resultFilters: action.filters };
       }
       const seen = new Set(state.jobs.map(j => j.id));
       const fresh = data.jobs.filter(j => !seen.has(j.id));

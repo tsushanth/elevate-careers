@@ -57,3 +57,20 @@ test('error after a load-more start keeps jobs and cursor and clears loadingMore
   expect(s.nextCursor).toBe('c1');
   expect(s.loadingMore).toBe(false);
 });
+
+test('resultFilters: null initially, set by non-append success, kept by start, append and error', () => {
+  const f1 = { q: 'a' };
+  const f2 = { q: 'b' };
+  expect(initialFeedState.resultFilters).toBeNull();
+  let s = feedReducer(initialFeedState, { type: 'success', append: false, data: page([1], 'c1'), filters: f1 });
+  expect(s.resultFilters).toBe(f1);
+  s = feedReducer(s, { type: 'start', append: false });
+  expect(s.resultFilters).toBe(f1);
+  s = feedReducer(s, { type: 'success', append: true, data: page([2]), filters: f1 });
+  expect(s.resultFilters).toBe(f1);
+  s = feedReducer(s, { type: 'start', append: false });
+  s = feedReducer(s, { type: 'error', message: 'x' });
+  expect(s.resultFilters).toBe(f1);
+  s = feedReducer(s, { type: 'success', append: false, data: page([3]), filters: f2 });
+  expect(s.resultFilters).toBe(f2);
+});
