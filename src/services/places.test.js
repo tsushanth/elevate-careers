@@ -387,3 +387,43 @@ test('normalisation is stable and never throws', () => {
   }
   assert.equal(normalizeJobLocations(undefined).length, 1);
 });
+
+// ---------------------------------------------------------------------------
+// Piped "City | ST": a foreign-dictionary city next to a valid US state code is the US town,
+// unless the city belongs to the country whose ISO code equals the code.
+// ---------------------------------------------------------------------------
+test('piped foreign-dictionary city + US state code is the US town', () => {
+  const us = [
+    ['Berlin | PA', 'PA'], ['Birmingham | AL', 'AL'], ['Manchester | NH', 'NH'], ['Oxford | PA', 'PA'],
+    ['Bristol | TN', 'TN'], ['Athens | GA', 'GA'], ['Paris | TX', 'TX'], ['Dublin | OH', 'OH'],
+    ['London | OH', 'OH'], ['Vancouver | WA', 'WA'], ['Melbourne | FL', 'FL'], ['Cambridge | MA', 'MA'],
+    ['Lima | OH', 'OH'], ['Wellington | MO', 'MO'], ['Delhi | NY', 'NY'], ['Reading | PA', 'PA'],
+    ['Moscow | ID', 'ID'], ['Rome | GA', 'GA'], ['Lancaster | PA', 'PA'], ['Sydney | OH', 'OH'],
+  ];
+  for (const [text, st] of us) check(`piped-${text}`, row(text), `US/${st}`);
+  check('piped-null-region', row('Berlin | PA | null'), 'US/PA');
+  check('piped-repeated', row('Birmingham | AL | AL'), 'US/AL');
+  check('piped-in-region-field', row(null, 'Berlin | PA', null), 'US/PA');
+});
+
+test('piped city + code that is its own country code keeps the country', () => {
+  const own = [
+    ['Mumbai | IN', 'IN/'], ['Frankfurt | DE', 'DE/'], ['Berlin | DE', 'DE/'], ['Toronto | CA', 'CA/'],
+    ['Jakarta | ID', 'ID/'], ['Pune | IN', 'IN/'], ['Munich | DE', 'DE/'], ['Delhi | IN', 'IN/'],
+    ['Paris | FR', 'FR/'], ['London | GB', 'GB/'], ['Dublin | IE', 'IE/'], ['Bengaluru | IN', 'IN/'],
+  ];
+  for (const [text, exp] of own) check(`piped-own-${text}`, row(text), exp);
+});
+
+test('piped city + code with spelled-country evidence or conflicts stays out of the US', () => {
+  check('piped-spelled-country', row('Berlin | PA | Germany'), 'DE/');
+  check('piped-wales-wi', row('Wales | WI | null'), 'ZZ/');
+  check('piped-wales-wi-short', row('Wales | WI'), 'ZZ/');
+  check('piped-space-form-unchanged', row('Reading PA'), 'ZZ/');
+  check('piped-space-form-berlin', row('Berlin PA'), 'ZZ/');
+  check('fielded-unchanged', row('Berlin', 'PA', null), 'ZZ/');
+  check('piped-two-countries', row('Berlin | Germany; London | United Kingdom - Deliveroo'), 'ZZ/');
+  check('piped-bangkok-jakarta', row('Bangkok | Thailand; Jakarta | Indonesia'), 'ZZ/');
+  check('piped-non-state-code', row('Berlin | ZZ'), 'DE/');
+  check('piped-paris-tx-paren', row('Paris | TX (Central)'), 'ZZ/');
+});

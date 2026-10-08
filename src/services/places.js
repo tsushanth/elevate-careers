@@ -151,6 +151,11 @@ const PAREN_CODE_RE = /(?:^|[|;]\s*)([A-Z]{2})\s*\(([^)]*)\)/g;
 const US_WORD_RE = /\b(?:US|USA|U\.S\.A?|United States)\b/i;
 const OFFICE_CODE_RE = /^([A-Z]{2})\s+(?:[Oo]ffice|HQ|hq|[Hh]eadquarters)$/;
 const REMOTE_CODE_RE = /^(?:[Rr]emote|[Hh]ybrid|[Oo]n-?[Ss]ite)\s+([A-Z]{2})$/;
+// Piped "City | ST" (optionally "| ST" or "| United States" again): a whole field that is one city and one stray
+// state code. Read like the comma form "City, ST", so a foreign-dictionary city next to a valid state code
+// ("Berlin | PA", "Birmingham | AL") is that US town, while a city of the code's own country ("Frankfurt | DE",
+// "Mumbai | IN", "Toronto | CA") keeps the country. Multi-segment fields are left alone.
+const PIPED_CITY_CODE_RE = /^([^|;,]*[^|;,\s])\s*\|\s*([A-Z]{2})(?:\s*\|\s*(?:\2|US|USA|United States|null))?$/;
 const DC_DOTTED_RE = /^D\.C\.$/;
 const CAPS_WORD_RE = /^[A-Z]{2}$/;
 const HAS_DIGIT_RE = /\d/;
@@ -309,7 +314,20 @@ function stateFromName(text, { inCity, bare }) {
 // ---------------------------------------------------------------------------
 // Context: everything the steps need, computed once per row
 // ---------------------------------------------------------------------------
+function pipedAsComma(text) {
+  const m = text ? PIPED_CITY_CODE_RE.exec(text) : null;
+  if (!m || !US_STATES[m[2]]) return text;
+  return `${m[1]}, ${m[2]}`;
+}
+
+// "Wales | WI": a country-like name next to a US state code is a conflict (same as fielded Wales/WI/null).
+const isPipedCountryLike = (text) => {
+  const m = text ? PIPED_CITY_CODE_RE.exec(text) : null;
+  return !!m && !!US_STATES[m[2]] && !!EXTRA_COUNTRY_NAMES[fold(m[1])];
+};
+
 function buildContext(city, regionRaw, countryRaw) {
+  city = pipedAsComma(city); regionRaw = pipedAsComma(regionRaw); countryRaw = pipedAsComma(countryRaw);
   const tokens = [countryRaw, regionRaw].filter(Boolean);
   const cityTrailing = analyzeField(city).pieces.map(p => (p.vetoed ? null : trailingCountry(p.text)));
   const trailingConflict = cityTrailing.some(t => t && t.conflict);
@@ -513,6 +531,7 @@ const STEPS = [stepSpelled, stepUnmapped, stepExplicit, stepEmbedded, stepCodeOn
 
 function resolveLocation(city, regionRaw, countryRaw) {
   if ([city, regionRaw, countryRaw].some(f => f && f.length > MAX_FIELD_LENGTH)) return NONE;
+  if ([city, regionRaw, countryRaw].some(isPipedCountryLike)) return NONE;
   const ctx = buildContext(city, regionRaw, countryRaw);
   for (const step of STEPS) {
     const r = step(ctx);
