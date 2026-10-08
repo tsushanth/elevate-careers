@@ -14,16 +14,34 @@ export const COUNT_CAP = 1000;
 // the signed-in count is made exact by subtraction; beyond it the capped count is used.
 export const EXACT_EXCLUSION_MAX = 5000;
 
-export function encodeCursor(sortAt, jobId) {
-  return Buffer.from(JSON.stringify([sortAt, jobId])).toString('base64url');
+// Ordering modes. 'sort_at' orders by the job's posted time (the original feed);
+// 'feed_at' orders by the company-diversity time (sort_at minus a per-company
+// penalty, see supabase/migrations/20261011000000_job_feed_company_rank.sql).
+// FEED_ORDER=feed_at selects the latter; anything else is sort_at (the safe default
+// and the rollback). Read per call so tests and a process restart both honour it.
+export function feedOrderMode(env = process.env) {
+  return env.FEED_ORDER === 'feed_at' ? 'feed_at' : 'sort_at';
+}
+// coalesce: a row whose feed_at is still NULL (not yet recomputed, or written by
+// old code during a rolling deploy) orders by its sort_at instead of sorting first.
+// The feed_at indexes (supabase/manual/20261011000300_*) are built on this exact expression.
+const FEED_AT_EXPR = 'coalesce(f.feed_at, f.sort_at)';
+const orderExpr = (mode) => (mode === 'feed_at' ? FEED_AT_EXPR : 'f.sort_at');
+
+// The cursor carries the ordering key of the last row ('sortAt' holds that key
+// under whichever mode minted it) and the mode ('s' | 'f'), so a cursor minted under
+// one ordering is never applied to the other. A legacy 2-element cursor is mode 's'.
+export function encodeCursor(sortAt, jobId, mode = 'sort_at') {
+  return Buffer.from(JSON.stringify([sortAt, jobId, mode === 'feed_at' ? 'f' : 's'])).toString('base64url');
 }
 
 export function decodeCursor(s) {
   try {
-    const [sortAt, jobId] = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8'));
+    const [sortAt, jobId, m = 's'] = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8'));
     if (typeof sortAt !== 'string' || !Number.isSafeInteger(jobId) || jobId <= 0) throw new Error('bad');
     if (new Date(sortAt).toISOString() !== sortAt) throw new Error('bad');
-    return { sortAt, jobId };
+    if (m !== 's' && m !== 'f') throw new Error('bad');
+    return { sortAt, jobId, mode: m === 'f' ? 'feed_at' : 'sort_at' };
   } catch { throw new Error('invalid cursor'); }
 }
 
@@ -62,7 +80,7 @@ export function parseFeedParams(query) {
 
 // A city without a region means the unregioned city (region_code = ''), the
 // same key geo_place and the typeahead use; the region predicate is always bound.
-function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null }, { withCursor, absorb = false }) {
+function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null }, { withCursor, absorb = false, mode = 'sort_at' }) {
   const values = [];
   const add = (v) => { values.push(v); return `$${values.length}`; };
   const where = ['f.is_active'];
@@ -97,20 +115,23 @@ function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null },
   if (excludedCompanies.length) where.push(`f.company_key <> ALL(${add(excludedCompanies)}::text[])`);
   where.push(...prefClauses(prefs, add));   // saved preferences, already resolved for this request (feedPrefs.js)
   if (withCursor && p.cursor) {
-    where.push(`(f.sort_at, f.job_id) < (${add(p.cursor.sortAt)}::timestamptz, ${add(p.cursor.jobId)}::bigint)`);
+    if (p.cursor.mode !== mode) throw new Error('cursor mode mismatch'); // feed-core answers 409 before getting here
+    where.push(`(${orderExpr(mode)}, f.job_id) < (${add(p.cursor.sortAt)}::timestamptz, ${add(p.cursor.jobId)}::bigint)`);
   }
   return { where: where.join(' AND '), values, add };
 }
 
 export function buildFeedQuery(p, exclusions = {}, opts = {}) {
-  const { where, values, add } = buildWhere(p, exclusions, { withCursor: true, absorb: !!opts.absorb });
+  const mode = opts.mode || feedOrderMode();
+  const { where, values, add } = buildWhere(p, exclusions, { withCursor: true, absorb: !!opts.absorb, mode });
   const text = `
     SELECT f.job_id AS id, f.title, f.company_name, f.company_logo_domain, f.provider, f.apply_provider,
            f.autofill_ready, f.apply_url, f.city, f.region_code, f.country_code, f.remote, f.employment_type,
-           f.salary_min, f.salary_max, f.salary_currency, f.sort_at AS posted_at
+           f.salary_min, f.salary_max, f.salary_currency, f.sort_at AS posted_at,
+           ${orderExpr(mode)} AS order_key
     FROM job_feed f
     WHERE ${where}
-    ORDER BY f.sort_at DESC, f.job_id DESC
+    ORDER BY ${orderExpr(mode)} DESC, f.job_id DESC
     LIMIT ${add(p.limit + 1)}`;
   return { text, values };
 }
@@ -138,8 +159,10 @@ export function buildExcludedCountQuery(p, { dismissed = [], excludedCompanies =
   return { text: `SELECT (${parts.join(' + ')})::int AS n`, values };
 }
 
-export function feedCacheKey(p) {
+// The order mode is part of the key so flipping FEED_ORDER never serves a page
+// (or nextCursor) minted under the other ordering from Redis / L1.
+export function feedCacheKey(p, mode = feedOrderMode()) {
   const { cursor, ...rest } = p;
   const norm = Object.keys(rest).sort().reduce((o, k) => { o[k] = rest[k]; return o; }, {});
-  return JSON.stringify([norm, cursor ? [cursor.sortAt, cursor.jobId] : null]);
+  return JSON.stringify([norm, cursor ? [cursor.sortAt, cursor.jobId] : null, mode]);
 }

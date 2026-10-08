@@ -33,6 +33,8 @@ before(async () => {
   // The real migration, so the test cannot drift from production.
   await pool.query(fs.readFileSync(new URL('../../supabase/migrations/20261008000000_job_feed.sql', import.meta.url), 'utf8')
     .replaceAll('public.', ''));
+  await pool.query(fs.readFileSync(new URL('../../supabase/migrations/20261011000000_job_feed_company_rank.sql', import.meta.url), 'utf8')
+    .replaceAll('public.', ''));
 });
 
 after(async () => { if (pool) { await pool.query('DROP SCHEMA job_feed_test CASCADE'); await pool.end(); } });

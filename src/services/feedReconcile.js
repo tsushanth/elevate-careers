@@ -17,7 +17,7 @@
 // job.updated_at is maintained by the BEFORE UPDATE trigger update_job_updated_at
 // (and defaults to now() on insert), so it is never null and never older than
 // created_at; a created_at fallback is therefore redundant for the window.
-import { syncJobFeedBatch, deactivateInFeed } from './jobFeed.js';
+import { syncJobFeedBatch, deactivateInFeed, recomputeCompanyRank } from './jobFeed.js';
 
 const JOB_SCAN_ROWS = 50_000;      // newest jobs by id examined per run (same window as the admin card)
 const JOB_PAGE = 10_000;           // rows per page query
@@ -128,7 +128,8 @@ async function findStaleFeedJobs(db, { sleepMs }) {
 // job_feed has no synced-at column, so the window is re-selected every run: keep it short (6 h of
 // updates is ~3k jobs) or each hourly run and each deploy would re-sync the same newest 15k rows.
 export async function reconcileFeed(db, { sinceHours = 6, batch = 500, sleepMs = 100, logger = null } = {}) {
-  const stats = { jobsScanned: 0, resynced: 0, resyncFailed: 0, feedScanned: 0, deactivated: 0, errors: 0 };
+  const companyKeys = new Set(); // ranked once at the end, not once per chunk
+  const stats = { companiesRanked: 0, jobsScanned: 0, resynced: 0, resyncFailed: 0, feedScanned: 0, deactivated: 0, errors: 0 };
   const warn = (obj, msg) => { try { logger?.warn?.(obj, msg); } catch { /* logging must not throw */ } };
   const size = Math.max(1, Math.floor(Number(batch)) || 500);
 
@@ -139,7 +140,7 @@ export async function reconcileFeed(db, { sinceHours = 6, batch = 500, sleepMs =
     stats.updatedIndex = indexed;
     for (let i = 0; i < ids.length; i += size) {
       const chunk = ids.slice(i, i + size);
-      try { await syncJobFeedBatch(db, chunk); stats.resynced += chunk.length; }
+      try { await syncJobFeedBatch(db, chunk, { companyKeys }); stats.resynced += chunk.length; }
       catch (e) { stats.resyncFailed += chunk.length; stats.errors++; warn({ error: e.message }, 'feed reconcile: resync batch failed'); }
       await sleep(sleepMs);
     }
@@ -150,11 +151,14 @@ export async function reconcileFeed(db, { sinceHours = 6, batch = 500, sleepMs =
     stats.feedScanned = scanned;
     for (let i = 0; i < ids.length; i += size) {
       const chunk = ids.slice(i, i + size);
-      try { await deactivateInFeed(db, chunk); stats.deactivated += chunk.length; }
+      try { await deactivateInFeed(db, chunk, { companyKeys }); stats.deactivated += chunk.length; }
       catch (e) { stats.errors++; warn({ error: e.message }, 'feed reconcile: deactivate batch failed'); }
       await sleep(sleepMs);
     }
   } catch (e) { stats.errors++; warn({ error: e.message }, 'feed reconcile: deactivate phase failed'); }
+
+  try { stats.companiesRanked = companyKeys.size; await recomputeCompanyRank(db, companyKeys, { logger }); }
+  catch (e) { stats.errors++; warn({ error: e.message }, 'feed reconcile: company rank phase failed'); }
 
   try { logger?.info?.(stats, 'feed reconcile done'); } catch { /* ignore */ }
   return stats;

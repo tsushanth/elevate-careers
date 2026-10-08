@@ -30,6 +30,7 @@ before(async () => {
   await pool.query('CREATE TABLE job (id BIGSERIAL PRIMARY KEY, tsv TSVECTOR)');
   await pool.query(fs.readFileSync(new URL('../../supabase/migrations/20261008000000_job_feed.sql', import.meta.url), 'utf8').replaceAll('public.', ''));
   await pool.query(fs.readFileSync(new URL('../../supabase/migrations/20261010000000_geo_place_absorb.sql', import.meta.url), 'utf8').replaceAll('public.', ''));
+  await pool.query(fs.readFileSync(new URL('../../supabase/migrations/20261011000000_job_feed_company_rank.sql', import.meta.url), 'utf8').replaceAll('public.', ''));
 
   // 60 US jobs (30 in Austin, 30 in Dallas), 5 remote, 10 UK, 3 unknown.
   // Newest first by id; the unknown-location jobs are the newest of all (minutes: 0).
