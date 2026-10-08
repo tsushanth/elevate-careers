@@ -24,8 +24,8 @@ begin
       where not exists (select 1 from job_feed f where f.job_id = j.id)),
     'unknown_location_jobs', (select count(distinct job_id) from job_feed where is_active and country_code = 'ZZ'),
     'inactive_job_active_in_feed', (
-      select count(*) from (select job_id from job_feed where is_active limit 200000) f
-      join job j on j.id = f.job_id where not j.is_active),
+      select count(*) from (select job_id from job_feed where is_active order by job_id desc limit 20000) f
+      cross join lateral (select 1 from job j where j.id = f.job_id and not j.is_active) x),
     'places', (select count(*) from geo_place)
   );
 end;

@@ -75,6 +75,7 @@ export default function Admin() {
   const [days, setDays] = useState(14);
   const [data, setData] = useState(null);
   const [health, setHealth] = useState(null);
+  const [feedHealth, setFeedHealth] = useState(null);
   const [err, setErr] = useState('');
 
   const load = useCallback(async () => {
@@ -89,6 +90,10 @@ export default function Admin() {
       setErr(error.message); setState('error'); return;
     }
     setData(d); setState('ok');
+    supabase
+      .rpc('simplyapply_admin_feed_health')
+      .then(({ data: fh, error: fe }) => setFeedHealth(fe ? null : (fh || null)))
+      .catch(() => setFeedHealth(null));
     const a0 = performance.now();
     let api = { ok: false, ms: null };
     try {
@@ -197,6 +202,18 @@ export default function Admin() {
       <h2>Autofill repair queue ({d.repair.unresolved} unresolved)</h2>
       <Table rows={d.repair.top} empty="Nothing unresolved"
         cols={[{ h: 'Site', f: (r) => r.domain }, { h: 'Field', f: (r) => r.label }, { h: 'Type', f: (r) => r.field_type }, { h: 'Reason', f: (r) => r.fail_reason }, { h: 'Count', f: (r) => r.count }, { h: 'Last', f: (r) => ago(r.last_seen) }]} />
+      {feedHealth && (
+        <>
+          <h2>Home feed read model</h2>
+          <div className="adm-grid">
+            <Card n={feedHealth.feed_rows} l="job_feed rows (approx.)" />
+            <Card n={feedHealth.active_jobs_missing_from_feed} l="Active jobs missing from feed (newest 50k)" />
+            <Card n={feedHealth.inactive_job_active_in_feed} l="Inactive jobs still live in feed (sample)" />
+            <Card n={feedHealth.unknown_location_jobs} l="Jobs with unknown location" />
+            <Card n={feedHealth.places} l="Typeahead places" />
+          </div>
+        </>
+      )}
     </div></div>
   );
 }
