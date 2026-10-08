@@ -388,6 +388,9 @@ export class NormalizerService {
 
   htmlToMarkdown(html) {
     if (!html) return '';
+    // jobspy (linkedin/indeed) already returns markdown. Running turndown over
+    // text with no HTML tags re-escapes its backslashes ("\\&" -> "\\\\&").
+    if (!/<\/?[a-z][^>]*>/i.test(html)) return html;
     try {
       return turndownService.turndown(html);
     } catch (error) {
