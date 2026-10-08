@@ -1,4 +1,4 @@
-// Role (job-function) matching for the v2 feed. Pure: no I/O.
+// Role (job-function) matching for the v2 feed. Pure except resolveFamilies(db, ...).
 //
 // A "family" is a tsquery over to_tsvector('simple', title) -- the exact expression the
 // GIN index idx_feed_title_tsv is built on (supabase/manual/*_job_feed_title_gin.sql).
