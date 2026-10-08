@@ -830,3 +830,73 @@
 .auth-google:disabled { opacity: 0.6; cursor: not-allowed; }
 .auth-or { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; color: #666; font-size: 13px; }
 .auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: #0000001f; }
+
+/* ── Dark mode (app shell) ───────────────────────────────────────────────
+   Follows the OS setting, same as src/feed/feed.css, and reuses its palette
+   (ink #e6e9ec, surface #1b1f24, canvas #12161a, line #2b323a, blue #58a6ff,
+   muted #9aa6b2) so the header and the feed read as one page. Light mode is
+   untouched: everything here is inside the media query. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --li-blue: #58a6ff;
+    --li-blue-dark: #79b8ff;
+    --li-blue-tint: #1c2a3a;
+    --li-bg: #12161a;
+    --li-text: #e6e9ec;
+    --li-muted: #9aa6b2;
+    --li-line: #2b323a;
+    --li-green: #3fb98a;
+    --li-surface: #1b1f24;
+    --li-on-blue: #0d1117;
+  }
+
+  body { background-color: var(--li-bg); color: var(--li-text); }
+
+  /* Header / nav */
+  .header { background: var(--li-surface); border-bottom-color: var(--li-line); }
+  .logo { color: var(--li-blue); }
+  .logo-mark { color: var(--li-on-blue); }
+  .nav a { color: var(--li-muted); }
+  .nav a:hover { color: var(--li-text); }
+  .nav-email { color: var(--li-muted); }
+  .nav-signin, .search-button, .apply-button, .auth-submit { background: var(--li-blue); color: var(--li-on-blue); }
+  .nav-signin:hover, .search-button:hover, .apply-button:hover, .auth-submit:hover:not(:disabled) { background: var(--li-blue-dark); }
+  .nav-signout { background: transparent; color: var(--li-blue); border-color: var(--li-blue); }
+  .nav-signout:hover { background: var(--li-bg); }
+
+  /* Hero + extension banner */
+  .hero-card { background: var(--li-surface); }
+  .hero-cta, .ext-banner .ext-banner-btn { color: var(--li-on-blue); }
+  .hero-cta:hover { background: var(--li-blue-dark); }
+  .ext-banner .ext-banner-btn:hover { background: var(--li-blue-dark); color: var(--li-on-blue); }
+
+  /* Sign-in modal */
+  .auth-overlay { background: rgba(0, 0, 0, 0.65); }
+  .auth-modal { background: var(--li-surface); border: 1px solid var(--li-line); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); }
+  .auth-title, .auth-field label { color: var(--li-text); }
+  .auth-close { color: var(--li-muted); }
+  .auth-close:hover, .auth-tab:hover:not(.active) { color: var(--li-text); }
+  .auth-tab { color: var(--li-muted); }
+  .auth-tab.active { color: var(--li-blue); }
+  .auth-field input { background: var(--li-bg); color: var(--li-text); border-color: var(--li-line); }
+  .auth-field input:focus { border-color: var(--li-blue); box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.25); }
+  .auth-error { color: #ff8a8f; background: #2d1a1c; border-color: #5c2a2e; }
+  .auth-message { color: var(--li-green); background: #14261f; border-color: #1f4a3a; }
+  .auth-google { background: transparent; color: var(--li-text); border-color: var(--li-line); }
+  .auth-google:hover:not(:disabled) { background: var(--li-bg); }
+  .auth-or { color: var(--li-muted); }
+
+  /* Surfaces below the header that still hard-code white (Applications tab, legacy list) */
+  .search-section, .job-list, .job-detail, .dismiss-menu, .filter-select, .filter-pill, .toggle-applied { background: var(--li-surface); }
+  .search-section, .job-list-header, .job-card, .pagination { border-color: var(--li-line); }
+  .filter-select, .filter-pill, .search-input, .page-btn.prev-next { color: var(--li-text); border-color: var(--li-line); }
+  .search-input { background: var(--li-bg); }
+  .filter-pill.active { background: var(--li-blue-tint); border-color: var(--li-blue); color: var(--li-blue); }
+  .company-fallback { background: var(--li-blue-tint); }
+  .apps-table { background: var(--li-surface); box-shadow: none; }
+  .apps-table th { background: var(--li-bg); color: var(--li-muted); border-bottom-color: var(--li-line); }
+  .apps-table td { border-bottom-color: var(--li-line); }
+  .apps-table tr:hover td { background: var(--li-bg); }
+  .toggle-applied.on { background: #14261f; }
+}
