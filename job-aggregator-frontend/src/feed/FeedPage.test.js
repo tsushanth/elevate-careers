@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import FeedPage from './FeedPage';
 import { useFeed } from './useFeed';
-import { fetchStats, fetchSuggest } from './feedApi';
+import { fetchStats, fetchSuggest, fetchRoles } from './feedApi';
 import { guessPlace, savePlace as savePlaceSpy } from './place';
 
 jest.mock('./useFeed');
@@ -54,6 +54,7 @@ beforeEach(() => {
   useFeed.mockImplementation(({ filters }) => ({ resultFilters: filters, ...feed }));
   fetchStats.mockResolvedValue({ jobs: 1234, companies: 56, remote: 7 });
   fetchSuggest.mockResolvedValue([]);
+  fetchRoles.mockResolvedValue([]);
   onSelectJob = jest.fn();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -534,5 +535,94 @@ describe('saved preferences note', () => {
     useFeed.mockImplementation(() => ({ resultFilters: {}, ...feed }));
     await mount({ session, selectedJob: job(1) });
     expect(container.querySelector('.feed-prefs-note')).toBeNull();
+  });
+});
+
+describe('role filter', () => {
+  const ROLES = [{ slug: 'software-engineering', label: 'Software engineering' }, { slug: 'design', label: 'Design' }];
+  const roleSel = () => container.querySelector('select[aria-label="Role"]');
+  const pick = (value) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(roleSel(), value);
+    roleSel().dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  beforeEach(() => { fetchRoles.mockResolvedValue(ROLES); });
+
+  test('no roles: no control and no role in the filters', async () => {
+    fetchRoles.mockResolvedValue([]);
+    await mount();
+    expect(roleSel()).toBeNull();
+    expect(lastFilters().role).toBe('');
+  });
+
+  test('a failed roles request leaves no control and no role param, silently', async () => {
+    fetchRoles.mockRejectedValue(new Error('down'));
+    localStorage.setItem('sa_role', 'design');
+    await mount();
+    expect(roleSel()).toBeNull();
+    expect(lastFilters().role).toBe('');
+    expect(container.querySelector('.feed-error')).toBeNull();
+  });
+
+  test('choosing a role puts it in the filters, remembers it, and All roles clears it', async () => {
+    await mount();
+    expect(roleSel()).not.toBeNull();
+    await pick('design');
+    expect(lastFilters().role).toBe('design');
+    expect(localStorage.getItem('sa_role')).toBe('design');
+    await pick('');
+    expect(lastFilters().role).toBe('');
+    expect(localStorage.getItem('sa_role')).toBeNull();
+  });
+
+  test('a saved role is applied from the first request and selected once roles load', async () => {
+    localStorage.setItem('sa_role', 'design');
+    await mount();
+    expect(useFeed.mock.calls[0][0].filters.role).toBe('design');
+    expect(roleSel().value).toBe('design');
+  });
+
+  test('a saved role missing from the list is dropped', async () => {
+    localStorage.setItem('sa_role', 'retired');
+    await mount();
+    expect(lastFilters().role).toBe('');
+    expect(localStorage.getItem('sa_role')).toBeNull();
+  });
+
+  test('the owner callback for a 400 invalid role drops the saved slug', async () => {
+    localStorage.setItem('sa_role', 'design');
+    fetchRoles.mockReturnValue(new Promise(() => {}));   // list still pending
+    await mount();
+    expect(lastFilters().role).toBe('design');
+    await act(async () => { useFeed.mock.calls[useFeed.mock.calls.length - 1][0].onInvalidRole('design'); });
+    expect(lastFilters().role).toBe('');
+    expect(localStorage.getItem('sa_role')).toBeNull();
+  });
+
+  test('heading names the role', async () => {
+    localStorage.setItem('sa_role', 'software-engineering');
+    feed = { ...baseFeed(), count: 1203 };
+    await mount();
+    expect(container.querySelector('.feed-heading').textContent).toBe('1,203 Software engineering jobs in United States');
+  });
+
+  test('a chosen role hides the profile match wording', async () => {
+    const session = { access_token: 't' };
+    const match = { source: 'profile', roleSlug: null, roleLabel: null, labels: ['Software Engineer'] };
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'applied', match };
+    await mount({ session, selectedJob: job(1) });
+    expect(text()).toContain('matched to your profile: Software Engineer.');
+    await pick('design');
+    expect(text()).not.toContain('matched to your profile');
+  });
+
+  test('switching off a profile match offers Use my profile', async () => {
+    sessionStorage.clear();
+    const session = { access_token: 't' };
+    const match = { source: 'profile', roleSlug: null, roleLabel: null, labels: ['Software Engineer'] };
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'applied', match };
+    await mount({ session, selectedJob: job(1) });
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'off' };
+    await act(async () => { button('Show all jobs').click(); });
+    expect(button('Use my profile')).toBeDefined();
   });
 });

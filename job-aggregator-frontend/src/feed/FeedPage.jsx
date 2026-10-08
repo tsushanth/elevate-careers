@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './feed.css';
 import { useFeed } from './useFeed';
-import { fetchStats } from './feedApi';
+import { fetchStats, fetchRoles } from './feedApi';
 import { EMPTY_PLACE, guessPlace, loadSavedPlace, savePlace } from './place';
 import SearchBar from './SearchBar';
 import FilterPills from './FilterPills';
@@ -11,6 +11,7 @@ import { useIsMobile, useSheetA11y } from './useSheetA11y';
 import { loadViewed, addViewed } from './viewed';
 import PrefsNote from './PrefsNote';
 import { loadPrefsOff, savePrefsOff } from './prefsChoice';
+import { loadRole, saveRole } from './roleChoice';
 
 // The existing detail pane expects these shapes.
 const toDetailJob = (card) => ({
@@ -47,9 +48,29 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   // "Show all jobs" on the preferences note: sent as prefs=off, remembered for the session.
   const [prefsOff, setPrefsOff] = useState(loadPrefsOff);
   const choosePrefsOff = useCallback((off) => { setPrefsOff(off); savePrefsOff(off); }, []);
-  const filters = useMemo(() => ({ place, q, ...pills, prefsOff }), [place, q, pills, prefsOff]);
+
+  // Role (job family). `roles` is null until /v2/roles answers, then the list ([] = feature off or fetch failed).
+  // A saved slug is sent optimistically while the list is pending, so a returning user gets one request, not two.
+  const [roles, setRoles] = useState(null);
+  const [roleSlug, setRoleSlug] = useState(loadRole);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(fetchRoles(apiBase)).then(r => { if (live) setRoles(Array.isArray(r) ? r : []); }, () => { if (live) setRoles([]); });
+    return () => { live = false; };
+  }, [apiBase]);
+  const chooseRole = useCallback((slug) => { setRoleSlug(slug); saveRole(slug); }, []);
+  // A saved slug the server no longer knows (400) or the list no longer offers is dropped for good.
+  const dropRole = useCallback(() => chooseRole(''), [chooseRole]);
+  useEffect(() => {
+    if (roles && roles.length > 0 && roleSlug && !roles.some(r => r.slug === roleSlug)) dropRole();
+  }, [roles, roleSlug, dropRole]);
+  // Feature off or list unavailable: no control and no role param (the saved slug stays for when it returns).
+  const role = roles === null || roles.some(r => r.slug === roleSlug) ? roleSlug : '';
+  const roleLabel = roles?.find(r => r.slug === role)?.label || '';
+
+  const filters = useMemo(() => ({ place, q, ...pills, prefsOff, role }), [place, q, pills, prefsOff, role]);
   const token = session?.access_token;
-  const feed = useFeed({ apiBase, filters, token, preload });
+  const feed = useFeed({ apiBase, filters, token, preload, onInvalidRole: dropRole });
 
   // Jobs applied to in this session leave the list at once (the server also hides them on the next fetch).
   // Opened jobs are dimmed, not removed: removing the card being read would break the list and detail layout.
@@ -63,7 +84,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
 
   // A guessed (never chosen) place with no jobs widens to everywhere, at most once,
   // and only when no keyword or filter could be the reason for the empty result.
-  const noRefinement = q === '' && !pills.remote && !pills.type && !pills.days;
+  const noRefinement = q === '' && !pills.remote && !pills.type && !pills.days && !role;
   useEffect(() => {
     if (feed.loaded && !feed.loading && feed.resultFilters === filters && !feed.error && feed.jobs.length === 0
       && placeSource === 'guess' && noRefinement && place.country) {
@@ -102,13 +123,18 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   // The note belongs to the list it was computed for, not to a refetch still in flight.
   const settledPrefs = !!token && feed.loaded && feed.resultFilters === filters && !feed.error;
   const where = place.label || 'everywhere';
-  const heading = feed.count == null ? 'Jobs' : `${feed.count.toLocaleString()}${feed.countIsCapped ? '+' : ''} jobs in ${where}`;
+  const heading = feed.count == null ? 'Jobs' : `${feed.count.toLocaleString()}${feed.countIsCapped ? '+' : ''} ${roleLabel ? `${roleLabel} jobs` : 'jobs'} in ${where}`;
+  // Remember that the list the user switched off was a profile match, so the way back says "Use my profile".
+  const hadProfileRef = useRef(false);
+  useEffect(() => {
+    if (feed.prefs === 'applied') hadProfileRef.current = feed.match?.source === 'profile';
+  }, [feed.prefs, feed.match]);
 
   return (
     <div className="feed-page">
       <div className="feed-top">
         <SearchBar apiBase={apiBase} q={q} place={place} onSearch={onSearch} />
-        <FilterPills filters={pills} onChange={setPills} />
+        <FilterPills filters={pills} onChange={setPills} roles={roles || []} role={role} onRoleChange={chooseRole} />
         {stats && (
           <p className="feed-stats">{stats.jobs.toLocaleString()} open jobs from {stats.companies.toLocaleString()} companies. <a href={extensionUrl} target="_blank" rel="noopener noreferrer">Add the Chrome extension</a> to autofill applications.</p>
         )}
@@ -116,7 +142,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
       <div className="feed-body">
         <section className="feed-list" aria-label="Job results" aria-busy={feed.loading}>
           <h2 className="feed-heading">{heading}</h2>
-          {settledPrefs && <PrefsNote status={feed.prefs} onShowAll={() => choosePrefsOff(true)} onUsePreferences={() => choosePrefsOff(false)} />}
+          {settledPrefs && <PrefsNote status={feed.prefs} match={role ? undefined : feed.match} hadProfile={hadProfileRef.current} onShowAll={() => choosePrefsOff(true)} onUsePreferences={() => choosePrefsOff(false)} />}
           {feed.error && (
             <div className="feed-error" role="alert">
               Couldn't load jobs. <button type="button" onClick={feed.retry}>Retry</button>

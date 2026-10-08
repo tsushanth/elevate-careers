@@ -1,6 +1,7 @@
 export const initialFeedState = {
   jobs: [], nextCursor: null, count: null, countIsCapped: false,
   loading: false, loadingMore: false, error: '', loaded: false,
+  match: undefined,      // API: what the default list was matched to (profile/role), absent when nothing was
   prefs: undefined,      // API: 'applied' | 'off' | absent (no saved preferences in play)
   resultFilters: null,   // the filters object that produced the current first page
 };
@@ -15,7 +16,7 @@ export function feedReducer(state, action) {
       const { data, append } = action;
       if (!append) {
         return { ...state, jobs: data.jobs, nextCursor: data.nextCursor, count: data.count, countIsCapped: data.countIsCapped,
-          prefs: data.prefs, loading: false, loadingMore: false, error: '', loaded: true, resultFilters: action.filters };
+          prefs: data.prefs, match: data.match, loading: false, loadingMore: false, error: '', loaded: true, resultFilters: action.filters };
       }
       const seen = new Set(state.jobs.map(j => j.id));
       const fresh = data.jobs.filter(j => !seen.has(j.id));

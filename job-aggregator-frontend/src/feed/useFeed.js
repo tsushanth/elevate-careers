@@ -4,7 +4,7 @@ import { fetchFeed } from './feedApi';
 
 // `preload` (optional) is the in-flight first-page request started by the
 // inline script in index.html; it is only used for the very first load.
-export function useFeed({ apiBase, filters, token, preload }) {
+export function useFeed({ apiBase, filters, token, preload, onInvalidRole }) {
   const [state, dispatch] = useReducer(feedReducer, initialFeedState);
   const seq = useRef(0);
   const abort = useRef(null);
@@ -17,6 +17,8 @@ export function useFeed({ apiBase, filters, token, preload }) {
   // change `run` and trigger a second fetch.
   const preloadRef = useRef(preload);
   nextCursorRef.current = state.nextCursor;
+  const onInvalidRoleRef = useRef(onInvalidRole);
+  onInvalidRoleRef.current = onInvalidRole;
 
   const run = useCallback(async (append, cursor) => {
     const mySeq = ++seq.current;
@@ -27,7 +29,7 @@ export function useFeed({ apiBase, filters, token, preload }) {
     try {
       let data;
       // The preload is the anonymous page; a signed-in user's page is filtered per user, so never use it.
-      if (!append && !usedPreload.current && preloadRef.current && !token) {
+      if (!append && !usedPreload.current && preloadRef.current && !token && !filters.role) {
         usedPreload.current = true;
         try { data = await preloadRef.current(filters); } catch { data = undefined; }
       }
@@ -40,6 +42,12 @@ export function useFeed({ apiBase, filters, token, preload }) {
       if (mySeq !== seq.current) return;
       busyRef.current = false;
       if (e.name === 'AbortError') return;
+      // 400 invalid role: a saved slug the server no longer knows. The owner drops it, which changes the
+      // filters and refetches without it; no error banner.
+      if (!append && e.status === 400 && e.code === 'invalid role' && filters.role && onInvalidRoleRef.current) {
+        onInvalidRoleRef.current(filters.role);
+        return;
+      }
       // 409: the cursor was minted under a different ordering (the server's ordering was switched while this
       // page was open). Start again from the top instead of showing an error; a first-page request has no cursor.
       if (append && e.status === 409) { run(false, ''); return; }

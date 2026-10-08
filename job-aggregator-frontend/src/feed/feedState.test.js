@@ -83,3 +83,13 @@ test('the API prefs marker is kept for the first page and cleared by a page with
   s = feedReducer(s, { type: 'success', append: false, data: page([3]) });
   expect(s.prefs).toBeUndefined();
 });
+
+test('success keeps the match object of the first page and clears it on the next first page without one', () => {
+  const match = { source: 'profile', roleSlug: null, roleLabel: null, labels: ['A'] };
+  let s = feedReducer(initialFeedState, { type: 'success', append: false, data: { ...page([1]), prefs: 'applied', match } });
+  expect(s.match).toEqual(match);
+  s = feedReducer(s, { type: 'success', append: true, data: page([2]) });
+  expect(s.match).toEqual(match);   // load-more pages carry no match
+  s = feedReducer(s, { type: 'success', append: false, data: page([3]) });
+  expect(s.match).toBeUndefined();
+});

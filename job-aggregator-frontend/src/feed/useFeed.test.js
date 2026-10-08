@@ -259,3 +259,41 @@ test('a 409 on the first page is a normal error (no restart loop)', async () => 
   expect(fetchFeed).toHaveBeenCalledTimes(1);
   expect(result.current.error).toMatch(/409/);
 });
+
+test('changing the role refetches from the top with the role', async () => {
+  fetchFeed.mockResolvedValueOnce(page([1, 2], 'c1')).mockResolvedValueOnce(page([9], null));
+  await render({ apiBase: 'http://x', filters: F1, token: null });
+  await render({ apiBase: 'http://x', filters: { ...F1, role: 'design' }, token: null });
+  expect(fetchFeed).toHaveBeenCalledTimes(2);
+  expect(fetchFeed.mock.calls[1][1]).toMatchObject({ role: 'design', cursor: '' });
+  expect(ids(result)).toEqual([9]);
+});
+
+test('a 400 invalid role tells the owner to drop the slug and shows no error; the new filters refetch', async () => {
+  const onInvalidRole = jest.fn();
+  fetchFeed.mockRejectedValueOnce(Object.assign(new Error('Feed request failed (400)'), { status: 400, code: 'invalid role' }))
+    .mockResolvedValueOnce(page([5], null));
+  const FR = { ...F1, role: 'gone' };
+  await render({ apiBase: 'http://x', filters: FR, token: null, onInvalidRole });
+  expect(onInvalidRole).toHaveBeenCalledWith('gone');
+  expect(result.current.error).toBe('');
+  await render({ apiBase: 'http://x', filters: F1, token: null, onInvalidRole });
+  expect(fetchFeed.mock.calls[1][1]).not.toHaveProperty('role');
+  expect(ids(result)).toEqual([5]);
+});
+
+test('a 400 that is not an invalid role is a normal error', async () => {
+  const onInvalidRole = jest.fn();
+  fetchFeed.mockRejectedValue(Object.assign(new Error('Feed request failed (400)'), { status: 400, code: 'bad cursor' }));
+  await render({ apiBase: 'http://x', filters: { ...F1, role: 'x' }, token: null, onInvalidRole });
+  expect(onInvalidRole).not.toHaveBeenCalled();
+  expect(result.current.error).toMatch(/400/);
+});
+
+test('the anonymous preload is never used for a role-filtered list', async () => {
+  const preload = jest.fn(async () => page([100]));
+  fetchFeed.mockResolvedValue(page([1]));
+  await render({ apiBase: 'http://x', filters: { ...F1, role: 'design' }, token: null, preload });
+  expect(preload).not.toHaveBeenCalled();
+  expect(ids(result)).toEqual([1]);
+});
