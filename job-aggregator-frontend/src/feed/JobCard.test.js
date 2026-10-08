@@ -47,3 +47,12 @@ test('no age text when posted_at is missing or the 1970 epoch fallback', () => {
   const missing = renderToStaticMarkup(<JobCard job={card({ posted_at: null })} selected={false} onSelect={() => {}} />);
   expect(missing).not.toMatch(/\d+d ago/);
 });
+
+test('a viewed card is marked and labelled; an unviewed one is not', () => {
+  const seen = renderToStaticMarkup(<JobCard job={card()} selected={false} viewed onSelect={() => {}} />);
+  expect(seen).toContain('is-viewed');
+  expect(seen).toContain('Viewed');
+  const fresh = renderToStaticMarkup(<JobCard job={card()} selected={false} onSelect={() => {}} />);
+  expect(fresh).not.toContain('is-viewed');
+  expect(fresh).not.toContain('Viewed');
+});

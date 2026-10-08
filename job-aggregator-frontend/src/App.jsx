@@ -763,6 +763,7 @@ function App() {
           extensionUrl={EXTENSION_URL}
           preload={window.__feedPreload}
           externalQuery={feedQuery}
+          appliedJobIds={appliedJobIds}
         />
       )}
       {showAuthModal && (
