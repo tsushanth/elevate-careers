@@ -7,6 +7,7 @@ import Privacy from './Privacy';
 import DeleteAccount from './DeleteAccount';
 import CompanyPage from './CompanyPage';
 import ResumeCheck from './ResumeCheck';
+import Admin from './Admin';
 
 // Capture traffic source on first page load — persists through auth flow
 (function captureSource() {
@@ -32,6 +33,7 @@ root.render(
         <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/resume-check" element={<ResumeCheck />} />
         <Route path="/companies/:slug" element={<CompanyPage />} />
+        <Route path="/admin" element={<Admin />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

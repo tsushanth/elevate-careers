@@ -70,8 +70,27 @@ async function getToken() {
   });
 }
 
+// No website session and no extension session: offer Google sign-in once.
+// Shared in-flight promise + cooldown so a batch of API calls can't stack popups.
+let signInInFlight = null;
+let signInCooldownUntil = 0;
+function promptGoogleSignIn() {
+  if (signInInFlight) return signInInFlight;
+  if (Date.now() < signInCooldownUntil) return Promise.resolve(false);
+  signInInFlight = new Promise(resolve => {
+    try { chrome.runtime.sendMessage({ type: 'SIGN_IN_GOOGLE' }, r => resolve(!!r?.ok)); }
+    catch (_) { resolve(false); }
+  }).then(ok => {
+    if (!ok) signInCooldownUntil = Date.now() + 60_000;
+    signInInFlight = null;
+    return ok;
+  });
+  return signInInFlight;
+}
+
 async function apiCall(path, body, profile) {
-  const token = await getToken();
+  let token = await getToken();
+  if (!token && await promptGoogleSignIn()) token = await getToken();
   if (!token) throw new Error('Not signed in — open ⚙ to sign in');
   const res = await fetch(`${API_BASE}${path}`, {
     method: body ? 'POST' : 'GET',
