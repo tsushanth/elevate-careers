@@ -40,6 +40,9 @@ export function useFeed({ apiBase, filters, token, preload }) {
       if (mySeq !== seq.current) return;
       busyRef.current = false;
       if (e.name === 'AbortError') return;
+      // 409: the cursor was minted under a different ordering (the server's ordering was switched while this
+      // page was open). Start again from the top instead of showing an error; a first-page request has no cursor.
+      if (append && e.status === 409) { run(false, ''); return; }
       dispatch({ type: 'error', message: e.message });
     }
   }, [apiBase, filters, token]);

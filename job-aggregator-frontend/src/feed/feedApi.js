@@ -21,7 +21,7 @@ export async function fetchFeed(base, state, { signal, token } = {}) {
     signal,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error(`Feed request failed (${res.status})`);
+  if (!res.ok) { const err = new Error(`Feed request failed (${res.status})`); err.status = res.status; throw err; }
   return res.json();
 }
 

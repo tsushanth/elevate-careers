@@ -238,3 +238,24 @@ test('a signed-in user never uses the anonymous preload', async () => {
   expect(fetchFeed).toHaveBeenCalledTimes(1);
   expect(ids(result)).toEqual([1, 2]);
 });
+
+test('a 409 on load-more (cursor from the other ordering) restarts from the first page without an error', async () => {
+  fetchFeed.mockResolvedValueOnce(page([1, 2], 'old-cursor'));
+  await render({ apiBase: 'http://x', filters: F1, token: null });
+  const conflict = Object.assign(new Error('Feed request failed (409)'), { status: 409 });
+  fetchFeed.mockRejectedValueOnce(conflict).mockResolvedValueOnce(page([7, 8], 'new-cursor'));
+  await act(async () => { result.current.loadMore(); });
+  expect(fetchFeed).toHaveBeenCalledTimes(3);
+  expect(fetchFeed.mock.calls[1][1]).toMatchObject({ cursor: 'old-cursor' });
+  expect(fetchFeed.mock.calls[2][1]).toMatchObject({ cursor: '' });
+  expect(ids(result)).toEqual([7, 8]);
+  expect(result.current.error).toBe('');
+  expect(result.current.nextCursor).toBe('new-cursor');
+});
+
+test('a 409 on the first page is a normal error (no restart loop)', async () => {
+  fetchFeed.mockRejectedValue(Object.assign(new Error('Feed request failed (409)'), { status: 409 }));
+  await render({ apiBase: 'http://x', filters: F1, token: null });
+  expect(fetchFeed).toHaveBeenCalledTimes(1);
+  expect(result.current.error).toMatch(/409/);
+});
