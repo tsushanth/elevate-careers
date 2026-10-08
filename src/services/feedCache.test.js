@@ -15,7 +15,7 @@ test('miss loads and stores; second call is a HIT without calling the loader', a
   const loader = async () => { calls++; return { jobs: [1] }; };
   assert.equal((await cache.getOrLoad('k', loader)).status, 'MISS');
   const hit = await cache.getOrLoad('k', loader);
-  assert.equal(hit.status, 'HIT');
+  assert.equal(hit.status, 'HIT-L1');
   assert.deepEqual(hit.value, { jobs: [1] });
   assert.equal(calls, 1);
 });
@@ -130,7 +130,7 @@ test('default readTimeoutMs is 100: a get resolving at 30 ms is honored as HIT',
     },
     async set(k, v) { this.store.set(k, v); return 'OK'; },
   };
-  const cache = createFeedCache({ redis: quickRedis });
+  const cache = createFeedCache({ redis: quickRedis, l1Disabled: true });
   let calls = 0;
   const loader = async () => { calls++; return { value: calls }; };
   // First call: miss, loads and caches
