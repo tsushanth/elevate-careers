@@ -7,6 +7,7 @@ export function feedUrl(base, state) {
   if (place.region) p.set('region', place.region);
   if (place.city) p.set('city', place.city);
   if (state.q) p.set('q', state.q);
+  if (state.role) p.set('role', state.role);
   if (state.remote) p.set('remote', 'true');
   if (state.type) p.set('type', state.type);
   if (state.days) p.set('days', String(state.days));
@@ -21,8 +22,21 @@ export async function fetchFeed(base, state, { signal, token } = {}) {
     signal,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) { const err = new Error(`Feed request failed (${res.status})`); err.status = res.status; throw err; }
+  if (!res.ok) {
+    const err = new Error(`Feed request failed (${res.status})`);
+    err.status = res.status;
+    if (res.status === 400) { try { err.code = (await res.json()).error; } catch { /* no body */ } }
+    throw err;
+  }
   return res.json();
+}
+
+// Job families for the Role filter, in display order. An empty list means the feature is off.
+export async function fetchRoles(base, { signal } = {}) {
+  const res = await fetch(`${base}/v2/roles`, { signal });
+  if (!res.ok) throw new Error(`Roles request failed (${res.status})`);
+  const roles = (await res.json()).roles;
+  return Array.isArray(roles) ? roles.filter(r => r && typeof r.slug === 'string' && r.slug && typeof r.label === 'string') : [];
 }
 
 async function suggestOne(base, term, signal) {

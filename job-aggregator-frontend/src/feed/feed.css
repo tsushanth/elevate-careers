@@ -81,3 +81,13 @@
   .feed-detail .save-button:hover { background: var(--canvas); }
   .feed-detail .hint-text { color: var(--muted); }
 }
+
+/* Role pill: same pill, but long family names must not widen the row past the viewport. */
+.feed-pill-role { max-width: 200px; text-overflow: ellipsis; flex: none; }
+/* The row scrolls sideways on narrow screens; a scrollbar appearing (e.g. when Clear all shows) must not nudge the page. */
+.feed-pills { min-height: 32px; scrollbar-width: none; }
+.feed-pills::-webkit-scrollbar { display: none; }
+.feed-pills > * { flex: none; }
+@media (prefers-color-scheme: dark) {
+  .feed-pill option { background: var(--surface); color: var(--ink); }
+}
