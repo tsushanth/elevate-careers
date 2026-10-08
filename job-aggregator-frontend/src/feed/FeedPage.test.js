@@ -342,3 +342,71 @@ describe('externalQuery (Growth tab links)', () => {
     expect(lastFilters().q).toBe('react');
   });
 });
+
+describe('mobile sheet accessibility', () => {
+  const setMobile = (matches) => {
+    window.matchMedia = jest.fn(() => ({ matches, addEventListener: () => {}, removeEventListener: () => {} }));
+  };
+  const keydown = (k, opts = {}) => act(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+  });
+  const openSheet = async () => {
+    feed = { ...baseFeed(), jobs: [job(1), job(2)] };
+    await mount({ selectedJob: job(1), detail: <a href="#x" id="detail-link">Apply</a> });
+    const card = container.querySelectorAll('.feed-card')[1];
+    card.focus();
+    await act(async () => { card.click(); });
+    return card;
+  };
+  afterEach(() => { delete window.matchMedia; document.body.style.overflow = ''; });
+
+  test('opening makes it a labelled modal dialog and moves focus in', async () => {
+    setMobile(true);
+    await openSheet();
+    const d = container.querySelector('.feed-detail');
+    expect(d.getAttribute('role')).toBe('dialog');
+    expect(d.getAttribute('aria-modal')).toBe('true');
+    expect(d.getAttribute('aria-label')).toBe('Job details');
+    expect(d.contains(document.activeElement)).toBe(true);
+    expect(document.body.style.overflow).toBe('hidden');
+  });
+
+  test('Escape closes, restores focus to the opener and releases scroll lock', async () => {
+    setMobile(true);
+    const card = await openSheet();
+    await keydown('Escape');
+    expect(container.querySelector('.feed-detail').classList.contains('is-open')).toBe(false);
+    expect(container.querySelector('.feed-detail').hasAttribute('role')).toBe(false);
+    expect(document.activeElement).toBe(card);
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  test('Tab wraps within the sheet in both directions', async () => {
+    setMobile(true);
+    await openSheet();
+    const back = button('Back to jobs');
+    const link = container.querySelector('#detail-link');
+    link.focus();
+    await keydown('Tab');
+    expect(document.activeElement).toBe(back);
+    await keydown('Tab', { shiftKey: true });
+    expect(document.activeElement).toBe(link);
+  });
+
+  test('unmounting while open releases the scroll lock', async () => {
+    setMobile(true);
+    await openSheet();
+    expect(document.body.style.overflow).toBe('hidden');
+    await act(async () => root.unmount());
+    expect(document.body.style.overflow).toBe('');
+    root = createRoot(container);
+  });
+
+  test('on desktop widths it is not a modal and does not lock scroll', async () => {
+    setMobile(false);
+    await openSheet();
+    const d = container.querySelector('.feed-detail');
+    expect(d.hasAttribute('role')).toBe(false);
+    expect(document.body.style.overflow).toBe('');
+  });
+});

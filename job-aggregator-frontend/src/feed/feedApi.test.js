@@ -34,3 +34,28 @@ test('fetchSuggest returns [] for blank input without calling the network', asyn
   expect(await fetchSuggest(base, '   ')).toEqual([]);
   expect(global.fetch).not.toHaveBeenCalled();
 });
+
+const reply = (places) => ({ ok: true, json: async () => ({ places }) });
+
+test('fetchSuggest expands a typed code to the full name before calling the API', async () => {
+  global.fetch = jest.fn(async () => reply([{ type: 'state', label: 'New York, United States' }]));
+  const out = await fetchSuggest(base, 'NY');
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(global.fetch.mock.calls[0][0]).toBe(`${base}/v2/geo/suggest?q=New%20York`);
+  expect(out).toHaveLength(1);
+});
+
+test('fetchSuggest merges and de-duplicates ambiguous codes such as CA', async () => {
+  global.fetch = jest.fn(async (url) => reply(url.endsWith('California')
+    ? [{ type: 'state', label: 'California, United States' }]
+    : [{ type: 'country', label: 'Canada' }, { type: 'state', label: 'California, United States' }]));
+  const out = await fetchSuggest(base, 'CA');
+  expect(global.fetch.mock.calls.map(c => c[0])).toEqual([`${base}/v2/geo/suggest?q=California`, `${base}/v2/geo/suggest?q=Canada`]);
+  expect(out.map(p => p.label)).toEqual(['California, United States', 'Canada']);
+});
+
+test('fetchSuggest sends ordinary names as typed', async () => {
+  global.fetch = jest.fn(async () => reply([]));
+  await fetchSuggest(base, 'Austin');
+  expect(global.fetch.mock.calls[0][0]).toBe(`${base}/v2/geo/suggest?q=Austin`);
+});

@@ -136,3 +136,30 @@ test('blur alone closes the list after a tick', async () => {
   await act(async () => { jest.advanceTimersByTime(130); });
   expect(options()).toHaveLength(0);
 });
+
+test('combobox wiring: aria-expanded/controls, activedescendant follows the arrows', async () => {
+  await mount();
+  expect(input().getAttribute('role')).toBe('combobox');
+  expect(input().getAttribute('aria-expanded')).toBe('false');
+  await type('aus');
+  expect(input().getAttribute('aria-expanded')).toBe('true');
+  expect(container.querySelector('#' + input().getAttribute('aria-controls')).getAttribute('role')).toBe('listbox');
+  await key('ArrowDown');
+  expect(input().getAttribute('aria-activedescendant')).toBe(options()[0].id);
+  await key('ArrowDown');
+  expect(input().getAttribute('aria-activedescendant')).toBe(options()[1].id);
+  await key('ArrowUp');
+  expect(input().getAttribute('aria-activedescendant')).toBe(options()[0].id);
+});
+
+test('Escape closes the list; ArrowDown reopens it', async () => {
+  await mount();
+  await type('aus');
+  expect(options()).toHaveLength(2);
+  await key('Escape');
+  expect(options()).toHaveLength(0);
+  expect(input().getAttribute('aria-expanded')).toBe('false');
+  await key('ArrowDown');
+  await act(async () => { jest.advanceTimersByTime(130); });
+  expect(options()).toHaveLength(2);
+});

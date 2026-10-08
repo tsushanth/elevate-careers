@@ -41,17 +41,18 @@ const PlaceTypeahead = forwardRef(function PlaceTypeahead({ apiBase, place, onCh
   };
   useImperativeHandle(ref, () => ({ resolve }));
 
+  const listShown = open && options.length > 0;
+
   const onKeyDown = (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, options.length - 1)); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) setOpen(true); else setActive(a => Math.min(a + 1, options.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
     else if (e.key === 'Enter') {
       if (open && options.length) { e.preventDefault(); choose(options[active >= 0 && active < options.length ? active : 0]); }
       else if (text.trim() !== (place.label || '')) { e.preventDefault(); resolve(); }
     }
-    else if (e.key === 'Escape') setOpen(false);
+    else if (e.key === 'Escape') { if (listShown) { e.preventDefault(); e.stopPropagation(); } setOpen(false); setActive(-1); }
   };
 
-  const listShown = open && options.length > 0;
 
   return (
     <div className="feed-place">
