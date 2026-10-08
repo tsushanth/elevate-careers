@@ -9,7 +9,12 @@ export default function SearchBar({ apiBase, q, place, onSearch }) {
   const submit = (e) => {
     e.preventDefault();
     // typed place text that was never chosen: pick the first suggestion (which searches) or reset the box
-    if (typeahead.current && typeahead.current.resolve()) return;
+    const picked = typeahead.current ? typeahead.current.resolve() : false;
+    if (picked && typeof picked.then === 'function') {
+      picked.then(ok => { if (!ok) onSearch(text.trim(), pendingPlace, false); });
+      return;
+    }
+    if (picked) return;
     onSearch(text.trim(), pendingPlace, false);
   };
   return (
