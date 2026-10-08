@@ -44,6 +44,8 @@ const ISO_BY_DISPLAY = {
   'United States': 'US', Georgia: 'GE',
 };
 
+const ISO_CODES = new Set(Object.values(ISO_BY_DISPLAY));
+
 export const COUNTRY_NAME_BY_ISO = Object.fromEntries(
   Object.entries(ISO_BY_DISPLAY).map(([name, iso]) => [iso, name])
 );
@@ -100,7 +102,16 @@ const SUBNATIONAL_COUNTRY = {
     'uttarakhand', 'west bengal', 'delhi',
   ].map(name => [name, 'IN'])),
   leinster: 'IE', munster: 'IE', connacht: 'IE',
+  yorkshire: 'GB', staffordshire: 'GB', 'richmond upon thames': 'GB',
 };
+
+// Feed-only dictionary cities (geo.js is untouched), keyed accent-folded and lower-case.
+const EXTRA_CITY_COUNTRY = { 'ceske budejovice': 'CZ' };
+
+// "Remote PL": a bare ISO code is only trusted from this list. Codes that are also a US state or
+// CA province (DE, IN, CA, NL...) or an everyday abbreviation (IT, HR, SE, AM...) are left out.
+const REMOTE_ISO_CODES = new Set(['PL', 'GB', 'FR', 'ES', 'PT', 'SG', 'JP', 'KR', 'AU', 'NZ', 'IE', 'ZA',
+  'RO', 'TR', 'UA', 'CZ', 'HU', 'GR', 'MX', 'BR', 'PH', 'DK', 'FI', 'PK', 'BD', 'LK', 'VN', 'TH', 'TW', 'HK']);
 
 // R5: trailing words that identify a country on their own (case-sensitive; never "US").
 const TRAILING_COUNTRY_WORDS = { UK: 'GB', USA: 'US', UAE: 'AE' };
@@ -133,6 +144,13 @@ const TRAILING_PARENS_RE = /(\s*\([^)]*\))+\s*$/;
 const TRAILING_METRO_RE = /\s+metro(politan)?(\s+area)?$/i;
 const TRAILING_CODE_RE = /^(.*\S)\s+([A-Z]{2})$/;
 const NOISE_DASH_CODE_RE = /^(\S+)\s+-\s+([A-Z]{2})$/;
+// "Anywhere in the US", "Remote within the USA": only when the phrase ends the segment (so "...US or Canada" is no match).
+const IN_THE_US_RE = /\b(?:in|within|across)\s+the\s+(?:US|USA|U\.S\.A?\.?|United States)\s*$/i;
+// "Austin | TX (Central)": a state code opening a segment, directly followed by a parenthetical.
+const PAREN_CODE_RE = /(?:^|[|;]\s*)([A-Z]{2})\s*\(([^)]*)\)/g;
+const US_WORD_RE = /\b(?:US|USA|U\.S\.A?|United States)\b/i;
+const OFFICE_CODE_RE = /^([A-Z]{2})\s+(?:[Oo]ffice|HQ|hq|[Hh]eadquarters)$/;
+const REMOTE_CODE_RE = /^(?:[Rr]emote|[Hh]ybrid|[Oo]n-?[Ss]ite)\s+([A-Z]{2})$/;
 const DC_DOTTED_RE = /^D\.C\.$/;
 const CAPS_WORD_RE = /^[A-Z]{2}$/;
 const HAS_DIGIT_RE = /\d/;
@@ -161,7 +179,9 @@ function countryFromAnyName(t, { weak = true } = {}) {
 // A dictionary city: { iso } (iso null when its country has no ISO entry), or null if not a city.
 function cityLookup(text) {
   const m = matchCountryOrRegion(text);
-  return m && m.type === 'city' ? { iso: ISO_BY_DISPLAY[m.country] || null } : null;
+  if (m) return m.type === 'city' ? { iso: ISO_BY_DISPLAY[m.country] || null } : null;
+  const extra = EXTRA_CITY_COUNTRY[fold(text)];
+  return extra ? { iso: extra } : null;
 }
 
 // R6: the first one or two words of a longer piece, when the remainder carries no state/province/ZIP info.
@@ -190,7 +210,7 @@ function trailingCountry(piece) {
     for (let k = Math.min(3, words.length - 1); k >= 1 && !found; k--) {
       const phrase = words.slice(-k).join(' ');
       if (fold(phrase).length < MIN_TRAILING_NAME_LENGTH) continue;
-      if (fold(phrase) === 'mexico' && fold(words[words.length - 2]) === 'new') continue; // New Mexico
+      if (['mexico', 'england'].includes(fold(phrase)) && fold(words[words.length - k - 1]) === 'new') continue; // New Mexico, New England
       const iso = countryFromName(phrase) || EXTRA_COUNTRY_NAMES[fold(phrase)];
       if (iso) found = { iso, k };
     }
@@ -235,9 +255,11 @@ function analyzeField(text, extraSubPieces = []) {
   add(text, false);
   parts.forEach((part, i) => {
     const vetoed = !!out.comma && i < parts.length - 1;
+    if (!vetoed) collectParenHits(part, out.hits);
     for (const seg of part.split(SEGMENT_SPLIT_RE)) {
       if (!seg) continue;
       if (!vetoed) collectHits(seg, out.hits);
+      if (!vetoed && IN_THE_US_RE.test(seg)) add('United States', false);
       for (const sub of seg.split(SOFT_SPLIT_RE)) add(sub, vetoed);
     }
     for (const t of tokenizeLocation(part)) add(t, vetoed);
@@ -247,6 +269,15 @@ function analyzeField(text, extraSubPieces = []) {
     out.hits.push({ kind: 'comma', code: out.comma.code, prov: out.comma.prov, rest: out.comma.rest, tail: out.comma.tail });
   }
   return out;
+}
+
+// "TX (Central)", "CA (Open to US-based Remote)" -> a state-code hit. Plain CA is Canada-or-California,
+// so it needs a US marker inside the parenthetical.
+function collectParenHits(part, hits) {
+  for (const m of part.matchAll(PAREN_CODE_RE)) {
+    if (!US_STATES[m[1]] || (m[1] === 'CA' && !US_WORD_RE.test(m[2]))) continue;
+    hits.push({ kind: 'paren', code: m[1] });
+  }
 }
 
 // R4 hits within one segment: leading code, trailing code, "Remote - CA".
@@ -304,9 +335,25 @@ function buildContext(city, regionRaw, countryRaw) {
     cityWholeIso: city ? (cityLookup(city) || {}).iso || null : null,
     spelledStrong: [...new Set(spell([...live(fields.country), ...live(fields.region)]))],
     spelledCity: [...new Set([...spell(live(fields.city)), ...trailing.map(t => t.iso)])],
+    // City-field country names that are not weak extras (those yield to the country/region fields).
+    spelledCityHard: [...new Set([...spell(live(fields.city).filter(p => countryFromName(p.text))), ...trailing.map(t => t.iso)])],
+    bareCounts: bareCodeCounts([city, regionRaw, countryRaw]),
     tokenStates: new Set(tokens.map(usState).filter(Boolean)),
     tokenProvs: new Set(tokens.map(caProvince).filter(Boolean)),
   };
+}
+
+// How many separate segments name each bare state code ("Birmingham | AL; Montgomery | AL" -> AL: 2).
+function bareCodeCounts(texts) {
+  const counts = {};
+  for (const text of texts) {
+    if (!text) continue;
+    for (const seg of text.split(SEGMENT_SPLIT_RE)) {
+      const code = bareStateCode(seg.trim());
+      if (code) counts[code] = (counts[code] || 0) + 1;
+    }
+  }
+  return counts;
 }
 
 const onlyOne = (set) => (set.size === 1 ? [...set][0] : null);
@@ -338,10 +385,15 @@ const regionFor = (iso, ctx) => (iso === 'US' ? usRegion(ctx) : iso === 'CA' ? c
 // 1. A spelled country. Distinct spelled countries conflict -> ZZ. A city-field name that
 // contradicts an explicit state/province token ("Wales | WI | WI") is a conflict as well.
 function stepSpelled(ctx) {
-  const all = new Set([...ctx.spelledStrong, ...ctx.spelledCity]);
+  // A weak city-field name ("Munster", "Yorkshire") never outvotes a country/region field.
+  const all = new Set([...ctx.spelledStrong, ...(ctx.spelledStrong.length ? ctx.spelledCityHard : ctx.spelledCity)]);
   if (ctx.trailingConflict || all.size > 1) return NONE;
   if (all.size === 0) return null;
   if (!ctx.spelledStrong.length && (ctx.tokenStates.size || ctx.tokenProvs.size)) {
+    // A city-field "United States" next to state tokens, or "Canada" next to provinces, agrees with them.
+    const agrees = (ctx.spelledCity.length === 1 && ctx.spelledCity[0] === 'US' && !ctx.tokenProvs.size)
+      || (ctx.spelledCity.length === 1 && ctx.spelledCity[0] === 'CA' && !ctx.tokenStates.size);
+    if (agrees) return { iso: onlyOne(all), region: regionFor(onlyOne(all), ctx) };
     // Explicit state tokens repeated in country AND region ("Delhi | NY | NY") outrank a city-field name.
     const repeated = tokensCorroborate(ctx, usState) || tokensCorroborate(ctx, caProvince);
     return repeated ? null : NONE;
@@ -392,6 +444,10 @@ function stepExplicit(ctx) {
 // corroborates itself; a leading CA needs a ZIP.
 function stepEmbedded(ctx) {
   const usable = ctx.hits.filter(h => h.code && !(h.kind === 'lead' && h.code === 'CA' && !h.zip));
+  // The same bare code in two segments corroborates itself ("Birmingham | AL; Montgomery | AL"), except plain CA.
+  for (const [code, count] of Object.entries(ctx.bareCounts)) {
+    if (count > 1 && code !== 'CA') usable.push({ kind: 'bare', code }, { kind: 'bare', code });
+  }
   const bare = new Set();
   for (const f of Object.values(ctx.fields)) {
     for (const p of f.pieces) if (!p.vetoed && bareStateCode(p.text)) bare.add(bareStateCode(p.text));
@@ -433,12 +489,27 @@ function stepStateNames(ctx) {
   return states.size ? { iso: 'US', region: onlyOne(states) } : null;
 }
 
+// 5b. A whole city field that is only "NY office" or "Remote PL". Codes that are also ISO countries
+// or Canadian provinces are not guessed.
+function stepCodeOnly(ctx) {
+  if (!ctx.city || ctx.tokens.length) return null;
+  const office = OFFICE_CODE_RE.exec(ctx.city);
+  if (office && US_STATES[office[1]] && !ISO_CODES.has(office[1]) && !CA_PROVINCES[office[1]]) {
+    return { iso: 'US', region: office[1] };
+  }
+  const remote = REMOTE_CODE_RE.exec(ctx.city);
+  if (remote && REMOTE_ISO_CODES.has(remote[1]) && !US_STATES[remote[1]] && !CA_PROVINCES[remote[1]]) {
+    return { iso: remote[1], region: null };
+  }
+  return null;
+}
+
 // 6. Dictionary cities among the tokens; cities in different countries do not guess.
 function stepCities(ctx) {
   return ctx.cityIsos.size === 1 ? { iso: onlyOne(ctx.cityIsos), region: null } : null;
 }
 
-const STEPS = [stepSpelled, stepUnmapped, stepExplicit, stepEmbedded, stepStateNames, stepCities];
+const STEPS = [stepSpelled, stepUnmapped, stepExplicit, stepEmbedded, stepCodeOnly, stepStateNames, stepCities];
 
 function resolveLocation(city, regionRaw, countryRaw) {
   if ([city, regionRaw, countryRaw].some(f => f && f.length > MAX_FIELD_LENGTH)) return NONE;
