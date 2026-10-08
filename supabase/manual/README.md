@@ -18,3 +18,7 @@ Every step is reversible; `FEED_ORDER` unset or `sort_at` is always the safe sta
 5. (d) Run each statement of `20261011000300_job_feed_feedat_indexes.sql` on its own, then `ANALYZE public.job_feed;`. Check all valid: `select indexrelid::regclass, indisvalid from pg_index where indrelid = 'public.job_feed'::regclass;`. Verify with `FEED_ORDER=feed_at node scripts/explain-feed.js` (no FAIL lines).
 6. (e) `fly secrets set FEED_ORDER=feed_at -a <api app>` (restarts machines). Clients holding a `sort_at` cursor get HTTP 409 `{restart:true}` once and must reload from page 1.
    Rollback: `fly secrets unset FEED_ORDER -a <api app>`; `feed_at` columns/indexes can stay.
+
+## Role match (FEED_ROLE_MATCH) - rollout
+
+`20261012000100_job_feed_title_gin.sql` is one statement (idx_feed_title_tsv, CONCURRENTLY): run it on its own, then `ANALYZE public.job_feed;`, check `indisvalid`, verify with `FEED_ORDER=feed_at node scripts/explain-feed.js` (role scenarios, no FAIL lines). Only then `fly secrets set FEED_ROLE_MATCH=on -a <api app>`. While it is unset/off: `GET /v2/roles` returns `{roles: []}`, `?role=` answers 400 `role filter disabled`, and the signed-in profile match is skipped. Rollback: `fly secrets unset FEED_ROLE_MATCH -a <api app>` (the index can stay).

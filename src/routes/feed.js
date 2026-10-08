@@ -13,6 +13,7 @@ import { startFeedReconcile } from '../services/feedReconcile.js';
 import { normalizeCompanyName } from '../services/normalizer.js';
 import { loadAppliedJobIds } from '../services/appliedJobs.js';
 import { normalizePrefs } from '../services/feedPrefs.js';
+import { roleMatchEnabled } from '../services/roleMatch.js';
 
 let _supabase = null;
 function getSupabase() {
@@ -21,6 +22,27 @@ function getSupabase() {
     realtime: { enabled: false },
   });
   return _supabase;
+}
+
+// The role profile: explicit apply_preferences.keywords, else user_signals.preferred_titles (roleMatch.js
+// turns them into phrases). Auxiliary like the preferences: any failure fails open (X-Prefs: unavailable).
+// Skipped entirely while FEED_ROLE_MATCH is off.
+async function loadProfile(sb, userId) {
+  if (!roleMatchEnabled()) return { profile: null, profileUnavailable: false };
+  try {
+    const [kw, sig] = await Promise.all([
+      sb.from('apply_preferences').select('keywords').eq('user_id', userId).maybeSingle(),
+      sb.from('user_signals').select('preferred_titles').eq('user_id', userId).maybeSingle(),
+    ]);
+    if (kw.error) throw new Error(kw.error.message || 'keywords query failed');
+    if (sig.error) throw new Error(sig.error.message || 'signals query failed');
+    const keywords = Array.isArray(kw.data?.keywords) ? kw.data.keywords : [];
+    const preferredTitles = Array.isArray(sig.data?.preferred_titles) ? sig.data.preferred_titles : [];
+    return { profile: keywords.length || preferredTitles.length ? { keywords, preferredTitles } : null, profileUnavailable: false };
+  } catch (e) {
+    logger.warn({ error: e.message }, 'v2 feed: role profile unavailable, serving without it');
+    return { profile: null, profileUnavailable: true };
+  }
 }
 
 // Optional auth, like /jobs: a bad or missing token just means no exclusions.
@@ -51,6 +73,7 @@ async function getExclusions(req) {
     let applied = [];
     try { applied = await loadAppliedJobIds({ sb, db, userId: user.id }); }
     catch (e) { logger.warn({ error: e.message }, 'v2 feed: applied-jobs lookup failed, continuing without it'); }
+    const { profile, profileUnavailable } = await loadProfile(sb, user.id);
     const dismissed = [...new Set([...(dismissedRows || []).map(r => Number(r.job_id)).filter(Number.isFinite), ...applied])];
     return {
       userId: user.id,
@@ -58,6 +81,8 @@ async function getExclusions(req) {
       excludedCompanies: (pref?.excluded_companies || []).map(normalizeCompanyName),
       prefs,
       prefsUnavailable,
+      profile,
+      profileUnavailable,
     };
   } catch (e) {
     logger.warn({ error: e.message }, 'v2 feed: exclusions lookup failed, continuing unfiltered');

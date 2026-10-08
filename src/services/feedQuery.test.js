@@ -218,3 +218,41 @@ test('cache key differs by order mode and by cursor mode', () => {
   const p = ok({ country: 'US' });
   assert.notEqual(feedCacheKey(p, 'sort_at'), feedCacheKey(p, 'feed_at'));
 });
+
+// ---- role filter ---------------------------------------------------------------------------
+
+test('role param: validated slug, part of the cache key, never "plain"', () => {
+  assert.equal(ok({ country: 'US', role: 'legal' }).role, 'legal');
+  assert.equal(ok({ country: 'US', role: ' Legal ' }).role, 'legal');
+  assert.equal(ok({ country: 'US' }).role, '');
+  assert.equal(ok({ country: 'US', role: 'legal' }).plain, false);
+  assert.deepEqual(parseFeedParams({ role: 'janitor' }), { ok: false, error: 'invalid role' });
+  assert.notEqual(feedCacheKey(ok({ country: 'US', role: 'legal' })), feedCacheKey(ok({ country: 'US', role: 'sales' })));
+  assert.notEqual(feedCacheKey(ok({ country: 'US', role: 'legal' })), feedCacheKey(ok({ country: 'US' })));
+  // keys of role-less requests are what they were before roles existed (no cold Redis after the deploy)
+  assert.ok(!feedCacheKey(ok({ country: 'US' })).includes('role'));
+});
+
+test('role in SQL: bound tsquery, opaque function for pages, gate only on the capped count', () => {
+  const p = ok({ country: 'US', role: 'legal' });
+  const page = buildFeedQuery(p, {}, { mode: 'feed_at' });
+  assert.match(page.text, /ts_match_vq\(to_tsvector\('simple', f\.title\), \$\d+::tsquery\)/);
+  assert.doesNotMatch(page.text, /to_tsvector\('simple', f\.title\) @@/);
+  assert.ok(page.values.some(v => typeof v === 'string' && v.includes(`'attorney':*`)));
+  const count = buildCountQuery(p);
+  assert.match(count.text, /to_tsvector\('simple', f\.title\) @@ \$\d+::tsquery AND ts_match_vq/);   // legal is a gin family
+  const dense = buildCountQuery(ok({ country: 'US', role: 'engineering' }));
+  assert.doesNotMatch(dense.text, /to_tsvector\('simple', f\.title\) @@/);                            // engineering: scan only
+  // user text never reaches the SQL text
+  for (const q of [page.text, count.text, dense.text]) assert.doesNotMatch(q, /attorney|engineer/);
+});
+
+test('profile match filter is ANDed in and bound like a role', () => {
+  const match = { tsquery: `'paralegal':*`, gate: `'paralegal':*`, pageGate: false };
+  const page = buildFeedQuery(ok({ country: 'US' }), { match }, { mode: 'feed_at' });
+  assert.match(page.text, /ts_match_vq/);
+  assert.ok(page.values.includes(`'paralegal':*`));
+  assert.match(buildCountQuery(ok({ country: 'US' }), { match }).text, /to_tsvector\('simple', f\.title\) @@ \$\d+::tsquery/);
+  const gatedPage = buildFeedQuery(ok({ country: 'US' }), { match: { ...match, pageGate: true } }, { mode: 'feed_at' });
+  assert.match(gatedPage.text, /to_tsvector\('simple', f\.title\) @@ \$\d+::tsquery AND ts_match_vq/);
+});
