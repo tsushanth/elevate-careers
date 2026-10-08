@@ -8,6 +8,9 @@
 //     a city without a region means the unregioned city (region_code = '').
 export const FEED_LIMIT_DEFAULT = 25;
 export const COUNT_CAP = 1000;
+// Largest per-user exclusion list (dismissed ids + excluded companies) for which
+// the signed-in count is made exact by subtraction; beyond it the capped count is used.
+export const EXACT_EXCLUSION_MAX = 5000;
 
 export function encodeCursor(sortAt, jobId) {
   return Buffer.from(JSON.stringify([sortAt, jobId])).toString('base64url');
@@ -115,6 +118,21 @@ export function buildCountQuery(p, exclusions = {}, opts = {}) {
     text: `SELECT count(*)::int AS n FROM (SELECT 1 FROM job_feed f WHERE ${where} LIMIT ${COUNT_CAP + 1}) t`,
     values,
   };
+}
+
+// How many rows of this filter the user's exclusions remove. Two probes that
+// cannot overlap: dismissed ids (job_feed primary key) plus rows of excluded
+// companies whose job is not already dismissed. Together with the unfiltered
+// count this gives the exact signed-in count: base - excluded.
+export function buildExcludedCountQuery(p, { dismissed = [], excludedCompanies = [] }, opts = {}) {
+  if (!dismissed.length && !excludedCompanies.length) return { text: 'SELECT 0::int AS n', values: [] };
+  const { where, values, add } = buildWhere(p, {}, { withCursor: false, absorb: !!opts.absorb });
+  const d = dismissed.length ? add(dismissed) : null;
+  const c = excludedCompanies.length ? add(excludedCompanies) : null;
+  const parts = [];
+  if (d) parts.push(`(SELECT count(*) FROM job_feed f WHERE ${where} AND f.job_id = ANY(${d}::bigint[]))`);
+  if (c) parts.push(`(SELECT count(*) FROM job_feed f WHERE ${where} AND f.company_key = ANY(${c}::text[])${d ? ` AND NOT (f.job_id = ANY(${d}::bigint[]))` : ''})`);
+  return { text: `SELECT (${parts.join(' + ')})::int AS n`, values };
 }
 
 export function feedCacheKey(p) {

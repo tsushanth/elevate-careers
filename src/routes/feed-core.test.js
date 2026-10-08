@@ -229,3 +229,36 @@ test('city without region is the unregioned city only; a dominant region also ab
   await pool.query('DELETE FROM job WHERE id >= 501');
   await rebuildGeoPlaces(pool);
 });
+
+test('signed-in count is exact: no exclusions equals shared count; inside/outside the filter; overlap; beyond the 1000 cap', { skip }, async () => {
+  const auth = { authorization: 'Bearer x' };
+  const count = async (path) => (await get(path, auth)).body;
+  // no exclusions -> same as the anonymous (shared, cached) count
+  exclusions = { userId: 'u2', dismissed: [], excludedCompanies: [] };
+  const anon = (await get('/jobs/feed?country=US')).body;
+  assert.equal((await count('/jobs/feed?country=US')).count, anon.count);
+  // dismissed inside the filter, one outside (GB job 61), one that does not exist
+  exclusions = { userId: 'u2', dismissed: [1, 2, 61, 99999], excludedCompanies: [] };
+  assert.equal((await count('/jobs/feed?country=US')).count, 58);
+  assert.equal((await count('/jobs/feed?country=GB')).count, 9);
+  // a company and a dismissed job of that company are not double counted
+  exclusions = { userId: 'u2', dismissed: [1, 31], excludedCompanies: ['acme'] };
+  assert.equal((await count('/jobs/feed?country=US')).count, 29);
+  assert.equal((await count('/jobs/feed?country=US&region=TX&city=dallas')).count, 29);
+  assert.equal((await count('/jobs/feed?country=US&region=TX&city=austin')).count, 0);
+  // beyond the cap: 1,200 jobs in IT; one dismissed -> exactly 1199, not "1,000+"
+  await pool.query(
+    `INSERT INTO job_feed (job_id,country_code,region_code,city_key,city,sort_at,title,company_name,company_key,apply_url,is_country_primary)
+     SELECT 1000+g,'IT','','rome','Rome', now() - (g * interval '1 second'),'Dev','Fiat','fiat','https://x/' || g, true FROM generate_series(1,1200) g`);
+  await rebuildGeoPlaces(pool);
+  exclusions = { userId: 'u2', dismissed: [1001], excludedCompanies: [] };
+  const it = await count('/jobs/feed?country=IT');
+  assert.equal(it.count, 1199);
+  assert.equal(it.countIsCapped, false);
+  // a list over the limit falls back to the capped count
+  exclusions = { userId: 'u2', dismissed: Array.from({ length: 5001 }, (_, i) => 500000 + i), excludedCompanies: [] };
+  const big = await count('/jobs/feed?country=IT');
+  assert.equal(big.count, 1000);
+  assert.equal(big.countIsCapped, true);
+  exclusions = null;
+});

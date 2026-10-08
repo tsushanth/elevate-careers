@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFeedParams, encodeCursor, decodeCursor, buildFeedQuery, buildCountQuery, feedCacheKey } from './feedQuery.js';
+import { parseFeedParams, encodeCursor, decodeCursor, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey } from './feedQuery.js';
 
 const ok = (q) => { const r = parseFeedParams(q); assert.equal(r.ok, true, JSON.stringify(r)); return r.params; };
 
@@ -172,4 +172,29 @@ test('absorb: region IN (region, empty) with the dedupe guard; off by default', 
   // no region: absorb has no effect (bare city is the regionless city)
   const bare = buildFeedQuery(ok({ country: 'US', city: 'Austin' }), {}, { absorb: true });
   assert.doesNotMatch(bare.text, /IN \(/);
+});
+
+test('excluded-count query: no exclusions is a constant zero with no bound values', () => {
+  const q = buildExcludedCountQuery(ok({ country: 'US' }), {});
+  assert.equal(q.text, 'SELECT 0::int AS n');
+  assert.deepEqual(q.values, []);
+});
+
+test('excluded-count query: dismissed uses the id probe only; companies only skips the NOT clause', () => {
+  const p = ok({ country: 'US', region: 'tx' });
+  const d = buildExcludedCountQuery(p, { dismissed: [1, 2] });
+  assert.match(d.text, /f\.job_id = ANY\(\$3::bigint\[\]\)/);
+  assert.doesNotMatch(d.text, /company_key/);
+  assert.deepEqual(d.values, ['US', 'TX', [1, 2]]);
+  const c = buildExcludedCountQuery(p, { excludedCompanies: ['acme'] });
+  assert.match(c.text, /f\.company_key = ANY\(\$3::text\[\]\)/);
+  assert.doesNotMatch(c.text, /NOT \(/);
+});
+
+test('excluded-count query: both lists never double count (company probe skips dismissed ids), same filter as the page', () => {
+  const p = ok({ country: 'CA', region: 'on', city: 'Toronto' });
+  const q = buildExcludedCountQuery(p, { dismissed: [5], excludedCompanies: ['x'] }, { absorb: true });
+  assert.match(q.text, /NOT \(f\.job_id = ANY\(\$4::bigint\[\]\)\)/);
+  assert.match(q.text, /f\.region_code IN \(\$3, ''\)/);
+  assert.deepEqual(q.values, ['CA', 'toronto', 'ON', [5], ['x']]);
 });
