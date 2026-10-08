@@ -57,7 +57,7 @@ export function parseFeedParams(query) {
 
 // A city without a region means the unregioned city (region_code = ''), the
 // same key geo_place and the typeahead use; the region predicate is always bound.
-function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor }) {
+function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor, absorb = false }) {
   const values = [];
   const add = (v) => { values.push(v); return `$${values.length}`; };
   const where = ['f.is_active'];
@@ -65,7 +65,17 @@ function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor 
   if (p.country) {
     where.push(`f.country_code = ${add(p.country)}`);
     if (p.city) {
-      where.push(`f.city_key = ${add(p.city.toLowerCase())}`, `f.region_code = ${add(p.region || '')}`);
+      where.push(`f.city_key = ${add(p.city.toLowerCase())}`);
+      if (absorb && p.region) {
+        // The regioned entry is dominant for this city (geo_place.absorbs_regionless):
+        // include the city's regionless rows. Two idx_feed_city probes. A job with
+        // both a regionless and a regioned row for the city is returned once.
+        const r = add(p.region);
+        where.push(`f.region_code IN (${r}, '')`,
+          `(f.region_code <> '' OR NOT EXISTS (SELECT 1 FROM job_feed g WHERE g.job_id = f.job_id AND g.country_code = f.country_code AND g.region_code = ${r} AND g.city_key = f.city_key))`);
+      } else {
+        where.push(`f.region_code = ${add(p.region || '')}`);
+      }
     } else if (p.region) {
       where.push(`f.region_code = ${add(p.region)}`, 'f.is_region_primary');
     } else {
@@ -86,8 +96,8 @@ function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor 
   return { where: where.join(' AND '), values, add };
 }
 
-export function buildFeedQuery(p, exclusions = {}) {
-  const { where, values, add } = buildWhere(p, exclusions, { withCursor: true });
+export function buildFeedQuery(p, exclusions = {}, opts = {}) {
+  const { where, values, add } = buildWhere(p, exclusions, { withCursor: true, absorb: !!opts.absorb });
   const text = `
     SELECT f.job_id AS id, f.title, f.company_name, f.company_logo_domain, f.provider, f.apply_provider,
            f.autofill_ready, f.apply_url, f.city, f.region_code, f.country_code, f.remote, f.employment_type,
@@ -99,8 +109,8 @@ export function buildFeedQuery(p, exclusions = {}) {
   return { text, values };
 }
 
-export function buildCountQuery(p, exclusions = {}) {
-  const { where, values } = buildWhere(p, exclusions, { withCursor: false });
+export function buildCountQuery(p, exclusions = {}, opts = {}) {
+  const { where, values } = buildWhere(p, exclusions, { withCursor: false, absorb: !!opts.absorb });
   return {
     text: `SELECT count(*)::int AS n FROM (SELECT 1 FROM job_feed f WHERE ${where} LIMIT ${COUNT_CAP + 1}) t`,
     values,

@@ -20,6 +20,7 @@ before(async () => {
   await admin.end();
   pool = new pg.Pool({ connectionString: url, max: 2, options: '-c search_path=geo_place_test' });
   await pool.query(fs.readFileSync(new URL('../../supabase/migrations/20261008000000_job_feed.sql', import.meta.url), 'utf8').replaceAll('public.', ''));
+  await pool.query(fs.readFileSync(new URL('../../supabase/migrations/20261010000000_geo_place_absorb.sql', import.meta.url), 'utf8').replaceAll('public.', ''));
   const ins = insRow = (id, cc, rc, city) => pool.query(
     `INSERT INTO job_feed (job_id,country_code,region_code,city_key,city,sort_at,title,company_name,apply_url,is_active,is_primary,is_country_primary,is_region_primary)
      VALUES ($1,$2,$3,$4,$5,now(),'t','c','https://x',true,$6,$7,$8)`,

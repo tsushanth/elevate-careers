@@ -157,3 +157,19 @@ test('city is lower-cased and trimmed so Austin and austin share one cache key',
   assert.equal(a.city, 'austin');
   assert.equal(feedCacheKey(a), feedCacheKey(b));
 });
+
+test('absorb: region IN (region, empty) with the dedupe guard; off by default', () => {
+  const p = ok({ country: 'US', region: 'ca', city: 'San Francisco' });
+  const strict = buildFeedQuery(p);
+  assert.match(strict.text, /f\.region_code = \$3/);
+  assert.doesNotMatch(strict.text, /IN \(/);
+  const q = buildFeedQuery(p, {}, { absorb: true });
+  assert.match(q.text, /f\.region_code IN \(\$3, ''\)/);
+  assert.match(q.text, /NOT EXISTS/);
+  assert.deepEqual(q.values.slice(0, 3), ['US', 'san francisco', 'CA']);
+  const c = buildCountQuery(p, {}, { absorb: true });
+  assert.match(c.text, /f\.region_code IN \(\$3, ''\)/);
+  // no region: absorb has no effect (bare city is the regionless city)
+  const bare = buildFeedQuery(ok({ country: 'US', city: 'Austin' }), {}, { absorb: true });
+  assert.doesNotMatch(bare.text, /IN \(/);
+});

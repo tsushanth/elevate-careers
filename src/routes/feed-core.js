@@ -1,7 +1,7 @@
 // src/routes/feed-core.js
 import express from 'express';
 import { parseFeedParams, buildFeedQuery, buildCountQuery, feedCacheKey, encodeCursor, COUNT_CAP } from '../services/feedQuery.js';
-import { suggestPlaces, placeCount } from '../services/geoPlace.js';
+import { suggestPlaces, placeCount, isAbsorbing } from '../services/geoPlace.js';
 import { COUNTRY_NAME_BY_ISO } from '../services/places.js';
 
 const STATS_TTL_MS = 10 * 60_000;
@@ -23,7 +23,8 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
 
   // The page itself (rows, next cursor, count). Reused by the warmer.
   async function loadPage(params, exclusions = {}) {
-    const q = buildFeedQuery(params, exclusions);
+    const opts = { absorb: params.city && params.region ? await isAbsorbing(db, params) : false };
+    const q = buildFeedQuery(params, exclusions, opts);
     const { rows } = await db.query(q.text, q.values);
     const hasMore = rows.length > params.limit;
     const page = rows.slice(0, params.limit);
@@ -39,7 +40,7 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
       if (exact !== null) {
         count = exact;
       } else {
-        const c = buildCountQuery(params, exclusions);
+        const c = buildCountQuery(params, exclusions, opts);
         const n = (await db.query(c.text, c.values)).rows[0].n;
         countIsCapped = n > COUNT_CAP;
         count = countIsCapped ? COUNT_CAP : n;
