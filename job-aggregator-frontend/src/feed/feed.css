@@ -63,3 +63,17 @@
 }
 @keyframes feed-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .feed-detail.is-open { animation: none; } }
+
+/* The detail pane reuses the legacy .job-detail card, which hard-codes a white background and
+   near-black text. Without these overrides the title and "About the job" vanish in dark mode. */
+@media (prefers-color-scheme: dark) {
+  .feed-detail .job-detail { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+  .feed-detail .job-detail-meta, .feed-detail .more-button { color: var(--muted); }
+  .feed-detail .description-content { color: var(--ink); }
+  .feed-detail .job-detail-description { border-top-color: var(--line); }
+  .feed-detail .badge { color: var(--ink); border-color: var(--line); background: transparent; }
+  .feed-detail .badge-remote { color: var(--blue); border-color: var(--blue); background: transparent; }
+  .feed-detail .save-button { background: transparent; color: var(--blue); border-color: var(--blue); }
+  .feed-detail .save-button:hover { background: var(--canvas); }
+  .feed-detail .hint-text { color: var(--muted); }
+}
