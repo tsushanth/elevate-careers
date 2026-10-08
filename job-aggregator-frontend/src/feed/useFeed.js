@@ -26,7 +26,8 @@ export function useFeed({ apiBase, filters, token, preload }) {
     dispatch({ type: 'start', append });
     try {
       let data;
-      if (!append && !usedPreload.current && preloadRef.current) {
+      // The preload is the anonymous page; a signed-in user's page is filtered per user, so never use it.
+      if (!append && !usedPreload.current && preloadRef.current && !token) {
         usedPreload.current = true;
         try { data = await preloadRef.current(filters); } catch { data = undefined; }
       }

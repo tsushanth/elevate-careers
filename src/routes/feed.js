@@ -12,6 +12,7 @@ import { startFeedWarmer } from '../services/feedWarmer.js';
 import { startFeedReconcile } from '../services/feedReconcile.js';
 import { normalizeCompanyName } from '../services/normalizer.js';
 import { loadAppliedJobIds } from '../services/appliedJobs.js';
+import { normalizePrefs } from '../services/feedPrefs.js';
 
 let _supabase = null;
 function getSupabase() {
@@ -30,10 +31,22 @@ async function getExclusions(req) {
     const sb = getSupabase();
     const { data: { user } } = await sb.auth.getUser(token);
     if (!user) return null;
-    const [{ data: pref }, { data: dismissedRows }] = await Promise.all([
+    const [{ data: pref }, { data: dismissedRows }, prefsRes] = await Promise.all([
       sb.from('apply_preferences').select('excluded_companies').eq('user_id', user.id).single(),
       sb.from('dismissed_jobs').select('job_id').eq('user_id', user.id),
+      // Separate query so a problem with the preference columns cannot lose the company/dismissed exclusions.
+      sb.from('apply_preferences').select('remote, salary_min, excluded_titles, excluded_locations').eq('user_id', user.id).maybeSingle()
+        .then(r => r, e => ({ data: null, error: e })),
     ]);
+    // Fail open: preferences are an enhancement. No row is fine (data null, no error).
+    let prefs = null, prefsUnavailable = false;
+    try {
+      if (prefsRes.error) throw new Error(prefsRes.error.message || 'preferences query failed');
+      prefs = normalizePrefs(prefsRes.data);
+    } catch (e) {
+      prefsUnavailable = true;
+      logger.warn({ error: e.message }, 'v2 feed: saved preferences unavailable, serving without them');
+    }
     // Applied jobs are hidden like dismissed ones. A failure here must not lose the dismissed list.
     let applied = [];
     try { applied = await loadAppliedJobIds({ sb, db, userId: user.id }); }
@@ -43,6 +56,8 @@ async function getExclusions(req) {
       userId: user.id,
       dismissed,
       excludedCompanies: (pref?.excluded_companies || []).map(normalizeCompanyName),
+      prefs,
+      prefsUnavailable,
     };
   } catch (e) {
     logger.warn({ error: e.message }, 'v2 feed: exclusions lookup failed, continuing unfiltered');

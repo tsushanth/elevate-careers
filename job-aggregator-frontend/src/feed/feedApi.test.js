@@ -59,3 +59,10 @@ test('fetchSuggest sends ordinary names as typed', async () => {
   await fetchSuggest(base, 'Austin');
   expect(global.fetch.mock.calls[0][0]).toBe(`${base}/v2/geo/suggest?q=Austin`);
 });
+
+test('feedUrl sends prefs=off only when the user chose Show all jobs', () => {
+  const place = { country: '', region: '', city: '', label: '' };
+  expect(new URL(feedUrl(base, { place, prefsOff: true })).searchParams.get('prefs')).toBe('off');
+  expect(new URL(feedUrl(base, { place, prefsOff: false })).searchParams.has('prefs')).toBe(false);
+  expect(new URL(feedUrl(base, { place })).searchParams.has('prefs')).toBe(false);
+});

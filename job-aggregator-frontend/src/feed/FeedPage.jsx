@@ -9,6 +9,8 @@ import JobCard from './JobCard';
 import JobCardSkeleton from './JobCardSkeleton';
 import { useIsMobile, useSheetA11y } from './useSheetA11y';
 import { loadViewed, addViewed } from './viewed';
+import PrefsNote from './PrefsNote';
+import { loadPrefsOff, savePrefsOff } from './prefsChoice';
 
 // The existing detail pane expects these shapes.
 const toDetailJob = (card) => ({
@@ -42,7 +44,10 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const externalQ = externalQuery?.q || '';
   useEffect(() => { if (externalN > 0) setQ(externalQ); }, [externalN]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filters = useMemo(() => ({ place, q, ...pills }), [place, q, pills]);
+  // "Show all jobs" on the preferences note: sent as prefs=off, remembered for the session.
+  const [prefsOff, setPrefsOff] = useState(loadPrefsOff);
+  const choosePrefsOff = useCallback((off) => { setPrefsOff(off); savePrefsOff(off); }, []);
+  const filters = useMemo(() => ({ place, q, ...pills, prefsOff }), [place, q, pills, prefsOff]);
   const token = session?.access_token;
   const feed = useFeed({ apiBase, filters, token, preload });
 
@@ -94,6 +99,8 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
 
   const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; explicitIdRef.current = job.id; setViewed(addViewed(job.id)); onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
 
+  // The note belongs to the list it was computed for, not to a refetch still in flight.
+  const settledPrefs = !!token && feed.loaded && feed.resultFilters === filters && !feed.error;
   const where = place.label || 'everywhere';
   const heading = feed.count == null ? 'Jobs' : `${feed.count.toLocaleString()}${feed.countIsCapped ? '+' : ''} jobs in ${where}`;
 
@@ -109,6 +116,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
       <div className="feed-body">
         <section className="feed-list" aria-label="Job results" aria-busy={feed.loading}>
           <h2 className="feed-heading">{heading}</h2>
+          {settledPrefs && <PrefsNote status={feed.prefs} onShowAll={() => choosePrefsOff(true)} onUsePreferences={() => choosePrefsOff(false)} />}
           {feed.error && (
             <div className="feed-error" role="alert">
               Couldn't load jobs. <button type="button" onClick={feed.retry}>Retry</button>
