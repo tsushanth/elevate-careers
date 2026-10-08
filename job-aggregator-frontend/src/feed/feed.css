@@ -54,4 +54,12 @@
   .feed-detail.is-open { display: block; position: fixed; inset: 0; z-index: 20; overflow: auto; background: var(--canvas); padding: 0 0 24px; }
   .feed-back { display: block; position: sticky; top: 0; width: 100%; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--blue); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 }
-.feed-page :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.feed-page :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.feed-detail:focus { outline: none; }
+.feed-place-list li.is-active { box-shadow: inset 3px 0 0 var(--green); }
+.feed-back:focus-visible { outline-offset: -3px; }
+@media (max-width: 800px) {
+  .feed-detail.is-open { animation: feed-sheet-in .2s ease-out; }
+}
+@keyframes feed-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .feed-detail.is-open { animation: none; } }

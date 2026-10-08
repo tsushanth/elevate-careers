@@ -28,7 +28,7 @@ export default function JobCard({ job, selected, onSelect }) {
   const pay = salary(job);
   return (
     <button type="button" className={`feed-card${selected ? ' is-selected' : ''}`}
-      aria-current={selected ? 'true' : undefined} onClick={() => onSelect(job)}>
+      aria-current={selected ? 'true' : undefined} onClick={(e) => onSelect(job, e.currentTarget)}>
       <span className="feed-card-title">{job.title}</span>
       <span className="feed-card-company">{job.company_name}</span>
       <span className="feed-card-meta">

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './feed.css';
 import { useFeed } from './useFeed';
 import { fetchStats } from './feedApi';
@@ -7,6 +7,7 @@ import SearchBar from './SearchBar';
 import FilterPills from './FilterPills';
 import JobCard from './JobCard';
 import JobCardSkeleton from './JobCardSkeleton';
+import { useIsMobile, useSheetA11y } from './useSheetA11y';
 
 // The existing detail pane expects these shapes.
 const toDetailJob = (card) => ({
@@ -27,6 +28,12 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const [pills, setPills] = useState({ remote: false, type: '', days: '' });
   const [stats, setStats] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);   // mobile: the detail pane as a full-screen sheet
+  const isMobile = useIsMobile();
+  const modal = sheetOpen && isMobile;
+  const sheetRef = useRef(null);
+  const openerRef = useRef(null);
+  const closeSheet = useCallback(() => setSheetOpen(false), []);
+  useSheetA11y({ active: modal, sheetRef, openerRef, onClose: closeSheet });
 
   // A new click on a Growth-tab skill/title (externalQuery.n increments) sets the keyword.
   // Keyed on n only, so re-renders with the same n never override what the user typed.
@@ -62,7 +69,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
     if (chosen) { setPlace(nextPlace); setPlaceSource('user'); savePlace(nextPlace); }
   }, []);
 
-  const choose = useCallback((job) => { onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
+  const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
 
   const where = place.label || 'everywhere';
   const heading = feed.count == null ? 'Jobs' : `${feed.count.toLocaleString()}${feed.countIsCapped ? '+' : ''} jobs in ${where}`;
@@ -99,8 +106,9 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
             </button>
           )}
         </section>
-        <section className={`feed-detail${sheetOpen ? ' is-open' : ''}`} aria-label="Job details">
-          <button type="button" className="feed-back" onClick={() => setSheetOpen(false)}>Back to jobs</button>
+        <section ref={sheetRef} className={`feed-detail${sheetOpen ? ' is-open' : ''}`} aria-label="Job details"
+          {...(modal ? { role: 'dialog', 'aria-modal': 'true' } : {})}>
+          <button type="button" className="feed-back" onClick={closeSheet}>Back to jobs</button>
           {detail}
         </section>
       </div>
