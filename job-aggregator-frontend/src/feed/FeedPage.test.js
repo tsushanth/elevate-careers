@@ -494,3 +494,45 @@ test('opening a job dims it and the choice is remembered', async () => {
   expect(container.querySelectorAll('.is-viewed')).toHaveLength(1);
   expect(JSON.parse(localStorage.getItem('sa_viewed'))).toEqual([2]);
 });
+
+describe('saved preferences note', () => {
+  const session = { access_token: 't' };
+  beforeEach(() => sessionStorage.clear());
+
+  test('signed in with the preference-filtered default list: note shows, Show all jobs sends prefs=off and is remembered', async () => {
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'applied' };
+    await mount({ session, selectedJob: job(1) });
+    expect(text()).toContain('Showing jobs that match your preferences.');
+    expect(lastFilters().prefsOff).toBe(false);
+    await act(async () => { button('Show all jobs').click(); });
+    expect(lastFilters().prefsOff).toBe(true);
+    expect(sessionStorage.getItem('sa_prefs_off')).toBe('1');
+  });
+
+  test('the choice survives a remount in the same session and offers the way back', async () => {
+    sessionStorage.setItem('sa_prefs_off', '1');
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'off' };
+    await mount({ session, selectedJob: job(1) });
+    expect(lastFilters().prefsOff).toBe(true);
+    expect(text()).toContain('Showing all jobs.');
+    await act(async () => { button('Use my preferences').click(); });
+    expect(lastFilters().prefsOff).toBe(false);
+    expect(sessionStorage.getItem('sa_prefs_off')).toBeNull();
+  });
+
+  test('no saved preferences, or anonymous: no note', async () => {
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1 };
+    await mount({ session, selectedJob: job(1) });
+    expect(container.querySelector('.feed-prefs-note')).toBeNull();
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'applied' };
+    await mount({ session: null, selectedJob: job(1) });
+    expect(container.querySelector('.feed-prefs-note')).toBeNull();
+  });
+
+  test('no note while a refetch for different filters is still in flight', async () => {
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'applied' };
+    useFeed.mockImplementation(() => ({ resultFilters: {}, ...feed }));
+    await mount({ session, selectedJob: job(1) });
+    expect(container.querySelector('.feed-prefs-note')).toBeNull();
+  });
+});

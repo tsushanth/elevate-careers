@@ -10,6 +10,7 @@ export function feedUrl(base, state) {
   if (state.remote) p.set('remote', 'true');
   if (state.type) p.set('type', state.type);
   if (state.days) p.set('days', String(state.days));
+  if (state.prefsOff) p.set('prefs', 'off');
   if (state.cursor) p.set('cursor', state.cursor);
   const qs = p.toString();
   return `${base}/v2/jobs/feed${qs ? `?${qs}` : ''}`;

@@ -229,3 +229,12 @@ test('resultFilters is the filters object that produced the page; stays old unti
   await act(async () => { d.resolve(page([2])); });
   expect(result.current.resultFilters).toBe(F2);
 });
+
+test('a signed-in user never uses the anonymous preload', async () => {
+  const preload = jest.fn().mockResolvedValue(page([7, 8], 'p1'));
+  fetchFeed.mockResolvedValue(page([1, 2]));
+  await render({ apiBase: 'http://x', filters: F1, token: 'tok', preload });
+  expect(preload).not.toHaveBeenCalled();
+  expect(fetchFeed).toHaveBeenCalledTimes(1);
+  expect(ids(result)).toEqual([1, 2]);
+});

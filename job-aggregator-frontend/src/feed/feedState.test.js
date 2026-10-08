@@ -74,3 +74,12 @@ test('resultFilters: null initially, set by non-append success, kept by start, a
   s = feedReducer(s, { type: 'success', append: false, data: page([3]), filters: f2 });
   expect(s.resultFilters).toBe(f2);
 });
+
+test('the API prefs marker is kept for the first page and cleared by a page without it', () => {
+  let s = feedReducer(initialFeedState, { type: 'success', append: false, data: { ...page([1]), prefs: 'applied' } });
+  expect(s.prefs).toBe('applied');
+  s = feedReducer(s, { type: 'success', append: true, data: page([2]) });
+  expect(s.prefs).toBe('applied');
+  s = feedReducer(s, { type: 'success', append: false, data: page([3]) });
+  expect(s.prefs).toBeUndefined();
+});

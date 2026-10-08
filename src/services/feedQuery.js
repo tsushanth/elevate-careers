@@ -6,6 +6,8 @@
 //   country + region   -> idx_feed_region (country_code, region_code, is_region_primary)
 //   country + [region] + city -> idx_feed_city (country_code, region_code, city_key);
 //     a city without a region means the unregioned city (region_code = '').
+import { prefClauses } from './feedPrefs.js';
+
 export const FEED_LIMIT_DEFAULT = 25;
 export const COUNT_CAP = 1000;
 // Largest per-user exclusion list (dismissed ids + excluded companies) for which
@@ -60,7 +62,7 @@ export function parseFeedParams(query) {
 
 // A city without a region means the unregioned city (region_code = ''), the
 // same key geo_place and the typeahead use; the region predicate is always bound.
-function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor, absorb = false }) {
+function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null }, { withCursor, absorb = false }) {
   const values = [];
   const add = (v) => { values.push(v); return `$${values.length}`; };
   const where = ['f.is_active'];
@@ -93,6 +95,7 @@ function buildWhere(p, { dismissed = [], excludedCompanies = [] }, { withCursor,
   if (p.q) where.push(`f.job_id IN (SELECT id FROM job WHERE tsv @@ plainto_tsquery('english', ${add(p.q)}))`);
   if (dismissed.length) where.push(`f.job_id <> ALL(${add(dismissed)}::bigint[])`);
   if (excludedCompanies.length) where.push(`f.company_key <> ALL(${add(excludedCompanies)}::text[])`);
+  where.push(...prefClauses(prefs, add));   // saved preferences, already resolved for this request (feedPrefs.js)
   if (withCursor && p.cursor) {
     where.push(`(f.sort_at, f.job_id) < (${add(p.cursor.sortAt)}::timestamptz, ${add(p.cursor.jobId)}::bigint)`);
   }
