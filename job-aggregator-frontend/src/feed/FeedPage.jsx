@@ -58,10 +58,24 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
     }
   }, [feed.loaded, feed.loading, feed.resultFilters, filters, feed.jobs.length, feed.error, placeSource, noRefinement, place.country]);
 
-  // Select the first job once, so the detail pane is never empty on desktop.
+  // Keep the detail pane tied to the visible list. Empty selection: select the first job.
+  // Stale selection (restored from sessionStorage, or chosen from an earlier response that the
+  // signed-in refetch then filtered by dismissed jobs / excluded companies): once the new list has
+  // settled and no longer contains it, select the first job of the new list, on desktop only (on
+  // mobile the sheet must not open by itself and the stale pane is hidden). A job the user opened
+  // explicitly in this view stays shown even if the list drops it.
+  const explicitIdRef = useRef(null);
+  const selectedId = selectedJob?.id;
+  const settled = feed.loaded && !feed.loading && !feed.error && feed.resultFilters === filters;
   useEffect(() => {
-    if (!selectedJob && feed.jobs.length > 0) onSelectJob(toDetailJob(feed.jobs[0]));
-  }, [feed.jobs, selectedJob, onSelectJob]);
+    if (!selectedJob) {
+      if (feed.jobs.length > 0) onSelectJob(toDetailJob(feed.jobs[0]));
+      return;
+    }
+    if (!settled || isMobile || feed.jobs.length === 0) return;
+    if (explicitIdRef.current === selectedId) return;
+    if (!feed.jobs.some(j => j.id === selectedId)) onSelectJob(toDetailJob(feed.jobs[0]));
+  }, [feed.jobs, selectedJob, selectedId, settled, isMobile, onSelectJob]);
 
   // `chosen` is true when the place came from an explicit typeahead choice (including clearing it).
   const onSearch = useCallback((nextQ, nextPlace, chosen) => {
@@ -69,7 +83,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
     if (chosen) { setPlace(nextPlace); setPlaceSource('user'); savePlace(nextPlace); }
   }, []);
 
-  const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
+  const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; explicitIdRef.current = job.id; onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
 
   const where = place.label || 'everywhere';
   const heading = feed.count == null ? 'Jobs' : `${feed.count.toLocaleString()}${feed.countIsCapped ? '+' : ''} jobs in ${where}`;
