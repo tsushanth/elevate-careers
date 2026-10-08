@@ -60,15 +60,15 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(pinoHttp({ logger }));
 
-// Health check
-app.get('/health', async (req, res) => {
+// Liveness: no database round trip (a cross-region SELECT 1 added ~80 ms per call).
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+// Readiness: includes the database. Use this for monitors that must notice a DB outage.
+app.get('/health/deep', async (req, res) => {
   const dbHealthy = await db.healthCheck();
-  
-  if (dbHealthy) {
-    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-  } else {
-    res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString() });
-  }
+  res.status(dbHealthy ? 200 : 503).json({ status: dbHealthy ? 'healthy' : 'unhealthy', timestamp: new Date().toISOString() });
 });
 
 import aiResumeRoutes from '../routes/ai-resume.js';
