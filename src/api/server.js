@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js';
 import { db } from '../db/index.js';
 import { enqueueJob } from '../services/queue.js';
 import { createClient } from '@supabase/supabase-js';
+import { unescapeMarkdown } from '../utils/unescapeMarkdown.js';
 
 import { recomputeSignals } from '../services/signals.js';
 import { normalizeCompanyName, normalizeTitle, companySlug } from '../services/normalizer.js';
@@ -1849,7 +1850,12 @@ app.get('/jobs/:id', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
     
-    res.json(result.rows[0]);
+    const row = result.rows[0];
+    // Stored descriptions carry markdown backslash escapes ("\\&", "\\*") that
+    // render literally on the site; strip them in the response (no DB rewrite).
+    row.description_md = unescapeMarkdown(row.description_md);
+    row.description_excerpt = unescapeMarkdown(row.description_excerpt);
+    res.json(row);
   } catch (error) {
     logger.error({ error }, 'Job detail API error');
     res.status(500).json({ error: 'Failed to fetch job details' });

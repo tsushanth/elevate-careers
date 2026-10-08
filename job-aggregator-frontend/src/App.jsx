@@ -9,6 +9,7 @@ import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './Onb
 import ApplicationsTab from './ApplicationsTab';
 import GrowthTab from './GrowthTab';
 import './App.css';
+import { unescapeMarkdown } from './unescapeMarkdown';
 import FeedPage from './feed/FeedPage';
 import { isFeedV2Enabled } from './feed/flag';
 
@@ -434,7 +435,7 @@ function App() {
               {selectedJob.description_md || selectedJob.description_excerpt ? (
                 <div
                   className="description-content"
-                  dangerouslySetInnerHTML={{ __html: selectedJob.description_md || selectedJob.description_excerpt }}
+                  dangerouslySetInnerHTML={{ __html: unescapeMarkdown(selectedJob.description_md || selectedJob.description_excerpt) }}
                 />
               ) : feedV2 && selectedJob.description_md === undefined ? (
                 // feed v2 only: cards carry no excerpt, so undefined means the
