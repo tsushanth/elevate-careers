@@ -124,3 +124,33 @@ test('small cities are not places but still count in state and country; inactive
   assert.equal(by['state:Texas, United States'], 7);
   assert.equal(by['city:Austin, Texas, United States'], 4);
 });
+
+test('suggest hides a regionless city row when the same city exists with a region; keeps it otherwise', { skip }, async () => {
+  const cleanup = () => pool.query('DELETE FROM job_feed WHERE job_id >= 200');
+  try {
+    // Austin: 4 regioned (TX) + 3 regionless in the US -> regionless is hidden
+    for (let i = 200; i < 203; i++) await insRow(i, 'US', '', 'Austin');
+    // Lyon: only regionless in US (no regioned twin) -> still offered
+    for (let i = 210; i < 213; i++) await insRow(i, 'US', '', 'Lyon');
+    // Austin in another country with no region stays offered (different country)
+    for (let i = 220; i < 223; i++) await insRow(i, 'AU', '', 'Austin');
+    await rebuildGeoPlaces(pool);
+    const by = await counts();
+    assert.equal(by['city:Austin, United States'], 3); // row still stored
+    const au = (await suggestPlaces(pool, 'aus')).map(p => p.label);
+    assert.ok(au.includes('Austin, Texas, United States'));
+    assert.ok(!au.includes('Austin, United States'));
+    assert.ok(au.includes('Austin, Australia'));
+    assert.ok((await suggestPlaces(pool, 'lyon')).some(p => p.label === 'Lyon, United States'));
+    // the shown entry's count equals its result set: region-bound city filter
+    const shown = (await suggestPlaces(pool, 'austin')).find(p => p.label === 'Austin, Texas, United States');
+    const { rows: [{ n }] } = await pool.query(
+      `SELECT count(DISTINCT job_id)::int n FROM job_feed WHERE is_active AND country_code=$1 AND region_code=$2 AND city_key='austin'`, [shown.country, shown.region]);
+    assert.equal(shown.count, n);
+    // limit applies after filtering
+    assert.ok((await suggestPlaces(pool, 'austin', 2)).length === 2);
+  } finally {
+    await cleanup();
+    await rebuildGeoPlaces(pool);
+  }
+});

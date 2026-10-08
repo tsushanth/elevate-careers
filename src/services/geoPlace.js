@@ -66,7 +66,14 @@ export async function suggestPlaces(db, q, limit = 8) {
   const { rows } = await db.query(
     `SELECT type, label, country_code, region_code, city_key, job_count,
             CASE WHEN type = 'city' THEN split_part(label, ',', 1) ELSE '' END AS city
-     FROM geo_place WHERE name_key LIKE $1 || '%' ESCAPE '\\'
+     FROM geo_place g WHERE g.name_key LIKE $1 || '%' ESCAPE '\\'
+       -- A regionless city row (raw location had a city but no state) is not offered
+       -- when the same city exists with a region in that country: it reads as a
+       -- duplicate and users pick it by mistake. Its jobs still count in the
+       -- country place and in the geo_place row itself (placeCount, direct filters).
+       AND NOT (g.type = 'city' AND g.region_code = '' AND EXISTS (
+         SELECT 1 FROM geo_place r WHERE r.type = 'city' AND r.country_code = g.country_code
+           AND r.city_key = g.city_key AND r.region_code <> ''))
      ORDER BY job_count DESC, label LIMIT $2`, [escapeLike(term), limit]);
   return rows.map(r => ({ type: r.type, label: r.label, country: r.country_code, region: r.region_code, city: r.city, count: r.job_count }));
 }
