@@ -900,3 +900,14 @@
   .apps-table tr:hover td { background: var(--li-bg); }
   .toggle-applied.on { background: #14261f; }
 }
+
+
+/* Pages that predate the dark theme (Applications, Growth, company pages, resume check, onboarding) are laid out
+   for a light page: white cards with no text colour of their own. Dark mode sets a light body text colour, so
+   without these islands their text turns light-on-white or dark-on-dark. Each island restores the light page
+   they were built for (same values as the light-mode body). Light mode has no rules here. */
+@media (prefers-color-scheme: dark) {
+  .legacy-light { background: #f3f2ef; color: #000; color-scheme: light; min-height: calc(100vh - 64px); }
+  .legacy-light.legacy-page { min-height: 100vh; }
+  .legacy-text { color: #000; color-scheme: light; }
+}

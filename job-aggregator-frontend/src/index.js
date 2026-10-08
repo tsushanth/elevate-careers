@@ -31,8 +31,8 @@ root.render(
         <Route path="/" element={<App />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/delete-account" element={<DeleteAccount />} />
-        <Route path="/resume-check" element={<ResumeCheck />} />
-        <Route path="/companies/:slug" element={<CompanyPage />} />
+        <Route path="/resume-check" element={<div className="legacy-light legacy-page"><ResumeCheck /></div>} />
+        <Route path="/companies/:slug" element={<div className="legacy-light legacy-page"><CompanyPage /></div>} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
     </BrowserRouter>

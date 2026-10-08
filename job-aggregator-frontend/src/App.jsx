@@ -533,23 +533,27 @@ function App() {
 
       {/* Applications Tab */}
       {activeTab === 'applications' && (
-        <ApplicationsTab
-          session={session}
-          API_URL={API_URL}
-          EXTENSION_URL={EXTENSION_URL}
-          pendingApply={pendingApply}
-          onPendingConsumed={() => setPendingApply(null)}
-        />
+        <div className="legacy-light">
+          <ApplicationsTab
+            session={session}
+            API_URL={API_URL}
+            EXTENSION_URL={EXTENSION_URL}
+            pendingApply={pendingApply}
+            onPendingConsumed={() => setPendingApply(null)}
+          />
+        </div>
       )}
 
       {/* Growth Tab */}
       {activeTab === 'growth' && session && (
-        <GrowthTab
-          session={session}
-          API_URL={API_URL}
-          onSearchTerm={searchJobs}
-          onCompanyClick={company => navigate(`/companies/${slugify(company)}`)}
-        />
+        <div className="legacy-light">
+          <GrowthTab
+            session={session}
+            API_URL={API_URL}
+            onSearchTerm={searchJobs}
+            onCompanyClick={company => navigate(`/companies/${slugify(company)}`)}
+          />
+        </div>
       )}
 
       {/* Search Bar */}
@@ -778,7 +782,9 @@ function App() {
       )}
 
       {showOnboarding && (
-        <OnboardingModal onDismiss={() => setShowOnboarding(false)} />
+        <div className="legacy-text">
+          <OnboardingModal onDismiss={() => setShowOnboarding(false)} />
+        </div>
       )}
     </div>
   );
