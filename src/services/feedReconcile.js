@@ -125,7 +125,9 @@ async function findStaleFeedJobs(db, { sleepMs }) {
   return { ids: stale, scanned };
 }
 
-export async function reconcileFeed(db, { sinceHours = 48, batch = 500, sleepMs = 100, logger = null } = {}) {
+// job_feed has no synced-at column, so the window is re-selected every run: keep it short (6 h of
+// updates is ~3k jobs) or each hourly run and each deploy would re-sync the same newest 15k rows.
+export async function reconcileFeed(db, { sinceHours = 6, batch = 500, sleepMs = 100, logger = null } = {}) {
   const stats = { jobsScanned: 0, resynced: 0, resyncFailed: 0, feedScanned: 0, deactivated: 0, errors: 0 };
   const warn = (obj, msg) => { try { logger?.warn?.(obj, msg); } catch { /* logging must not throw */ } };
   const size = Math.max(1, Math.floor(Number(batch)) || 500);
@@ -160,7 +162,7 @@ export async function reconcileFeed(db, { sinceHours = 48, batch = 500, sleepMs 
 
 // Same fail-open style as startFeedWarmer. First run is delayed so a deploy
 // does not add load while the instance is still warming up.
-export function startFeedReconcile({ db, logger, intervalMs = 3_600_000, initialDelayMs = 300_000, sinceHours = 48, batch = 500 }) {
+export function startFeedReconcile({ db, logger, intervalMs = 3_600_000, initialDelayMs = 300_000, sinceHours = 6, batch = 500 }) {
   let stopped = false;
   let running = false;
 
