@@ -9,6 +9,7 @@ import { createFeedCache } from '../services/feedCache.js';
 import { createFeedRouter } from './feed-core.js';
 import { rebuildGeoPlaces } from '../services/geoPlace.js';
 import { startFeedWarmer } from '../services/feedWarmer.js';
+import { startFeedReconcile } from '../services/feedReconcile.js';
 import { normalizeCompanyName } from '../services/normalizer.js';
 
 let _supabase = null;
@@ -51,6 +52,11 @@ if (process.env.FEED_WARMER !== 'off') {
   startFeedWarmer({
     db, cache, loadPage: router.loadPage, rebuildPlaces: () => rebuildGeoPlaces(db), logger,
   });
+}
+
+// FEED_RECONCILE_DISABLED=1 is the kill switch. Hourly, first run ~5 min after boot.
+if (process.env.FEED_RECONCILE_DISABLED !== '1') {
+  startFeedReconcile({ db, logger });
 }
 
 export const ingestRouter = express.Router();
