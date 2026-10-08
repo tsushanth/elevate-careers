@@ -465,3 +465,32 @@ describe('selection always belongs to the visible list', () => {
     expect(container.querySelector('.feed-detail').classList.contains('is-open')).toBe(false);
   });
 });
+
+test('jobs applied to leave the list at once, and the detail pane moves to the next job', async () => {
+  feed = { ...baseFeed(), jobs: [job(1), job(2), job(3)], count: 3 };
+  await mount({ appliedJobIds: new Set([1]) });
+  const titles = [...container.querySelectorAll('.feed-card-title')].map(n => n.textContent);
+  expect(titles).toEqual(['Job 2', 'Job 3']);
+  expect(onSelectJob).toHaveBeenCalledTimes(1);
+  expect(onSelectJob.mock.calls[0][0].id).toBe(2);
+});
+
+test('an applied job that is the explicitly opened one stays in the detail pane but not in the list', async () => {
+  feed = { ...baseFeed(), jobs: [job(1), job(2)], count: 2 };
+  const sel = job(2);
+  await mount({ selectedJob: sel, appliedJobIds: new Set() });
+  await act(async () => { container.querySelectorAll('.feed-card')[1].click(); });
+  onSelectJob.mockClear();
+  await mount({ selectedJob: sel, appliedJobIds: new Set([2]) });
+  expect([...container.querySelectorAll('.feed-card-title')].map(n => n.textContent)).toEqual(['Job 1']);
+  expect(onSelectJob).not.toHaveBeenCalled();
+});
+
+test('opening a job dims it and the choice is remembered', async () => {
+  feed = { ...baseFeed(), jobs: [job(1), job(2)], count: 2 };
+  await mount({ selectedJob: job(1) });
+  expect(container.querySelectorAll('.is-viewed')).toHaveLength(0);
+  await act(async () => { container.querySelectorAll('.feed-card')[1].click(); });
+  expect(container.querySelectorAll('.is-viewed')).toHaveLength(1);
+  expect(JSON.parse(localStorage.getItem('sa_viewed'))).toEqual([2]);
+});

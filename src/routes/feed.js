@@ -11,6 +11,7 @@ import { rebuildGeoPlaces } from '../services/geoPlace.js';
 import { startFeedWarmer } from '../services/feedWarmer.js';
 import { startFeedReconcile } from '../services/feedReconcile.js';
 import { normalizeCompanyName } from '../services/normalizer.js';
+import { loadAppliedJobIds } from '../services/appliedJobs.js';
 
 let _supabase = null;
 function getSupabase() {
@@ -33,9 +34,14 @@ async function getExclusions(req) {
       sb.from('apply_preferences').select('excluded_companies').eq('user_id', user.id).single(),
       sb.from('dismissed_jobs').select('job_id').eq('user_id', user.id),
     ]);
+    // Applied jobs are hidden like dismissed ones. A failure here must not lose the dismissed list.
+    let applied = [];
+    try { applied = await loadAppliedJobIds({ sb, db, userId: user.id }); }
+    catch (e) { logger.warn({ error: e.message }, 'v2 feed: applied-jobs lookup failed, continuing without it'); }
+    const dismissed = [...new Set([...(dismissedRows || []).map(r => Number(r.job_id)).filter(Number.isFinite), ...applied])];
     return {
       userId: user.id,
-      dismissed: (dismissedRows || []).map(r => Number(r.job_id)).filter(Number.isFinite),
+      dismissed,
       excludedCompanies: (pref?.excluded_companies || []).map(normalizeCompanyName),
     };
   } catch (e) {

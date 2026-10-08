@@ -8,6 +8,7 @@ import FilterPills from './FilterPills';
 import JobCard from './JobCard';
 import JobCardSkeleton from './JobCardSkeleton';
 import { useIsMobile, useSheetA11y } from './useSheetA11y';
+import { loadViewed, addViewed } from './viewed';
 
 // The existing detail pane expects these shapes.
 const toDetailJob = (card) => ({
@@ -16,7 +17,7 @@ const toDetailJob = (card) => ({
   countries: card.country ? [card.country] : [],
 });
 
-export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, detail, extensionUrl, preload, externalQuery }) {
+export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, detail, extensionUrl, preload, externalQuery, appliedJobIds }) {
   const initial = useMemo(() => {
     const saved = loadSavedPlace();
     if (saved) return { place: saved, source: 'saved' };
@@ -45,6 +46,14 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const token = session?.access_token;
   const feed = useFeed({ apiBase, filters, token, preload });
 
+  // Jobs applied to in this session leave the list at once (the server also hides them on the next fetch).
+  // Opened jobs are dimmed, not removed: removing the card being read would break the list and detail layout.
+  const [viewed, setViewed] = useState(loadViewed);
+  const visibleJobs = useMemo(
+    () => (appliedJobIds && appliedJobIds.size ? feed.jobs.filter(j => !appliedJobIds.has(j.id)) : feed.jobs),
+    [feed.jobs, appliedJobIds],
+  );
+
   useEffect(() => { fetchStats(apiBase).then(setStats).catch(() => {}); }, [apiBase]);
 
   // A guessed (never chosen) place with no jobs widens to everywhere, at most once,
@@ -69,13 +78,13 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const settled = feed.loaded && !feed.loading && !feed.error && feed.resultFilters === filters;
   useEffect(() => {
     if (!selectedJob) {
-      if (feed.jobs.length > 0) onSelectJob(toDetailJob(feed.jobs[0]));
+      if (visibleJobs.length > 0) onSelectJob(toDetailJob(visibleJobs[0]));
       return;
     }
-    if (!settled || isMobile || feed.jobs.length === 0) return;
+    if (!settled || isMobile || visibleJobs.length === 0) return;
     if (explicitIdRef.current === selectedId) return;
-    if (!feed.jobs.some(j => j.id === selectedId)) onSelectJob(toDetailJob(feed.jobs[0]));
-  }, [feed.jobs, selectedJob, selectedId, settled, isMobile, onSelectJob]);
+    if (!visibleJobs.some(j => j.id === selectedId)) onSelectJob(toDetailJob(visibleJobs[0]));
+  }, [visibleJobs, selectedJob, selectedId, settled, isMobile, onSelectJob]);
 
   // `chosen` is true when the place came from an explicit typeahead choice (including clearing it).
   const onSearch = useCallback((nextQ, nextPlace, chosen) => {
@@ -83,7 +92,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
     if (chosen) { setPlace(nextPlace); setPlaceSource('user'); savePlace(nextPlace); }
   }, []);
 
-  const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; explicitIdRef.current = job.id; onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
+  const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; explicitIdRef.current = job.id; setViewed(addViewed(job.id)); onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
 
   const where = place.label || 'everywhere';
   const heading = feed.count == null ? 'Jobs' : `${feed.count.toLocaleString()}${feed.countIsCapped ? '+' : ''} jobs in ${where}`;
@@ -106,12 +115,12 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
             </div>
           )}
           {!feed.loaded && <JobCardSkeleton />}
-          {feed.loaded && feed.jobs.length === 0 && !feed.error && (
+          {feed.loaded && visibleJobs.length === 0 && !feed.error && (
             <p className="feed-empty">No jobs match. Try a wider place or turn off filters.</p>
           )}
           <div className={feed.loading ? 'feed-stale' : ''}>
-            {feed.jobs.map(job => (
-              <JobCard key={job.id} job={job} selected={selectedJob?.id === job.id} onSelect={choose} />
+            {visibleJobs.map(job => (
+              <JobCard key={job.id} job={job} selected={selectedJob?.id === job.id} viewed={viewed.has(job.id)} onSelect={choose} />
             ))}
           </div>
           {feed.nextCursor && (

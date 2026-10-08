@@ -23,11 +23,11 @@ function salary(job) {
   return job.salary_min && job.salary_max ? `$${k(job.salary_min)}–${k(job.salary_max)}${cur}` : `$${k(job.salary_min || job.salary_max)}${cur}`;
 }
 
-export default function JobCard({ job, selected, onSelect }) {
+export default function JobCard({ job, selected, viewed = false, onSelect }) {
   const where = place(job);
   const pay = salary(job);
   return (
-    <button type="button" className={`feed-card${selected ? ' is-selected' : ''}`}
+    <button type="button" className={`feed-card${selected ? ' is-selected' : ''}${viewed ? ' is-viewed' : ''}`}
       aria-current={selected ? 'true' : undefined} onClick={(e) => onSelect(job, e.currentTarget)}>
       <span className="feed-card-title">{job.title}</span>
       <span className="feed-card-company">{job.company_name}</span>
@@ -38,6 +38,7 @@ export default function JobCard({ job, selected, onSelect }) {
       </span>
       <span className="feed-card-foot">
         {job.autofill_ready && <span className="feed-autofill" title="The extension can autofill this application">Autofill</span>}
+        {viewed && <span className="feed-viewed">Viewed</span>}
         <span className="feed-card-age">{hasRealDate(job.posted_at) ? age(job.posted_at) : ''}</span>
       </span>
     </button>

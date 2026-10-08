@@ -30,6 +30,8 @@
 .feed-card { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; padding: 12px 14px; background: var(--surface); color: var(--ink); border: 0; border-bottom: 1px solid var(--line); font: inherit; cursor: pointer; }
 .feed-card.is-selected { box-shadow: inset 3px 0 0 var(--blue); background: var(--canvas); }
 .feed-card-title { font-size: 16px; font-weight: 600; color: var(--blue); }
+.feed-card.is-viewed .feed-card-title { color: var(--muted); font-weight: 500; }
+.feed-viewed { font-size: 12px; color: var(--muted); margin-right: auto; }
 .feed-card-company, .feed-card-meta, .feed-card-age { font-size: 14px; color: var(--muted); }
 .feed-card-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .feed-card-pay { color: var(--ink); }
