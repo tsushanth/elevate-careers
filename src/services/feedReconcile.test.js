@@ -67,6 +67,53 @@ test('unit: scheduler runs after the initial delay, stop() cancels', async () =>
   assert.equal(runs, after1);
 });
 
+test('unit: updated-in-window pages by (updated_at, id) with a microsecond text cursor, merged with the id scan', async () => {
+  const seen = [];
+  const db = {
+    async query(sql, params) {
+      if (sql.includes('FROM pg_class')) return { rows: [{ '?column?': 1 }] };
+      if (sql.includes('updated_at::text AS ts')) {
+        seen.push(params);
+        if (seen.length === 1) return { rows: Array.from({ length: 5000 }, (_, i) => ({ id: String(900000 - i), ts: i === 4999 ? '2026-10-07 10:00:00.123456+00' : '2026-10-07 11:00:00+00' })) };
+        return { rows: [{ id: '5', ts: '2026-10-07 09:00:00+00' }] };
+      }
+      if (sql.includes('FROM (SELECT id, updated_at')) return { rows: [{ id: '5', stale: true }, { id: '7', stale: true }] };
+      return { rows: [] };
+    },
+  };
+  const stats = await reconcileFeed(db, { sleepMs: 0, batch: 100000 });
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[0], [48, null, null, 5000]);
+  assert.deepEqual(seen[1], [48, '2026-10-07 10:00:00.123456+00', '900000'.replace('900000', String(900000 - 4999)), 5000]);
+  assert.equal(stats.updatedIndex, true);
+  assert.equal(stats.updatedInWindow, 5001);
+  assert.equal(stats.resynced, 5002);          // 5001 updated + id 7; id 5 deduped
+});
+
+test('unit: missing index warns, skips the updated_at query and keeps the id-window behaviour', async () => {
+  const logger = quiet();
+  let updatedQueries = 0;
+  const db = {
+    async query(sql) {
+      if (sql.includes('updated_at::text AS ts')) updatedQueries++;
+      if (sql.includes('FROM (SELECT id, updated_at')) return { rows: [{ id: '3', stale: true }] };
+      return { rows: [] };
+    },
+  };
+  const stats = await reconcileFeed(db, { sleepMs: 0, logger });
+  assert.equal(updatedQueries, 0);
+  assert.equal(stats.updatedIndex, false);
+  assert.equal(stats.resynced, 1);
+  assert.ok(logger.logs.some(l => l[0] === 'warn' && /index missing/.test(l[2])));
+});
+
+test('unit: an erroring index probe is treated as absent, not fatal', async () => {
+  const db = { async query(sql) { if (sql.includes('FROM pg_class')) throw new Error('perm'); return { rows: [] }; } };
+  const stats = await reconcileFeed(db, { sleepMs: 0, logger: quiet() });
+  assert.equal(stats.errors, 0);
+  assert.equal(stats.updatedIndex, false);
+});
+
 // ---- integration ----
 const url = process.env.TEST_DATABASE_URL;
 const skip = url ? false : 'TEST_DATABASE_URL not set';
@@ -129,4 +176,46 @@ test('integration: reconcile repairs missing, changed-location and inactive jobs
   assert.equal(again.errors, 0);
   const feed2 = (await pool.query('SELECT job_id::int AS id, region_code, is_active FROM job_feed ORDER BY job_id')).rows;
   assert.deepEqual(feed2, feed);
+});
+
+test('integration: an old-id job with a recent updated_at is re-synced via the index; EXPLAIN uses the index on >100k rows', { skip, timeout: 180000 }, async () => {
+  await pool.query('TRUNCATE job_feed, job_location, job RESTART IDENTITY');
+  const old = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  // Job 1 has the OLDEST id, well outside the newest-50k-by-id window below.
+  await pool.query(`INSERT INTO job (company_id, provider, apply_url, title, posted_at, created_at, updated_at)
+                    VALUES (1,'greenhouse','https://x/old','Old job',$1,$1,$1)`, [old]);
+  await pool.query(`INSERT INTO job_location (job_id, city, region, country) VALUES (1,'Austin','TX','US')`);
+  const { syncJobFeedBatch } = await import('./jobFeed.js');
+  await syncJobFeedBatch(pool, [1]);
+  // 120k synthetic filler rows, all old (inactive-feed irrelevant: they are also pre-synced as absent only if new)
+  await pool.query(`INSERT INTO job (company_id, provider, apply_url, title, posted_at, created_at, updated_at)
+                    SELECT 1,'greenhouse','https://x/f'||g,'F'||g,$1,$1,$1 FROM generate_series(1,120000) g`, [old]);
+  await pool.query(`INSERT INTO job_feed (job_id, city_key, region_code, country_code, is_active, sort_at, title, company_name, apply_url)
+                    SELECT id, 'x', '', 'US', true, now(), title, 'Acme', apply_url FROM job WHERE id > 1`);
+  // Location of job 1 changes now.
+  await pool.query(`UPDATE job_location SET city='Boston', region='MA' WHERE job_id=1`);
+  await pool.query(`UPDATE job SET updated_at = now() WHERE id=1`);
+
+  // Without the index the job is NOT picked up (id window of 50k newest does not reach id 1).
+  let stats = await reconcileFeed(pool, { sleepMs: 0 });
+  assert.equal(stats.updatedIndex, false);
+  assert.equal((await pool.query('SELECT region_code FROM job_feed WHERE job_id=1')).rows[0].region_code, 'TX');
+
+  await pool.query('CREATE INDEX idx_job_active_updated_at ON job (updated_at DESC) WHERE is_active');
+  await pool.query('ANALYZE job');
+  stats = await reconcileFeed(pool, { sleepMs: 0 });
+  assert.equal(stats.errors, 0);
+  assert.equal(stats.updatedIndex, true);
+  assert.equal(stats.updatedInWindow, 1);
+  assert.equal((await pool.query('SELECT region_code FROM job_feed WHERE job_id=1')).rows[0].region_code, 'MA');
+
+  // Plan check on the exact page query shape.
+  const { rows } = await pool.query(
+    `EXPLAIN SELECT id::text AS id, updated_at::text AS ts FROM job
+     WHERE is_active AND updated_at >= now() - ($1::float8 * interval '1 hour')
+       AND ($2::timestamptz IS NULL OR updated_at < $2::timestamptz OR (updated_at = $2::timestamptz AND id < $3::bigint))
+     ORDER BY updated_at DESC, id DESC LIMIT $4`, [48, null, null, 5000]);
+  const plan = rows.map(r => r['QUERY PLAN']).join('\n');
+  assert.match(plan, /Index Scan.*idx_job_active_updated_at|Bitmap Index Scan on idx_job_active_updated_at/s, plan);
+  assert.doesNotMatch(plan, /Seq Scan/, plan);
 });
