@@ -129,7 +129,7 @@ export default function CompanyPage() {
                 transition: 'border-color .15s',
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 14, color: '#fff', marginBottom: 4 }}>{job.title}</div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: '#000000e6', marginBottom: 4 }}>{job.title}</div>
               <div style={{ fontSize: 12, color: '#00000099', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {job.remote && <span style={{ color: '#057642' }}>Remote</span>}
                 {(job.cities?.[0] || job.countries?.[0]) && (
