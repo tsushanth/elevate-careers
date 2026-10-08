@@ -4,6 +4,7 @@ import { parseFeedParams, buildFeedQuery, buildCountQuery, buildExcludedCountQue
 import { suggestPlaces, placeCount, isAbsorbing } from '../services/geoPlace.js';
 import { COUNTRY_NAME_BY_ISO } from '../services/places.js';
 import { activePrefs, hasSoft, isDefaultList } from '../services/feedPrefs.js';
+import { roleList, roleLabel, roleMatchEnabled, profilePhrases, profileFilter, resolveFamilies } from '../services/roleMatch.js';
 
 const STATS_TTL_MS = 10 * 60_000;
 
@@ -58,7 +59,7 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
     if (!params.cursor) {
       let exact = null;
       // The subtraction below is only exact for pure exclusions; title/location/soft preferences use the real (capped) count.
-      if (params.plain && !exclusions.prefs) {
+      if (params.plain && !exclusions.prefs && !exclusions.match) {
         const ex = exclusions.dismissed?.length || exclusions.excludedCompanies?.length;
         exact = await placeCount(db, params);
         if (exact !== null && ex) exact = await subtractExclusions(exact, params, exclusions, opts);
@@ -84,6 +85,9 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
     if (parsed.params.cursor && parsed.params.cursor.mode !== feedOrderMode()) {
       return res.status(409).json({ error: 'cursor expired', restart: true });
     }
+    // FEED_ROLE_MATCH kill switch: an explicit role is refused (not silently ignored) while it is off.
+    const roleOn = roleMatchEnabled();
+    if (parsed.params.role && !roleOn) return res.status(400).json({ error: 'role filter disabled' });
     try {
       let exclusions = null;
       if (req.headers.authorization) {
@@ -98,26 +102,52 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
       // Saved preferences: hard ones always, soft ones only on the default list and not with prefs=off.
       const prefsOff = req.query.prefs === 'off';
       let prefsStatus;
-      if (exclusions) {
-        if (exclusions.prefsUnavailable) res.set('X-Prefs', 'unavailable');
-        const active = activePrefs(exclusions.prefs, parsed.params, { off: prefsOff });
-        if (active && (active.remote || active.salaryMin !== null)) prefsStatus = 'applied';
-        else if (prefsOff && hasSoft(exclusions.prefs) && isDefaultList(parsed.params)) prefsStatus = 'off';
-        exclusions = { ...exclusions, prefs: active };
+      let match = null;          // response `match` (only when a role or the profile was applied)
+      let profileMatch = null;   // { tsquery } handed to the SQL builder (profile only; a role rides in params.role)
+      if (parsed.params.role) {
+        match = { source: 'role', roleSlug: parsed.params.role, roleLabel: roleLabel(parsed.params.role), labels: [roleLabel(parsed.params.role)] };
       }
-      if (exclusions && (exclusions.dismissed.length || exclusions.excludedCompanies.length || exclusions.prefs)) {
+      if (exclusions) {
+        if (exclusions.prefsUnavailable || exclusions.profileUnavailable) res.set('X-Prefs', 'unavailable');
+        const active = activePrefs(exclusions.prefs, parsed.params, { off: prefsOff });
+        // The profile match is one more soft preference: default list only, never over an explicit role, off with prefs=off.
+        const phrases = roleOn && exclusions.profile ? profilePhrases(exclusions.profile).phrases : [];
+        const defaultList = isDefaultList(parsed.params);
+        if (phrases.length && !parsed.params.role && !prefsOff && defaultList) {
+          let families = [];
+          try { families = await resolveFamilies(db, phrases.map(p => p.text)); }
+          catch (e) { logger.warn({ error: e.message }, 'profile families unavailable; matching the profile phrases only'); }
+          const filter = profileFilter(phrases, families);
+          if (filter) {
+            profileMatch = filter;
+            match = { source: 'profile', roleSlug: null, roleLabel: null, labels: phrases.map(p => p.label) };
+          }
+        }
+        if ((active && (active.remote || active.salaryMin !== null)) || profileMatch) prefsStatus = 'applied';
+        else if (prefsOff && defaultList && (hasSoft(exclusions.prefs) || phrases.length)) prefsStatus = 'off';
+        exclusions = { ...exclusions, prefs: active, match: profileMatch };
+      }
+      const extras = { ...(prefsStatus ? { prefs: prefsStatus } : {}), ...(match ? { match } : {}) };
+      if (exclusions && (exclusions.dismissed.length || exclusions.excludedCompanies.length || exclusions.prefs || exclusions.match)) {
         // Per-user results are never shared through the cache.
         res.set('X-Cache', 'BYPASS');
         const page = await loadPage(parsed.params, exclusions);
-        return res.json(prefsStatus ? { ...page, prefs: prefsStatus } : page);
+        return res.json({ ...page, ...extras });
       }
       const { value, status } = await cache.getOrLoad(feedCacheKey(parsed.params), () => loadPage(parsed.params));
       res.set('X-Cache', status);
-      return res.json(prefsStatus ? { ...value, prefs: prefsStatus } : value);   // 'off': nothing is filtered, the shared page is right
+      return res.json({ ...value, ...extras });   // 'off': nothing is filtered, the shared page is right
     } catch (e) {
       logger.error({ error: e.message }, 'feed load failed');
       return res.status(500).json({ error: 'Failed to load jobs' });
     }
+  });
+
+  // The job-function families, in display order. Empty while the feature is off so the UI hides itself.
+  router.get('/roles', (req, res) => {
+    const on = roleMatchEnabled();
+    res.set('Cache-Control', `public, max-age=${on ? 3600 : 60}`);   // short while off so the flip shows up quickly
+    res.json({ roles: on ? roleList() : [] });
   });
 
   router.get('/geo/suggest', async (req, res) => {

@@ -7,11 +7,18 @@
 //   country + [region] + city -> idx_feed_city (country_code, region_code, city_key);
 //     a city without a region means region_code = ''.
 //   keyword            -> job.tsv (GIN index)
+//   role / profile     -> the title predicate to_tsvector('simple', title) @@ tsquery (GIN idx_feed_title_tsv,
+//                         supabase/manual/*_job_feed_title_gin.sql) combined with the same ordered index as above.
+//                         Dense (engineering), sparse (legal) and the profile match are explained for
+//                         worldwide / country / state / city, first page and a deep cursor page. They must not
+//                         seq-scan job_feed or add an explicit Sort; the planner may pick either the ordered
+//                         feed_at index with the title test as a filter, or the GIN bitmap.
 //   node scripts/explain-feed.js            (FEED_ORDER=sort_at, the default)
 //   FEED_ORDER=feed_at node scripts/explain-feed.js   (needs the *_fa indexes, supabase/manual/20261011000300_*)
 // Also fails on an explicit Sort node for non-keyword scenarios: the index must deliver the order.
 import { db } from '../src/db/index.js';
-import { parseFeedParams, buildFeedQuery, encodeCursor, feedOrderMode } from '../src/services/feedQuery.js';
+import { parseFeedParams, buildFeedQuery, buildCountQuery, encodeCursor, feedOrderMode } from '../src/services/feedQuery.js';
+import { profileFilter } from '../src/services/roleMatch.js';
 
 const scenarios = {
   worldwide: {},
@@ -33,23 +40,46 @@ scenarios['worldwide + cursor'] = { cursor: cur };
 scenarios['country + cursor'] = { country: 'US', cursor: cur };
 scenarios['city + cursor'] = { country: 'US', region: 'TX', city: 'Austin', cursor: cur };
 
+// Role scenarios (FEED_ROLE_MATCH needs no env here: this script builds the queries directly).
+// The profile is the example account: keywords Software Engineer / Full-Stack / Reinforcement Learning,
+// whose phrases fall in the engineering family.
+const PROFILE = profileFilter(['Software Engineer', 'Full-Stack', 'Reinforcement Learning'].map(text => ({ text })), ['engineering']);
+const places = { worldwide: {}, country: { country: 'US' }, state: { country: 'US', region: 'TX' }, city: { country: 'US', region: 'TX', city: 'Austin' } };
+const roleScenarios = {};   // name -> { query, match? }
+for (const [pn, place] of Object.entries(places)) {
+  for (const role of ['engineering', 'legal']) {
+    roleScenarios[`${pn} role=${role}`] = { query: { ...place, role } };
+    roleScenarios[`${pn} role=${role} +cursor`] = { query: { ...place, role, cursor: cur } };
+  }
+  roleScenarios[`${pn} profile`] = { query: place, match: PROFILE };
+  roleScenarios[`${pn} profile +cursor`] = { query: { ...place, cursor: cur }, match: PROFILE };
+}
+
 let failed = false;
-for (const [name, query] of Object.entries(scenarios)) {
+async function explain(name, query, exclusions = {}, { count = false } = {}) {
   const parsed = parseFeedParams(query);
   if (!parsed.ok) {
-    console.log(`FAIL ${name.padEnd(20)} ${parsed.error}`);
+    console.log(`FAIL ${name.padEnd(28)} ${parsed.error}`);
     failed = true;
-    continue;
+    return;
   }
-  const { text, values } = buildFeedQuery(parsed.params);
+  const { text, values } = count ? buildCountQuery(parsed.params, exclusions) : buildFeedQuery(parsed.params, exclusions);
   const t0 = Date.now();
   const { rows } = await db.query(`EXPLAIN (ANALYZE, FORMAT TEXT) ${text}`, values);
   const plan = rows.map(r => r['QUERY PLAN']).join('\n');
   const keyword = /keyword/.test(name);
-  const seq = /Seq Scan on job_feed/.test(plan) || (!keyword && /\bSort\b/.test(plan));
   const exec = (plan.match(/Execution Time: ([\d.]+) ms/) || [])[1];
-  console.log(`${seq ? 'FAIL' : 'ok  '} ${name.padEnd(20)} ${exec} ms  (wall ${Date.now() - t0} ms)`);
+  // Pages must come straight off an ordered index (no Seq Scan, no Sort). A capped count may legitimately
+  // Seq Scan with an early-exit LIMIT, so it only has to stay inside the 300 ms budget.
+  const seq = count ? Number(exec) > 300 : (/Seq Scan on job_feed/.test(plan) || (!keyword && /\bSort\b/.test(plan)));
+  const how = /idx_feed_title_tsv/.test(plan) ? 'gin' : 'ordered-index';
+  console.log(`${seq ? 'FAIL' : 'ok  '} ${name.padEnd(28)} ${String(exec).padStart(8)} ms  (wall ${Date.now() - t0} ms)${/role|profile/.test(name) ? '  ' + how : ''}`);
   if (seq) { failed = true; console.log(plan); }
+}
+for (const [name, query] of Object.entries(scenarios)) await explain(name, query);
+for (const [name, { query, match }] of Object.entries(roleScenarios)) {
+  await explain(name, query, match ? { match } : {});
+  if (!/cursor/.test(name)) await explain(`${name} (count)`, query, match ? { match } : {}, { count: true });
 }
 await db.close();
 process.exit(failed ? 1 : 0);

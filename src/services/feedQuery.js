@@ -6,7 +6,10 @@
 //   country + region   -> idx_feed_region (country_code, region_code, is_region_primary)
 //   country + [region] + city -> idx_feed_city (country_code, region_code, city_key);
 //     a city without a region means the unregioned city (region_code = '').
+//   role / profile match -> an extra title predicate  to_tsvector('simple', f.title) @@ $n::tsquery
+//     (roleMatch.js), served by the GIN index idx_feed_title_tsv (supabase/manual/*_job_feed_title_gin.sql).
 import { prefClauses } from './feedPrefs.js';
+import { isRoleSlug, roleFilter, TITLE_TSV, titleMatches } from './roleMatch.js';
 
 export const FEED_LIMIT_DEFAULT = 25;
 export const COUNT_CAP = 1000;
@@ -70,17 +73,28 @@ export function parseFeedParams(query) {
     try { cursor = decodeCursor(query.cursor); } catch { return { ok: false, error: 'invalid cursor' }; }
   }
   if ((region || city) && !country) return { ok: false, error: 'region and city need a country' };
+  const role = String(query.role || '').trim().toLowerCase();
+  if (role && !isRoleSlug(role)) return { ok: false, error: 'invalid role' };
   const hasPlace = !!country;
   return {
     ok: true,
-    params: { country, region, city, remote, q, type, days, limit, cursor, hasPlace,
-      plain: hasPlace && !remote && !q && !type && days === null },
+    params: { country, region, city, remote, q, type, days, limit, cursor, hasPlace, role,
+      plain: hasPlace && !remote && !q && !type && days === null && !role },
   };
+}
+
+// One title filter ({ tsquery, gate, pageGate } from roleMatch.js). The exact test is always titleMatches()
+// (ts_match_vq: opaque to the planner, so pages walk the ordered feed_at index and stop after 25 hits). When
+// there is a gate and this query is the capped count (or the filter says the page needs it too), the gate is
+// ANDed on the indexed expression so GIN can find the hits without scanning the index.
+function titleClauses(f, add, forCount) {
+  const exact = titleMatches(add(f.tsquery));
+  return f.gate && (forCount || f.pageGate) ? [`${TITLE_TSV} @@ ${add(f.gate)}::tsquery`, exact] : [exact];
 }
 
 // A city without a region means the unregioned city (region_code = ''), the
 // same key geo_place and the typeahead use; the region predicate is always bound.
-function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null }, { withCursor, absorb = false, mode = 'sort_at' }) {
+function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null, match = null }, { withCursor, absorb = false, mode = 'sort_at', forCount = false }) {
   const values = [];
   const add = (v) => { values.push(v); return `$${values.length}`; };
   const where = ['f.is_active'];
@@ -114,6 +128,9 @@ function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null },
   if (dismissed.length) where.push(`f.job_id <> ALL(${add(dismissed)}::bigint[])`);
   if (excludedCompanies.length) where.push(`f.company_key <> ALL(${add(excludedCompanies)}::text[])`);
   where.push(...prefClauses(prefs, add));   // saved preferences, already resolved for this request (feedPrefs.js)
+  // Job-function filter: an explicit role family, or the signed-in profile match (a tsquery text, roleMatch.js).
+  if (p.role) where.push(...titleClauses(roleFilter(p.role), add, forCount));
+  if (match) where.push(...titleClauses(match, add, forCount));
   if (withCursor && p.cursor) {
     if (p.cursor.mode !== mode) throw new Error('cursor mode mismatch'); // feed-core answers 409 before getting here
     where.push(`(${orderExpr(mode)}, f.job_id) < (${add(p.cursor.sortAt)}::timestamptz, ${add(p.cursor.jobId)}::bigint)`);
@@ -137,7 +154,7 @@ export function buildFeedQuery(p, exclusions = {}, opts = {}) {
 }
 
 export function buildCountQuery(p, exclusions = {}, opts = {}) {
-  const { where, values } = buildWhere(p, exclusions, { withCursor: false, absorb: !!opts.absorb });
+  const { where, values } = buildWhere(p, exclusions, { withCursor: false, absorb: !!opts.absorb, forCount: true });
   return {
     text: `SELECT count(*)::int AS n FROM (SELECT 1 FROM job_feed f WHERE ${where} LIMIT ${COUNT_CAP + 1}) t`,
     values,
@@ -163,6 +180,7 @@ export function buildExcludedCountQuery(p, { dismissed = [], excludedCompanies =
 // (or nextCursor) minted under the other ordering from Redis / L1.
 export function feedCacheKey(p, mode = feedOrderMode()) {
   const { cursor, ...rest } = p;
+  if (!rest.role) delete rest.role;   // keys of role-less requests stay what they were before roles existed
   const norm = Object.keys(rest).sort().reduce((o, k) => { o[k] = rest[k]; return o; }, {});
   return JSON.stringify([norm, cursor ? [cursor.sortAt, cursor.jobId] : null, mode]);
 }
