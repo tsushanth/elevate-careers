@@ -163,3 +163,39 @@ test('Escape closes the list; ArrowDown reopens it', async () => {
   await act(async () => { jest.advanceTimersByTime(130); });
   expect(options()).toHaveLength(2);
 });
+
+test('Enter before the suggestions for the typed text have arrived fetches them and picks the first (does not reset to the old place)', async () => {
+  const INDIA = { type: 'country', label: 'India', country: 'IN', region: '', city: '', count: 5000 };
+  fetchSuggest.mockResolvedValue([INDIA]);
+  await mount();
+  await act(async () => {
+    input().focus();
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input(), 'India');
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  // no debounce tick yet: no suggestions exist for "India"
+  await key('Enter');
+  await act(async () => { await Promise.resolve(); });
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(onChange.mock.calls[0][0].label).toBe('India');
+  expect(input().value).toBe('India');
+});
+
+test('Enter with suggestions left over from an earlier keystroke does not choose from the stale list', async () => {
+  const INDIANA = { type: 'state', label: 'Indiana, United States', country: 'US', region: 'IN', city: '', count: 900 };
+  const INDIA = { type: 'country', label: 'India', country: 'IN', region: '', city: '', count: 5000 };
+  fetchSuggest.mockImplementation(async (_b, term) => (term === 'Ind' ? [INDIANA] : [INDIA]));
+  await mount();
+  await type('Ind');
+  expect(options().map(o => o.textContent)).toEqual(['Indiana, United States900']);
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input(), 'India');
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await key('Enter');
+  await act(async () => { await Promise.resolve(); });
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(onChange.mock.calls[0][0].label).toBe('India');
+});
