@@ -1,6 +1,6 @@
 // src/routes/feed-core.js
 import express from 'express';
-import { parseFeedParams, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey, encodeCursor, COUNT_CAP, EXACT_EXCLUSION_MAX } from '../services/feedQuery.js';
+import { parseFeedParams, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey, encodeCursor, feedOrderMode, COUNT_CAP, EXACT_EXCLUSION_MAX } from '../services/feedQuery.js';
 import { suggestPlaces, placeCount, isAbsorbing } from '../services/geoPlace.js';
 import { COUNTRY_NAME_BY_ISO } from '../services/places.js';
 import { activePrefs, hasSoft, isDefaultList } from '../services/feedPrefs.js';
@@ -42,13 +42,16 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
   // The page itself (rows, next cursor, count). Reused by the warmer.
   async function loadPage(params, exclusions = {}) {
     const opts = { absorb: params.city && params.region ? await isAbsorbing(db, params) : false };
-    const q = buildFeedQuery(params, exclusions, opts);
+    const mode = feedOrderMode();
+    const q = buildFeedQuery(params, exclusions, { ...opts, mode });
     const { rows } = await db.query(q.text, q.values);
     const hasMore = rows.length > params.limit;
     const page = rows.slice(0, params.limit);
     const last = page[page.length - 1];
-    // Invariant: job_feed.sort_at is always written with millisecond precision (see jobFeed.js), so this cursor round-trips exactly.
-    const nextCursor = hasMore && last ? encodeCursor(new Date(last.posted_at).toISOString(), Number(last.id)) : null;
+    // Invariant: job_feed.sort_at (and so feed_at = sort_at - whole hours) is always written with
+    // millisecond precision (see jobFeed.js), so this cursor round-trips exactly. The cursor
+    // carries the ordering key of the active mode, not necessarily posted_at.
+    const nextCursor = hasMore && last ? encodeCursor(new Date(last.order_key).toISOString(), Number(last.id), mode) : null;
 
     let count = null;
     let countIsCapped = false;
@@ -69,13 +72,18 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
         count = countIsCapped ? COUNT_CAP : n;
       }
     }
-    return { jobs: page.map(toCard), nextCursor, count, countIsCapped };
+    return { jobs: page.map(({ order_key, ...r }) => toCard(r)), nextCursor, count, countIsCapped };
   }
   router.loadPage = loadPage;
 
   router.get('/jobs/feed', async (req, res) => {
     const parsed = parseFeedParams(req.query);
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    // A cursor minted under the other ordering (FEED_ORDER flipped, or a rolling deploy) cannot be
+    // continued without duplicates or gaps: tell the client to restart from the first page.
+    if (parsed.params.cursor && parsed.params.cursor.mode !== feedOrderMode()) {
+      return res.status(409).json({ error: 'cursor expired', restart: true });
+    }
     try {
       let exclusions = null;
       if (req.headers.authorization) {

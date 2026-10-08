@@ -219,3 +219,19 @@ test('integration: an old-id job with a recent updated_at is re-synced via the i
   assert.match(plan, /Index Scan.*idx_job_active_updated_at|Bitmap Index Scan on idx_job_active_updated_at/s, plan);
   assert.doesNotMatch(plan, /Seq Scan/, plan);
 });
+
+test('unit: companies of re-synced and deactivated jobs are ranked once at the end, not per chunk', async () => {
+  const recomputes = [];
+  const db = {
+    async query(sql, params) {
+      if (sql.includes('FROM (SELECT id, updated_at')) return { rows: [{ id: '3', stale: true }, { id: '2', stale: true }, { id: '1', stale: true }] };
+      if (sql.includes('SELECT DISTINCT company_key')) return { rows: [{ company_key: 'flooder' }] };
+      if (sql.includes('recompute_company_rank')) { recomputes.push(params[0]); return { rows: [{ n: 0 }] }; }
+      return { rows: [] };
+    },
+  };
+  const stats = await reconcileFeed(db, { sleepMs: 0, batch: 1 });
+  assert.equal(stats.resynced, 3);
+  assert.deepEqual(recomputes, [['flooder']]);
+  assert.equal(stats.companiesRanked, 1);
+});

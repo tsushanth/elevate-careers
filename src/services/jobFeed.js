@@ -17,9 +17,46 @@ const RECORD_DEF = `job_id bigint, country_code text, region_code text, city_key
   provider text, apply_url text, apply_provider text, autofill_ready boolean, is_active boolean,
   is_primary boolean, is_country_primary boolean, is_region_primary boolean`;
 
-export async function syncJobFeedBatch(db, jobIds) {
+// Company keys per recompute statement. Each statement ranks only those companies'
+// active primary rows (idx_feed_company) and writes only rows whose rank changed, so
+// its cost is bounded by the keys' row counts and the rank cap (feed_rank_cap()).
+export const RECOMPUTE_CHUNK = 200;
+
+// Recompute company_rank / feed_at for these companies (one statement per chunk).
+// Fail-soft: the feed orders by coalesce(feed_at, sort_at), so a failed recompute
+// leaves a slightly stale order, never a broken or empty feed. Reconcile repairs it.
+export async function recomputeCompanyRank(db, companyKeys, { logger = console } = {}) {
+  const keys = [...new Set(companyKeys)].filter(k => typeof k === 'string');
+  let written = 0;
+  for (let i = 0; i < keys.length; i += RECOMPUTE_CHUNK) {
+    try {
+      const { rows } = await db.query('SELECT recompute_company_rank($1::text[]) AS n', [keys.slice(i, i + RECOMPUTE_CHUNK)]);
+      written += Number(rows?.[0]?.n) || 0;
+    } catch (e) {
+      try { logger?.warn?.({ error: e.message }, 'recompute_company_rank failed'); } catch { /* ignore */ }
+    }
+  }
+  return written;
+}
+
+// opts.companyKeys: a Set. When given, the affected company keys are added to it and
+// the recompute is left to the caller (feedReconcile does one pass per run instead of
+// one per chunk); otherwise the recompute runs here, once for the whole batch.
+async function finishCompanies(db, keys, opts) {
+  if (opts.companyKeys) { for (const k of keys) opts.companyKeys.add(k); return; }
+  await recomputeCompanyRank(db, keys, opts);
+}
+
+export async function syncJobFeedBatch(db, jobIds, opts = {}) {
   const ids = [...new Set(jobIds.map(Number))].filter(Number.isFinite);
   if (!ids.length) return 0;
+  // Companies whose rank this batch can change: the jobs' previous company (a job may
+  // move company) and their new one. Read before the upsert overwrites company_key.
+  const affected = new Set();
+  try {
+    const { rows } = await db.query('SELECT DISTINCT company_key FROM job_feed WHERE job_id = ANY($1::bigint[])', [ids]);
+    for (const r of rows || []) affected.add(r.company_key);
+  } catch { /* first sync of a new job has nothing to read; the new key is added below */ }
 
   const [{ rows: jobs }, { rows: locs }] = await Promise.all([
     db.query(
@@ -36,6 +73,7 @@ export async function syncJobFeedBatch(db, jobIds) {
     locsByJob.get(l.job_id).push(l);
   }
   const rows = jobs.flatMap(j => buildFeedRows(j, locsByJob.get(j.id) || []));
+  for (const r of rows) affected.add(r.company_key);
 
   if (rows.length) {
     const cols = JOB_FEED_COLUMNS.join(', ');
@@ -62,13 +100,17 @@ export async function syncJobFeedBatch(db, jobIds) {
            AND r.region_code = f.region_code AND r.city_key = f.city_key)`,
     [ids, JSON.stringify(rows.map(r => ({ job_id: r.job_id, country_code: r.country_code, region_code: r.region_code, city_key: r.city_key })))]);
 
+  await finishCompanies(db, affected, opts);
   return rows.length;
 }
 
-export const syncJobFeed = (db, jobId) => syncJobFeedBatch(db, [jobId]);
+export const syncJobFeed = (db, jobId, opts) => syncJobFeedBatch(db, [jobId], opts);
 
-export async function deactivateInFeed(db, jobIds) {
+// Deactivated rows leave their company's ranking, so the remaining jobs move up.
+export async function deactivateInFeed(db, jobIds, opts = {}) {
   const ids = [...new Set(jobIds.map(Number))].filter(Number.isFinite);
   if (!ids.length) return;
-  await db.query('UPDATE job_feed SET is_active = false WHERE job_id = ANY($1::bigint[])', [ids]);
+  const { rows } = await db.query(
+    'UPDATE job_feed SET is_active = false WHERE job_id = ANY($1::bigint[]) AND is_active RETURNING company_key', [ids]);
+  await finishCompanies(db, new Set((rows || []).map(r => r.company_key)), opts);
 }

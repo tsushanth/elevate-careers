@@ -33,7 +33,7 @@ test('limit is clamped to 1..50', () => {
 
 test('cursor round-trips and rejects garbage', () => {
   const c = encodeCursor('2026-10-01T00:00:00.000Z', 42);
-  assert.deepEqual(decodeCursor(c), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42 });
+  assert.deepEqual(decodeCursor(c), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42, mode: 'sort_at' });
   assert.throws(() => decodeCursor('###'), /invalid cursor/);
   assert.throws(() => decodeCursor(Buffer.from('[1]').toString('base64url')), /invalid cursor/);
 });
@@ -93,7 +93,7 @@ test('cursor rejects unsafe integers, negatives, zero, and non-ISO timestamps', 
   assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(['1', 42])).toString('base64url')), /invalid cursor/);
   assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(['2026-13-45T00:00:00.000Z', 42])).toString('base64url')), /invalid cursor/);
   const valid = encodeCursor('2026-10-01T00:00:00.000Z', 42);
-  assert.deepEqual(decodeCursor(valid), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42 });
+  assert.deepEqual(decodeCursor(valid), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42, mode: 'sort_at' });
 });
 
 test('country ZZ (unknown location) is rejected', () => {
@@ -197,4 +197,24 @@ test('excluded-count query: both lists never double count (company probe skips d
   assert.match(q.text, /NOT \(f\.job_id = ANY\(\$4::bigint\[\]\)\)/);
   assert.match(q.text, /f\.region_code IN \(\$3, ''\)/);
   assert.deepEqual(q.values, ['CA', 'toronto', 'ON', [5], ['x']]);
+});
+
+test('feed_at mode orders and paginates by coalesce(feed_at, sort_at); posted_at stays sort_at', () => {
+  const p = ok({ country: 'US', cursor: encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at') });
+  const { text } = buildFeedQuery(p, {}, { mode: 'feed_at' });
+  assert.match(text, /ORDER BY coalesce\(f\.feed_at, f\.sort_at\) DESC, f\.job_id DESC/);
+  assert.match(text, /\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) < \(\$\d+::timestamptz, \$\d+::bigint\)/);
+  assert.match(text, /f\.sort_at AS posted_at/);
+  assert.throws(() => buildFeedQuery(p, {}, { mode: 'sort_at' }), /cursor mode mismatch/);
+});
+
+test('count and excluded-count queries do not depend on the order mode', () => {
+  const p = ok({ country: 'US' });
+  assert.doesNotMatch(buildCountQuery(p).text, /feed_at/);
+  assert.doesNotMatch(buildExcludedCountQuery(p, { dismissed: [1] }).text, /feed_at/);
+});
+
+test('cache key differs by order mode and by cursor mode', () => {
+  const p = ok({ country: 'US' });
+  assert.notEqual(feedCacheKey(p, 'sort_at'), feedCacheKey(p, 'feed_at'));
 });
