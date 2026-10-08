@@ -1,5 +1,5 @@
-// The default flips to true at cutover (Task 16).
-export const FEED_V2_DEFAULT = false;
+// Must match window.__FEED_V2_DEFAULT in public/index.html (flagDefaultParity.test.js enforces it).
+export const FEED_V2_DEFAULT = true;
 
 export function isFeedV2Enabled(search, storage, defaultOn = FEED_V2_DEFAULT) {
   const raw = new URLSearchParams(search).get('feed');
