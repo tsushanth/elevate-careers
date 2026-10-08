@@ -1,6 +1,6 @@
 // src/routes/feed-core.js
 import express from 'express';
-import { parseFeedParams, buildFeedQuery, buildCountQuery, feedCacheKey, encodeCursor, COUNT_CAP } from '../services/feedQuery.js';
+import { parseFeedParams, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey, encodeCursor, COUNT_CAP, EXACT_EXCLUSION_MAX } from '../services/feedQuery.js';
 import { suggestPlaces, placeCount, isAbsorbing } from '../services/geoPlace.js';
 import { COUNTRY_NAME_BY_ISO } from '../services/places.js';
 
@@ -21,6 +21,23 @@ function toCard(row) {
 export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {}, error() {} } }) {
   const router = express.Router();
 
+  // Signed-in exact count: the precomputed place count (the one anonymous users
+  // see) minus the user's excluded rows inside the same filter. Returns null
+  // (caller falls back to the capped count) when the exclusion list is too large
+  // or the query fails. Clamped at 0 because geo_place.job_count can lag the live table.
+  async function subtractExclusions(base, params, exclusions, opts) {
+    const size = (exclusions.dismissed?.length || 0) + (exclusions.excludedCompanies?.length || 0);
+    if (size > EXACT_EXCLUSION_MAX) return null;
+    try {
+      const q = buildExcludedCountQuery(params, exclusions, opts);
+      const n = Number((await db.query(q.text, q.values)).rows[0].n);
+      return Math.max(0, base - n);
+    } catch (e) {
+      logger.warn({ error: e.message }, 'exclusion count failed; using capped count');
+      return null;
+    }
+  }
+
   // The page itself (rows, next cursor, count). Reused by the warmer.
   async function loadPage(params, exclusions = {}) {
     const opts = { absorb: params.city && params.region ? await isAbsorbing(db, params) : false };
@@ -35,8 +52,12 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
     let count = null;
     let countIsCapped = false;
     if (!params.cursor) {
-      const exact = params.plain && !(exclusions.dismissed?.length || exclusions.excludedCompanies?.length)
-        ? await placeCount(db, params) : null;
+      let exact = null;
+      if (params.plain) {
+        const ex = exclusions.dismissed?.length || exclusions.excludedCompanies?.length;
+        exact = await placeCount(db, params);
+        if (exact !== null && ex) exact = await subtractExclusions(exact, params, exclusions, opts);
+      }
       if (exact !== null) {
         count = exact;
       } else {
