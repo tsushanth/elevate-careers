@@ -300,6 +300,55 @@ test('F7 multi-candidate conflicts are tiered', () => {
   check('spelled-vs-city-name', row('Paris, France', null, 'United States'), 'ZZ/');
 });
 
+// ---------------------------------------------------------------------------
+// Fix round 2: recover coverage lost to tiered conflicts, still one country or ZZ.
+// ---------------------------------------------------------------------------
+test('R2-1 a weak city-field name (subnational / England) yields to a strong country spelling', () => {
+  check('munster-indiana', row('Munster', 'Indiana', 'United States'), 'US/IN');
+  check('new-england', row('New England', 'US', 'US'), 'US/');
+  check('munster-ireland', row('Munster', null, 'Ireland'), 'IE/');
+  check('wales-wi-still-conflict', row('Wales', 'WI', null), 'ZZ/');
+});
+
+test('R2-2 a state code repeated across segments corroborates itself next to a foreign-dictionary city', () => {
+  check('birmingham-al-twice', row('Birmingham | AL; Montgomery | AL'), 'US/AL');
+  check('two-states', row('Los Altos | CA; Cambridge | MA'), 'US/');
+  check('dc-va', row('United States', 'DC', 'VA'), 'US/'); // DC and VA both named: region deliberately null
+  check('single-code-still-zz', row('Reading PA'), 'ZZ/');
+});
+
+test('R2-3 "in the US" phrases, "<ST> office", "Remote <ISO>"', () => {
+  check('anywhere-in-the-us', row('Anywhere in the US'), 'US/');
+  check('remote-within-the-usa', row('Remote within the USA'), 'US/');
+  check('in-the-us-or-canada', row('Anywhere in the US or Canada'), 'ZZ/');
+  check('ny-office', row('NY office'), 'US/NY');
+  check('ca-office-ambiguous', row('CA office'), 'ZZ/');
+  check('remote-pl', row('Remote PL'), 'PL/');
+  check('remote-de-still-zz', row('Remote DE'), 'ZZ/');
+  check('remote-it-is-not-italy', row('Remote IT'), 'ZZ/');
+});
+
+test('R2-4 feed-only dictionary additions', () => {
+  check('richmond-upon-thames', row('Richmond Upon Thames'), 'GB/');
+  check('yorkshire', row('Yorkshire'), 'GB/');
+  check('stafford', row('Stafford', 'Staffordshire', 'Staffordshire'), 'GB/');
+  check('ceske-budejovice', row('\u010cesk\u00e9 Bud\u011bjovice'), 'CZ/');
+});
+
+test('R2-5 state code followed by a parenthetical', () => {
+  check('austin-central', row('Austin | TX (Central)'), 'US/TX');
+  check('palo-alto-us-based', row('Palo Alto | CA (Open to US-based Remote)'), 'US/CA');
+  check('ca-without-us-marker', row('Barrie | CA (Hybrid)'), 'ZZ/');
+  check('toronto-ca-paren', row('Toronto | CA (Remote)'), 'CA/');
+  check('foreign-city-stray-code', row('Paris | TX (Central)'), 'ZZ/');
+});
+
+test('R2 conflicting same-tier evidence stays ZZ', () => {
+  check('remote-list', row('Remote (Canada | UK | EU)'), 'ZZ/');
+  check('slovakia-czech', row('Slovakia', 'Czech Republic', 'Czech Republic'), 'ZZ/');
+  check('bangkok-jakarta', row('Bangkok | Thailand; Jakarta | Indonesia'), 'ZZ/');
+});
+
 test('input cap: very long values are ZZ', () => {
   check('long', row('x'.repeat(201) + ' Berlin'), 'ZZ/');
   check('long-region', row('Berlin', 'y'.repeat(300), 'Germany'), 'ZZ/');
