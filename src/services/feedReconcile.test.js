@@ -83,8 +83,8 @@ test('unit: updated-in-window pages by (updated_at, id) with a microsecond text 
   };
   const stats = await reconcileFeed(db, { sleepMs: 0, batch: 100000 });
   assert.equal(seen.length, 2);
-  assert.deepEqual(seen[0], [48, null, null, 5000]);
-  assert.deepEqual(seen[1], [48, '2026-10-07 10:00:00.123456+00', '900000'.replace('900000', String(900000 - 4999)), 5000]);
+  assert.deepEqual(seen[0], [6, null, null, 5000]);
+  assert.deepEqual(seen[1], [6, '2026-10-07 10:00:00.123456+00', '900000'.replace('900000', String(900000 - 4999)), 5000]);
   assert.equal(stats.updatedIndex, true);
   assert.equal(stats.updatedInWindow, 5001);
   assert.equal(stats.resynced, 5002);          // 5001 updated + id 7; id 5 deduped
