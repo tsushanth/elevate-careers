@@ -410,3 +410,58 @@ describe('mobile sheet accessibility', () => {
     expect(document.body.style.overflow).toBe('');
   });
 });
+
+describe('selection always belongs to the visible list', () => {
+  const setMobile = (matches) => {
+    window.matchMedia = jest.fn(() => ({ matches, addEventListener: () => {}, removeEventListener: () => {} }));
+  };
+  afterEach(() => { delete window.matchMedia; });
+
+  test('a selected job that is not in the loaded list (restored from session, or dropped by exclusions) is replaced by the first job', async () => {
+    feed = { ...baseFeed(), jobs: [job(2), job(3)] };
+    await mount({ selectedJob: job(1, { title: 'Spotify role' }) });
+    expect(onSelectJob).toHaveBeenCalledTimes(1);
+    expect(onSelectJob.mock.calls[0][0].id).toBe(2);
+  });
+
+  test('a signed-in refetch that drops the auto-selected job reselects the new first job', async () => {
+    feed = { ...baseFeed(), jobs: [job(1), job(2)] };
+    await mount();
+    expect(onSelectJob.mock.calls[0][0].id).toBe(1);
+    onSelectJob.mockClear();
+    feed = { ...baseFeed(), jobs: [job(2), job(3)] };
+    await mount({ selectedJob: job(1) });
+    expect(onSelectJob).toHaveBeenCalledTimes(1);
+    expect(onSelectJob.mock.calls[0][0].id).toBe(2);
+  });
+
+  test('a selected job still in the list is left alone, even if not first', async () => {
+    feed = { ...baseFeed(), jobs: [job(2), job(1)] };
+    await mount({ selectedJob: job(1) });
+    expect(onSelectJob).not.toHaveBeenCalled();
+  });
+
+  test('while a refetch is in flight the stale list does not trigger a reselect', async () => {
+    feed = { ...baseFeed(), jobs: [job(2)], loading: true };
+    await mount({ selectedJob: job(1) });
+    expect(onSelectJob).not.toHaveBeenCalled();
+  });
+
+  test('an explicitly clicked job stays shown after the list drops it', async () => {
+    feed = { ...baseFeed(), jobs: [job(1), job(2)] };
+    await mount({ selectedJob: job(1) });
+    await act(async () => { container.querySelectorAll('.feed-card')[1].click(); });
+    onSelectJob.mockClear();
+    feed = { ...baseFeed(), jobs: [job(1), job(3)] };
+    await mount({ selectedJob: job(2) });
+    expect(onSelectJob).not.toHaveBeenCalled();
+  });
+
+  test('mobile: a stale selection is not replaced and the sheet does not open', async () => {
+    setMobile(true);
+    feed = { ...baseFeed(), jobs: [job(2), job(3)] };
+    await mount({ selectedJob: job(1) });
+    expect(onSelectJob).not.toHaveBeenCalled();
+    expect(container.querySelector('.feed-detail').classList.contains('is-open')).toBe(false);
+  });
+});
