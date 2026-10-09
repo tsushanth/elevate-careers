@@ -18,6 +18,11 @@ export default function NearNote({ near, off, lastLabel, onTurnOff, onTurnOn }) 
     <p className="feed-near-note">
       Showing jobs near {near.label} first.{' '}
       <button type="button" onClick={onTurnOff}>Show all jobs equally</button>
+      {near.source === 'ip' && (
+        <span className="feed-near-attrib">
+          {' '}<a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP geolocation by DB-IP</a>
+        </span>
+      )}
     </p>
   );
 }
