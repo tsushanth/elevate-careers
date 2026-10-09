@@ -14,7 +14,7 @@ const near = { source: 'ip', regions: ['CA'], label: 'California' };
 test('near present: one line naming the place, with a real button that turns it off', async () => {
   const onTurnOff = jest.fn();
   await render({ near, onTurnOff });
-  expect(container.textContent).toBe('Showing jobs near California first. Show all jobs equally');
+  expect(container.textContent).toBe('Showing jobs near California first. Show all jobs equally IP geolocation by DB-IP');
   const b = container.querySelector('button');
   expect(b.type).toBe('button');
   await act(async () => { b.click(); });
@@ -60,4 +60,16 @@ test('nearChoice remembers the choice and the label for the session', () => {
 
 test('browserTimeZone returns the IANA zone', () => {
   expect(browserTimeZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+});
+
+test('an IP-based place carries the required DB-IP attribution link; other sources do not', async () => {
+  await render({ near: { source: 'ip', regions: ['CA'], label: 'California' }, off: false });
+  const a = container.querySelector('a[href="https://db-ip.com"]');
+  expect(a).not.toBeNull();
+  expect(a.textContent).toBe('IP geolocation by DB-IP');
+  expect(a.rel).toContain('noopener');
+  await render({ near: { source: 'tz', regions: ['CA'], label: 'Pacific time zone states' }, off: false });
+  expect(container.querySelector('a[href="https://db-ip.com"]')).toBeNull();
+  await render({ near: { source: 'profile', regions: ['CA'], label: 'California' }, off: false });
+  expect(container.querySelector('a[href="https://db-ip.com"]')).toBeNull();
 });
