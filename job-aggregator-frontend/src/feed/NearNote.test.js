@@ -14,7 +14,7 @@ const near = { source: 'ip', regions: ['CA'], label: 'California' };
 test('near present: one line naming the place, with a real button that turns it off', async () => {
   const onTurnOff = jest.fn();
   await render({ near, onTurnOff });
-  expect(container.textContent).toBe('Showing jobs near California first. Show all jobs equally IP geolocation by DB-IP');
+  expect(container.textContent).toBe('Showing jobs near California first, then remote jobs. Show all jobs equally IP geolocation by DB-IP');
   const b = container.querySelector('button');
   expect(b.type).toBe('button');
   await act(async () => { b.click(); });

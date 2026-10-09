@@ -16,7 +16,7 @@ export default function NearNote({ near, off, lastLabel, onTurnOff, onTurnOn }) 
   if (!near || !near.label) return null;
   return (
     <p className="feed-near-note">
-      Showing jobs near {near.label} first.{' '}
+      Showing jobs near {near.label} first, then remote jobs.{' '}
       <button type="button" onClick={onTurnOff}>Show all jobs equally</button>
       {near.source === 'ip' && (
         <span className="feed-near-attrib">

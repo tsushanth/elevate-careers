@@ -635,7 +635,7 @@ describe('near-you note', () => {
   test('shown when the response has near; the heading and list are unchanged', async () => {
     feed = { ...baseFeed(), jobs: [job(1)], count: 1, near };
     await mount({ selectedJob: job(1) });
-    expect(noteEls()).toEqual(['Showing jobs near California first. Show all jobs equally IP geolocation by DB-IP']);
+    expect(noteEls()).toEqual(['Showing jobs near California first, then remote jobs. Show all jobs equally IP geolocation by DB-IP']);
     expect(container.querySelector('.feed-heading').textContent).toBe('1 jobs in United States');
     expect(lastFilters().nearOff).toBe(false);
   });
@@ -698,7 +698,7 @@ describe('near-you note', () => {
     await mount({ session: { access_token: 't' }, selectedJob: job(1) });
     expect(noteEls()).toEqual([
       'Showing jobs matched to your profile: Software Engineer. Show all jobs',
-      'Showing jobs near California first. Show all jobs equally IP geolocation by DB-IP',
+      'Showing jobs near California first, then remote jobs. Show all jobs equally IP geolocation by DB-IP',
     ]);
     await act(async () => { button('Show all jobs equally').click(); });
     expect(lastFilters().nearOff).toBe(true);
