@@ -13,18 +13,19 @@
 //                         worldwide / country / state / city, first page and a deep cursor page. They must not
 //                         seq-scan job_feed or add an explicit Sort; the planner may pick either the ordered
 //                         feed_at index with the title test as a filter, or the GIN bitmap.
-//   near home first   -> buildNearQuery (FEED_NEAR, nearHome.js; FEED_ORDER=feed_at only): arm A idx_feed_region_fa per
-//                        home region (LATERAL), arm B idx_feed_country_remote_fa (supabase/manual/20261013000100_*),
-//                        arm C idx_feed_country_fa. Explained for the first page, a deep tier-0 page, the page that
-//                        crosses from tier 0 into tier 1 (cursor taken from the data), a deep tier-1 page, a
-//                        multi-state home (time-zone fallback), and with a dense (engineering) / sparse (legal) role.
+//   near home first   -> buildNearQuery (FEED_NEAR, nearHome.js; FEED_ORDER=feed_at only), three tiers: arm A (tier 0, home
+//                        state) idx_feed_region_fa per home region (LATERAL), arm B (tier 1, remote with region_code '')
+//                        idx_feed_country_remote_fa (supabase/manual/20261013000100_*), arm C (tier 2, the rest)
+//                        idx_feed_country_fa. Explained for the first page, deep tier 0 / 1 / 2, the 0->1 and the 1->2
+//                        crossing (cursors taken from the data), single-state and multi-state (time-zone) homes,
+//                        and with a dense (engineering) / sparse (legal) role.
 //                        No Seq Scan on job_feed; the only Sort allowed is the outer one over the few arm rows.
 //   node scripts/explain-feed.js            (FEED_ORDER=sort_at, the default)
 //   FEED_ORDER=feed_at node scripts/explain-feed.js   (needs the *_fa indexes, supabase/manual/20261011000300_*)
 // Also fails on an explicit Sort node for non-keyword scenarios: the index must deliver the order.
 import { db } from '../src/db/index.js';
 import { parseFeedParams, buildFeedQuery, buildCountQuery, encodeCursor, feedOrderMode } from '../src/services/feedQuery.js';
-import { TZ_ZONES } from '../src/services/nearHome.js';
+import { TZ_ZONES, homeSig } from '../src/services/nearHome.js';
 import { profileFilter } from '../src/services/roleMatch.js';
 
 const scenarios = {
@@ -93,25 +94,37 @@ for (const [name, { query, match }] of Object.entries(roleScenarios)) {
 }
 
 // ---- near home first (only meaningful with FEED_ORDER=feed_at) ----
+// Three tiers (docs/near-home-feed.md): 0 = region_code in the home(s), 1 = remote with region_code '', 2 = the rest.
+// Every cursor is taken from the data (not timed) so each scenario really sits where its name says.
 if (mode === 'feed_at') {
-  const SIG = 'x';
-  const homes = { 'home CA': ['CA'], 'home Pacific (tz)': TZ_ZONES['America/Los_Angeles'].regions, 'home Eastern (tz)': TZ_ZONES['America/New_York'].regions };
+  const SIG = homeSig(['x']);
+  const homes = { 'home CA': ['CA'], 'home TX': ['TX'], 'home Pacific (tz)': TZ_ZONES['America/Los_Angeles'].regions, 'home Eastern (tz)': TZ_ZONES['America/New_York'].regions };
   const EXPR = 'coalesce(f.feed_at, f.sort_at)';
-  for (const [hn, regions] of Object.entries(homes)) {
-    // The crossing page: ten tier-0 rows are left, so the page ends in tier 1. The cursor comes from the data (not timed).
-    const { rows: [edge] } = await db.query(
+  const TIER = {   // tier -> SQL condition on the country-primary US scope; $1 = the home regions
+    0: 'f.region_code = ANY($1::text[])',
+    1: "f.remote AND f.region_code = ''",
+    2: "f.region_code <> ALL($1::text[]) AND NOT (f.remote AND f.region_code = '')",
+  };
+  // The row `skip` rows into `tier` (ordered newest first, or `skip` rows from the END with last=true).
+  const cursorAt = async (tier, regions, skip, last = false) => {
+    const { rows: [r] } = await db.query(
       `SELECT ${EXPR} AS k, f.job_id AS id FROM job_feed f
-        WHERE f.is_active AND f.is_country_primary AND f.country_code = 'US' AND (f.region_code = ANY($1::text[]) OR f.remote)
-        ORDER BY ${EXPR} ASC, f.job_id ASC OFFSET 9 LIMIT 1`, [regions]);
+        WHERE f.is_active AND f.is_country_primary AND f.country_code = 'US' AND ${TIER[tier]}
+        ORDER BY ${EXPR} ${last ? 'ASC' : 'DESC'}, f.job_id ${last ? 'ASC' : 'DESC'} OFFSET ${skip} LIMIT 1`, TIER[tier].includes('$1') ? [regions] : []);
+    return r ? encodeCursor(new Date(r.k).toISOString(), Number(r.id), mode, { tier, sig: SIG }) : null;
+  };
+  for (const [hn, regions] of Object.entries(homes)) {
     const cursors = {
       first: null,
-      'tier0 deep': encodeCursor('2026-09-10T00:00:00.000Z', 1000000, mode, { tier: 0, sig: SIG }),
-      'tier0->tier1 crossing': edge ? encodeCursor(new Date(edge.k).toISOString(), Number(edge.id), mode, { tier: 0, sig: SIG }) : null,
-      'tier1 deep': encodeCursor('2026-09-10T00:00:00.000Z', 1000000, mode, { tier: 1, sig: SIG }),
+      'tier0 deep': await cursorAt(0, regions, 1000),
+      'tier0->tier1 crossing': await cursorAt(0, regions, 9, true),     // ten tier-0 rows are left: the page ends in tier 1
+      'tier1 deep': await cursorAt(1, regions, 2000),
+      'tier1->tier2 crossing': await cursorAt(1, regions, 9, true),     // ten tier-1 rows are left: the page ends in tier 2
+      'tier2 deep': await cursorAt(2, regions, 20000),
     };
     for (const role of ['', 'engineering', 'legal']) {
       for (const [cn, cursor] of Object.entries(cursors)) {
-        if (cn === 'tier0->tier1 crossing' && !cursor) continue;
+        if (cn !== 'first' && !cursor) { console.log(`skip ${hn} ${cn}: not enough rows in that tier`); continue; }
         await explain(`near ${hn} ${role ? 'role=' + role + ' ' : ''}${cn}`, { country: 'US', ...(role ? { role } : {}), ...(cursor ? { cursor } : {}) }, {}, { near: { regions } });
       }
     }

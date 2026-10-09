@@ -1,6 +1,6 @@
-// "Near home first" for the home feed: on a COUNTRY-level list, jobs in the user's home region (state or
-// province) and the country's remote jobs come first (tier 0), everything else follows (tier 1) in the same
-// paginated list. Nothing is hidden. This module decides WHETHER and WHERE the user's home is; the SQL is in
+// "Near home first" for the home feed: on a COUNTRY-level list three tiers in one paginated list:
+// 0 = jobs tagged to the user's home region (state or province; on-site, hybrid and remote), 1 = remote jobs
+// open to the whole country (no state tag), 2 = everything else (incl. remote jobs tagged to another state). Nothing is hidden. This module decides WHETHER and WHERE the user's home is; the SQL is in
 // feedQuery.js (buildNearQuery) and the plumbing in routes/feed-core.js.
 //
 // Home source priority (first that yields a region in the requested country wins):
@@ -16,7 +16,7 @@
 // supporting indexes are built for. Off means nothing changes: no tiers, no `near`, `near`/`tz` params ignored.
 import { US_STATES, CA_PROVINCES, normalizeLocationRow } from './places.js';
 import { geoip as defaultGeoip } from './geoip.js';
-import { feedOrderMode } from './feedQuery.js';
+import { feedOrderMode, NEAR_SCHEME } from './feedQuery.js';
 
 export const nearEnabled = (env = process.env) => env.FEED_NEAR === 'on' && feedOrderMode(env) === 'feed_at';
 
@@ -93,8 +93,9 @@ export function ipHome(ip, country, geo = defaultGeoip) {
   return name ? { home: { regions: [hit.region], label: name }, foreign: false } : { home: null, foreign: false };
 }
 
-// The signature of a home: the sorted region set. Part of the cache key and of the cursor.
-export const homeSig = (regions) => [...regions].sort().join(',');
+// The signature of a home: the tier-scheme version plus the sorted region set. Part of the cursor, so a
+// cursor minted under another scheme (the old two-tier one had no prefix) is refused with a 409 restart.
+export const homeSig = (regions) => `${NEAR_SCHEME}:${[...regions].sort().join(',')}`;
 
 // ladder: profile > ip > tz > none. Returns { source, regions (sorted), label, sig } or null.
 export function resolveHome({ country, profileLocation = null, ip = '', tz = '', geo = defaultGeoip }) {
