@@ -13,11 +13,18 @@
 //                         worldwide / country / state / city, first page and a deep cursor page. They must not
 //                         seq-scan job_feed or add an explicit Sort; the planner may pick either the ordered
 //                         feed_at index with the title test as a filter, or the GIN bitmap.
+//   near home first   -> buildNearQuery (FEED_NEAR, nearHome.js; FEED_ORDER=feed_at only): arm A idx_feed_region_fa per
+//                        home region (LATERAL), arm B idx_feed_country_remote_fa (supabase/manual/20261013000100_*),
+//                        arm C idx_feed_country_fa. Explained for the first page, a deep tier-0 page, the page that
+//                        crosses from tier 0 into tier 1 (cursor taken from the data), a deep tier-1 page, a
+//                        multi-state home (time-zone fallback), and with a dense (engineering) / sparse (legal) role.
+//                        No Seq Scan on job_feed; the only Sort allowed is the outer one over the few arm rows.
 //   node scripts/explain-feed.js            (FEED_ORDER=sort_at, the default)
 //   FEED_ORDER=feed_at node scripts/explain-feed.js   (needs the *_fa indexes, supabase/manual/20261011000300_*)
 // Also fails on an explicit Sort node for non-keyword scenarios: the index must deliver the order.
 import { db } from '../src/db/index.js';
 import { parseFeedParams, buildFeedQuery, buildCountQuery, encodeCursor, feedOrderMode } from '../src/services/feedQuery.js';
+import { TZ_ZONES } from '../src/services/nearHome.js';
 import { profileFilter } from '../src/services/roleMatch.js';
 
 const scenarios = {
@@ -56,14 +63,14 @@ for (const [pn, place] of Object.entries(places)) {
 }
 
 let failed = false;
-async function explain(name, query, exclusions = {}, { count = false } = {}) {
+async function explain(name, query, exclusions = {}, { count = false, near = null } = {}) {
   const parsed = parseFeedParams(query);
   if (!parsed.ok) {
     console.log(`FAIL ${name.padEnd(28)} ${parsed.error}`);
     failed = true;
     return;
   }
-  const { text, values } = count ? buildCountQuery(parsed.params, exclusions) : buildFeedQuery(parsed.params, exclusions);
+  const { text, values } = count ? buildCountQuery(parsed.params, exclusions) : buildFeedQuery(parsed.params, exclusions, near ? { near } : {});
   const t0 = Date.now();
   const { rows } = await db.query(`EXPLAIN (ANALYZE, FORMAT TEXT) ${text}`, values);
   const plan = rows.map(r => r['QUERY PLAN']).join('\n');
@@ -71,7 +78,10 @@ async function explain(name, query, exclusions = {}, { count = false } = {}) {
   const exec = (plan.match(/Execution Time: ([\d.]+) ms/) || [])[1];
   // Pages must come straight off an ordered index (no Seq Scan, no Sort). A capped count may legitimately
   // Seq Scan with an early-exit LIMIT, so it only has to stay inside the 300 ms budget.
-  const seq = count ? Number(exec) > 300 : (/Seq Scan on job_feed/.test(plan) || (!keyword && /\bSort\b/.test(plan)));
+  // Near-home pages carry exactly one Sort: the outer (tier, key, id) sort over the arms' few rows.
+  const sorts = (plan.match(/Sort Key: .*/g) || []);
+  const badSort = near ? sorts.some(k => !/^Sort Key: \((\d)\)|^Sort Key: u\.tier|^Sort Key: tier/.test(k)) : (!keyword && /\bSort\b/.test(plan));
+  const seq = count ? Number(exec) > 300 : (/Seq Scan on job_feed/.test(plan) || badSort || (near && Number(exec) > 150));
   const how = /idx_feed_title_tsv/.test(plan) ? 'gin' : 'ordered-index';
   console.log(`${seq ? 'FAIL' : 'ok  '} ${name.padEnd(28)} ${String(exec).padStart(8)} ms  (wall ${Date.now() - t0} ms)${/role|profile/.test(name) ? '  ' + how : ''}`);
   if (seq) { failed = true; console.log(plan); }
@@ -80,6 +90,32 @@ for (const [name, query] of Object.entries(scenarios)) await explain(name, query
 for (const [name, { query, match }] of Object.entries(roleScenarios)) {
   await explain(name, query, match ? { match } : {});
   if (!/cursor/.test(name)) await explain(`${name} (count)`, query, match ? { match } : {}, { count: true });
+}
+
+// ---- near home first (only meaningful with FEED_ORDER=feed_at) ----
+if (mode === 'feed_at') {
+  const SIG = 'x';
+  const homes = { 'home CA': ['CA'], 'home Pacific (tz)': TZ_ZONES['America/Los_Angeles'].regions, 'home Eastern (tz)': TZ_ZONES['America/New_York'].regions };
+  const EXPR = 'coalesce(f.feed_at, f.sort_at)';
+  for (const [hn, regions] of Object.entries(homes)) {
+    // The crossing page: ten tier-0 rows are left, so the page ends in tier 1. The cursor comes from the data (not timed).
+    const { rows: [edge] } = await db.query(
+      `SELECT ${EXPR} AS k, f.job_id AS id FROM job_feed f
+        WHERE f.is_active AND f.is_country_primary AND f.country_code = 'US' AND (f.region_code = ANY($1::text[]) OR f.remote)
+        ORDER BY ${EXPR} ASC, f.job_id ASC OFFSET 9 LIMIT 1`, [regions]);
+    const cursors = {
+      first: null,
+      'tier0 deep': encodeCursor('2026-09-10T00:00:00.000Z', 1000000, mode, { tier: 0, sig: SIG }),
+      'tier0->tier1 crossing': edge ? encodeCursor(new Date(edge.k).toISOString(), Number(edge.id), mode, { tier: 0, sig: SIG }) : null,
+      'tier1 deep': encodeCursor('2026-09-10T00:00:00.000Z', 1000000, mode, { tier: 1, sig: SIG }),
+    };
+    for (const role of ['', 'engineering', 'legal']) {
+      for (const [cn, cursor] of Object.entries(cursors)) {
+        if (cn === 'tier0->tier1 crossing' && !cursor) continue;
+        await explain(`near ${hn} ${role ? 'role=' + role + ' ' : ''}${cn}`, { country: 'US', ...(role ? { role } : {}), ...(cursor ? { cursor } : {}) }, {}, { near: { regions } });
+      }
+    }
+  }
 }
 await db.close();
 process.exit(failed ? 1 : 0);

@@ -22,3 +22,7 @@ Every step is reversible; `FEED_ORDER` unset or `sort_at` is always the safe sta
 ## Role match (FEED_ROLE_MATCH) - rollout
 
 `20261012000100_job_feed_title_gin.sql` is one statement (idx_feed_title_tsv, CONCURRENTLY): run it on its own, then `ANALYZE public.job_feed;`, check `indisvalid`, verify with `FEED_ORDER=feed_at node scripts/explain-feed.js` (role scenarios, no FAIL lines). Only then `fly secrets set FEED_ROLE_MATCH=on -a <api app>`. While it is unset/off: `GET /v2/roles` returns `{roles: []}`, `?role=` answers 400 `role filter disabled`, and the signed-in profile match is skipped. Rollback: `fly secrets unset FEED_ROLE_MATCH -a <api app>` (the index can stay).
+
+## Near home first (FEED_NEAR) - rollout
+
+`20261013000100_job_feed_country_remote_index.sql` is one statement (idx_feed_country_remote_fa, CONCURRENTLY): run it on its own after the feed_at indexes, then `ANALYZE public.job_feed;`, check `indisvalid`, verify with `FEED_ORDER=feed_at node scripts/explain-feed.js` (the "near ..." scenarios, no FAIL lines). Only then `fly secrets set FEED_NEAR=on -a <api app>` (needs `FEED_ORDER=feed_at`). Details: `docs/near-home-feed.md`. Rollback: `fly secrets unset FEED_NEAR -a <api app>` (clients holding a tiered cursor get one 409 and restart; the index can stay).

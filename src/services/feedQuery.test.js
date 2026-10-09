@@ -256,3 +256,61 @@ test('profile match filter is ANDed in and bound like a role', () => {
   const gatedPage = buildFeedQuery(ok({ country: 'US' }), { match: { ...match, pageGate: true } }, { mode: 'feed_at' });
   assert.match(gatedPage.text, /to_tsvector\('simple', f\.title\) @@ \$\d+::tsquery AND ts_match_vq/);
 });
+
+// ---- near home first (nearHome.js) ----
+test('near cursor: [tier, key, id, mode, sig] round-trips; legacy cursors stay 3-element', () => {
+  const c = encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 1, sig: 'CA' });
+  assert.deepEqual(JSON.parse(Buffer.from(c, 'base64url').toString()), [1, '2026-10-01T00:00:00.000Z', 42, 'f', 'CA']);
+  assert.deepEqual(decodeCursor(c), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42, mode: 'feed_at', tier: 1, sig: 'CA' });
+  assert.deepEqual(JSON.parse(Buffer.from(encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at'), 'base64url').toString()), ['2026-10-01T00:00:00.000Z', 42, 'f']);
+  assert.equal(decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at')).tier, undefined);
+  for (const bad of [[2, 'k', 1, 'f', 'x'], [0, '2026-10-01T00:00:00.000Z', 42, 'f'], [0, '2026-10-01T00:00:00.000Z', 42, 'q', 'x'], [0, '2026-10-01T00:00:00.000Z', 42, 'f', 7]]) {
+    assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(bad)).toString('base64url')), /invalid cursor/);
+  }
+});
+
+test('near cache key: sorted region set joins the key; no home keeps the old key', () => {
+  const p = ok({ country: 'US' });
+  const plain = feedCacheKey(p, 'feed_at');
+  assert.equal(feedCacheKey(p, 'feed_at', null), plain);
+  const ca = feedCacheKey(p, 'feed_at', { regions: ['CA'] });
+  const ny = feedCacheKey(p, 'feed_at', { regions: ['NY'] });
+  assert.equal(new Set([plain, ca, ny]).size, 3);
+  assert.equal(feedCacheKey(p, 'feed_at', { regions: ['WA', 'CA'] }), feedCacheKey(p, 'feed_at', { regions: ['CA', 'WA'] }));
+  assert.notEqual(feedCacheKey(p, 'feed_at', { regions: ['CA', 'WA'] }), ca);
+  // a tiered cursor never shares a key with a plain one at the same position
+  const mk = (near) => ok({ country: 'US', cursor: encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', near || undefined) });
+  assert.notEqual(feedCacheKey(mk({ tier: 0, sig: 'CA' }), 'feed_at', { regions: ['CA'] }), feedCacheKey(mk({ tier: 1, sig: 'CA' }), 'feed_at', { regions: ['CA'] }));
+});
+
+test('near query: arms follow the cursor tier, every filter rides on every arm', () => {
+  const home = { regions: ['CA'] };
+  const build = (q, ex = {}) => { const p = ok(q); return buildFeedQuery(p, ex, { mode: 'feed_at', near: home }); };
+  const cur = (tier) => encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier, sig: 'CA' });
+  const first = build({ country: 'US' });
+  assert.equal((first.text.match(/UNION ALL/g) || []).length, 2);              // region + remote + rest
+  assert.match(first.text, /f\.is_region_primary AND f\.region_code = h\.r/);
+  assert.match(first.text, /f\.remote AND f\.region_code <> ALL\(\$\d+::text\[\]\)/);
+  assert.match(first.text, /NOT f\.remote AND f\.region_code <> ALL\(/);
+  assert.match(first.text, /ORDER BY tier, order_key DESC, id DESC/);
+  assert.ok(first.values.some(v => Array.isArray(v) && v[0] === 'CA'));
+  assert.doesNotMatch(first.text, /\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </);   // no cursor predicate on the first page
+  const t0 = build({ country: 'US', cursor: cur(0) });
+  assert.equal((t0.text.match(/UNION ALL/g) || []).length, 2);
+  assert.equal((t0.text.match(/\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </g) || []).length, 2); // regions + remote continue; tier 1 restarts
+  const t1 = build({ country: 'US', cursor: cur(1) });
+  assert.equal((t1.text.match(/UNION ALL/g) || []).length, 0);                 // only the tier-1 arm
+  assert.doesNotMatch(t1.text, /h\.r/);
+  assert.equal((t1.text.match(/\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </g) || []).length, 1);
+  // role / prefs / exclusions appear in all three arms
+  const withAll = build({ country: 'US', role: 'engineering' }, { dismissed: [1, 2], excludedCompanies: ['acme'], prefs: { titles: [], locations: null, remote: false, salaryMin: 100 } });
+  for (const frag of ['f.job_id <> ALL(', 'f.company_key <> ALL(', 'f.salary_min IS NULL OR']) {
+    assert.equal(withAll.text.split(frag).length - 1, 3, frag);
+  }
+  assert.equal(withAll.text.split('ts_match_vq(').length - 1, 3);   // the role title test
+  // a wide home walks the country index with one arm instead of one probe per region
+  const wide = buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'feed_at', near: { regions: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9'] } });
+  assert.doesNotMatch(wide.text, /LATERAL/);
+  assert.match(wide.text, /f\.region_code = ANY\(/);
+  assert.throws(() => buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'sort_at', near: home }), /feed_at/);
+});
