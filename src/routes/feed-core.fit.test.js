@@ -38,10 +38,10 @@ const NAMES = Object.keys(T);
 const REGIONS = ['CA', 'CA', 'CA', 'NY', 'NY', 'TX', '', ''];
 
 // Oracle: the profile-matched, non-excluded rows ordered by (tier, bucket, key desc, id desc) for a CA home.
-async function oracle({ level = true, ic = true, fit = true, titleOf = (t) => t } = {}) {
+async function oracle({ level = true, ic = true, fit = true, strongOnly = null } = {}) {
   const { rows } = await pool.query(`SELECT job_id AS id, title, region_code, remote, coalesce(feed_at, sort_at) AS k FROM job_feed WHERE is_active AND is_country_primary AND country_code = 'US'`);
   const tier = (r) => (r.region_code === 'CA' ? 0 : (r.remote && r.region_code === '' ? 1 : 2));
-  const bucket = (r) => { const t = T[r.title]; return !fit ? 0 : (t.s && !(level && t.level) && !(ic && t.mgmt)) ? 0 : 1; };
+  const bucket = (r) => { const t = T[r.title]; return !fit ? 0 : (t.s && (!strongOnly || strongOnly.includes(r.title)) && !(level && t.level) && !(ic && t.mgmt)) ? 0 : 1; };
   return rows.filter(r => T[r.title].m).sort((a, b) =>
     (tier(a) - tier(b)) || (bucket(a) - bucket(b)) || (b.k - a.k) || (Number(b.id) - Number(a.id)))
     .map(r => ({ id: Number(r.id), title: r.title, tier: tier(r), bucket: bucket(r) }));
@@ -240,4 +240,19 @@ test('a profile without any family (literal only): bucket 1 is pruned, the list 
   assert.deepEqual(ids, want);
   assert.ok(want.length > 20);
   assert.deepEqual(bodies[0].match.fit, ['Individual contributor roles']);
+});
+
+test('behaviour phrases: preferred titles that repeat are strong phrases next to the keywords', { skip }, async () => {
+  // keywords name only Full-Stack; "software engineer" repeats in the preferred titles (cleaned: Senior / Staff stripped)
+  exclusions = profile(['Full-Stack'], ['Senior Software Engineer', 'Staff Software Engineer (Java)']);
+  let want = await oracle();
+  let { ids } = await walk('/jobs/feed?country=US', 25);
+  assert.deepEqual(ids, want.map(w => w.id));
+  assert.ok(want.some(w => w.title === 'Senior Software Engineer' && w.bucket === 0));
+  // without that behaviour the same keywords make "Senior Software Engineer" a broader fit
+  exclusions = profile(['Full-Stack'], []);
+  want = await oracle({ strongOnly: ['Full Stack Engineer'] });
+  ({ ids } = await walk('/jobs/feed?country=US', 25));
+  assert.deepEqual(ids, want.map(w => w.id));
+  assert.ok(want.some(w => w.title === 'Senior Software Engineer' && w.bucket === 1));
 });

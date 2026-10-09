@@ -148,7 +148,7 @@ if (mode === 'feed_at') {
   // fams = the families the phrases fall in (resolveFamilies); the last two are the sparse stress cases: a rare literal
   // inside the dense engineering family (bucket 0 nearly empty), and a rare literal with no family (page query gated by GIN).
   const profiles = {
-    'profile+seniority': { keywords: KW, preferredTitles: ['Senior Machine Learning Engineer', 'Staff Software Engineer, Time and Scheduling', 'Team Lead, Software Engineering'], fams: ['engineering'] },
+    'profile+seniority': { keywords: KW, preferredTitles: ['Machine Learning Engineer, GAI Search Platform - Moveworks', 'Senior Machine Learning Engineer', 'Artificial Intelligence Engineer', 'Software Engineer', 'Senior Software Engineer (Java)', 'Sr. Software Engineer Networking Team', 'Staff Software Engineer, Time and Scheduling', 'Team Lead, Software Engineering'], fams: ['engineering'] },
     'profile no-seniority': { keywords: KW, preferredTitles: [], fams: ['engineering'] },
     'sparse literal (RL)': { keywords: ['Reinforcement Learning'], preferredTitles: ['Senior Machine Learning Engineer'], fams: ['engineering'] },
     'rare literal no family': { keywords: ['Paralegal'], preferredTitles: [], fams: [] },

@@ -10,9 +10,12 @@ For a signed-in user with a profile (apply_preferences.keywords, else cleaned us
 list (no `q`, no `role`, no pills, no `prefs=off`) with a near home (docs/near-home-feed.md), each near tier is split in two
 FIT BUCKETS and the order becomes **(tier, bucket, `coalesce(feed_at, sort_at)` desc, `job_id` desc)**:
 
-- **Bucket 0, strong fit**: the title matches one of the user's LITERAL profile phrases (the explicit keywords, or the cleaned
-  preferred-title phrases when there are no keywords: `profilePhrases().phrases`, the same phrases the profile match is built
-  from) AND is not a level / management mismatch.
+- **Bucket 0, strong fit**: the title matches one of the user's STRONG PHRASES and is not a level / management mismatch. Strong phrases =
+  the profile phrases (explicit keywords, or the cleaned top preferred titles when there are no keywords) UNION the user's behaviour:
+  the cleaned core of `preferred_titles` (`cleanTitle`: seniority / level words, team and company suffixes, parentheticals stripped) that
+  occur at least twice, or the five most frequent if none repeats (at most five; `behaviourPhrases`, `strongPhrases`). Example account:
+  keywords Software Engineer / Full-Stack / Reinforcement Learning plus the repeating "machine learning engineer" ("Artificial Intelligence
+  Engineer" occurs once, so it is not added). Strong phrases only decide the bucket; WHAT is in the profile match is unchanged.
 - **Bucket 1, broader fit**: everything else in today's profile match: family-expansion matches ("Product Engineer",
   "Forward Deployed Data Engineer", "Director of Engineering") and literal matches that are mismatches.
 
@@ -28,7 +31,7 @@ The user's strings are `keywords` plus `preferred_titles`, lower-cased and split
 
 | Rule | Active when | Titles that count as a mismatch (whole words in `to_tsvector('simple', title)`) | Label in `match.fit` |
 |---|---|---|---|
-| (a) level | the strings contain one of `senior`, `sr`, `staff`, `principal`, `lead` | `intern`, `internship`, `junior`, `jr`, `apprentice`, `trainee`, `new grad`, `new graduate`, `entry level` / `entry-level`, `graduate programme` / `graduate program` | `Senior-level roles` |
+| (a) level | the strings contain one of `senior`, `sr`, `staff`, `principal`, `lead` | `intern`, `internship`, `junior`, `jr`, `apprentice`, `trainee`, `new grad`, `new graduate`, `entry level` / `entry-level`, `graduate programme` / `graduate program`, `new college graduate`, `college graduate`, `college grad`, `university graduate`, `recent graduate`, `early career` | `Senior-level roles` |
 | (b) individual contributor | the strings contain NONE of `director`, `vp`, `vice president`, `head`, `chief`, `manager` | `director`, `vp`, `vice president`, `head of`, `chief`, `manager` | `Individual contributor roles` |
 
 - No seniority word -> rule (a) is off (an entry-level seeker is never pushed away from entry roles). Any one management word anywhere
@@ -36,18 +39,20 @@ The user's strings are `keywords` plus `preferred_titles`, lower-cased and split
 - With no rule active, bucket 0 is just "literal phrase match" and `match.fit` is absent.
 - `match.fit` (array of the labels of the active rules) is added to the response `match` object only when bucketing applied and a rule is
   active. The frontend ignores unknown fields.
-- Known gaps (vocabulary is deliberately short and exact): "New College Graduate", "Engineer I", "Associate" and "Head Chef" style titles are not
-  recognised. When explicit keywords exist, preferred titles are NOT literal phrases (they only feed the level / management rules), so "Senior Machine Learning Engineer" is bucket 1 for an account whose keywords do not name ML.
+- Known gaps (the vocabulary is deliberately short and exact): "Software Engineer I" / "Engineer I" and "Associate" are too ambiguous and are NOT
+  recognised. "campus" was checked against production titles and left out: it is mostly a place ("Kelowna Campus", "Campus Pastor", "Campus
+  Building Engineer"). "early career" also demotes recruiter roles for early careers ("Technical Recruiter, Early Career"), a rare false demotion.
 
 ## How it is expressed
 Bucket 0 is one tsquery over `to_tsvector('simple', title)`: `(lit1 | lit2 | ...) & !(mismatch1 | mismatch2 | ...)`, tested with
 `ts_match_vq` (the opaque function the profile match already uses). Bucket 1 is `NOT` that, inside the same profile filter. No new index.
-Example for the example account (keywords Software Engineer / Full-Stack / Reinforcement Learning, preferred titles with Senior / Staff / Lead):
+Example for the example account (strong phrases above; level and IC rules active; the mismatch list is the one in the table):
 
-    (('software' <-> 'engineer':*) | ('full' <-> 'stack') | ('reinforcement' <-> 'learning':*))
+    (('software' <-> 'engineer':*) | ('full' <-> 'stack') | ('reinforcement' <-> 'learning':*) | ('machine' <-> 'learning' <-> 'engineer':*))
       & !(('intern') | ('internship') | ('junior') | ('jr') | ('apprentice') | ('trainee') | ('new' <-> 'grad') | ('new' <-> 'graduate')
-        | ('entry' <-> 'level') | ('graduate' <-> ('programme' | 'program')) | ('director') | ('vp') | ('vice' <-> 'president')
-        | ('head' <-> 'of') | ('chief') | ('manager'))
+        | ('entry' <-> 'level') | ('graduate' <-> ('programme' | 'program')) | ('new' <-> 'college' <-> 'graduate') | ('college' <-> 'graduate')
+        | ('college' <-> 'grad') | ('university' <-> 'graduate') | ('recent' <-> 'graduate') | ('early' <-> 'career')
+        | ('director') | ('vp') | ('vice' <-> 'president') | ('head' <-> 'of') | ('chief') | ('manager'))
 
 ## Query shape
 `buildNearQuery` makes one arm per (tier, bucket): up to 6 ordered, individually LIMITed arms (tier 0 is one LATERAL probe per home region
