@@ -101,8 +101,8 @@ test('ipHome: region in the requested country; foreign country is flagged; no da
 });
 
 test('homeSig: sorted, order independent', () => {
-  assert.equal(homeSig(['WA', 'CA', 'OR']), 'CA,OR,WA');
-  assert.equal(homeSig(['CA']), 'CA');
+  assert.equal(homeSig(['WA', 'CA', 'OR']), 'n3:CA,OR,WA');
+  assert.equal(homeSig(['CA']), 'n3:CA');
 });
 
 test('ladder: profile > ip > tz > none', () => {
@@ -141,6 +141,6 @@ test('ladder: an IP in another country ends the ladder (no tz rescue), a saved l
 test('ladder: result regions are sorted and the payload is just source/regions/label', () => {
   const h = resolveHome({ country: 'US', geo: G, tz: 'America/New_York' });
   assert.deepEqual(h.regions, [...h.regions].sort());
-  assert.equal(h.sig, h.regions.join(','));
+  assert.equal(h.sig, `n3:${h.regions.join(',')}`);
   assert.deepEqual(Object.keys(nearPayload(h)), ['source', 'regions', 'label']);
 });

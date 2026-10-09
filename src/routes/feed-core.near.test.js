@@ -10,6 +10,7 @@ import { createFeedRouter } from './feed-core.js';
 import { createFeedCache } from '../services/feedCache.js';
 import { rebuildGeoPlaces } from '../services/geoPlace.js';
 import { feedCacheKey, parseFeedParams, encodeCursor } from '../services/feedQuery.js';
+import { homeSig } from '../services/nearHome.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const skip = url ? false : 'TEST_DATABASE_URL not set';
@@ -51,12 +52,14 @@ async function walk(path, headers, limit) {
   throw new Error('pagination did not end');
 }
 
-// Oracle straight from the table: country scope, tier 0 = home region or remote, order (tier, key desc, id desc).
+// Oracle straight from the table: country scope, order (tier, key desc, id desc) with
+//   tier 0 = region_code in the homes (any workplace type), tier 1 = remote with no state tag, tier 2 = the rest.
 async function oracle(homes, { engineeringOnly = false } = {}) {
   const { rows } = await pool.query(
     `SELECT job_id AS id, region_code, remote, title, coalesce(feed_at, sort_at) AS k FROM job_feed
       WHERE is_active AND is_country_primary AND country_code = 'US' ${engineeringOnly ? `AND title = 'Senior Software Engineer'` : ''}`);
-  const tier = (r) => (homes && (homes.includes(r.region_code) || r.remote) ? 0 : 1);
+  const tier = (r) => (!homes ? 0 : homes.includes(r.region_code) ? 0 : (r.remote && r.region_code === '' ? 1 : 2));
+  if (!homes) return rows.sort((a, b) => (b.k - a.k) || (Number(b.id) - Number(a.id))).map(r => ({ id: Number(r.id), tier: 0, region: r.region_code, remote: r.remote }));
   rows.sort((a, b) => (tier(a) - tier(b)) || (b.k - a.k) || (Number(b.id) - Number(a.id)));
   return rows.map(r => ({ id: Number(r.id), tier: tier(r), region: r.region_code, remote: r.remote }));
 }
@@ -79,7 +82,8 @@ before(async () => {
     await pool.query(fs.readFileSync(new URL(`../../supabase/manual/${f}.sql`, import.meta.url), 'utf8').replaceAll('public.', '').replace(/concurrently /g, ''));
   }
 
-  // 480 US jobs. Regions: CA 30%, NY 20%, TX 10%, WA 10%, FL 10%, unknown ('') 20%; ~10% remote anywhere.
+  // 480 US jobs. Regions: CA 30%, NY 20%, TX 10%, WA 10%, FL 10%, unknown ('') 20%; ~11% remote (every 9th job),
+  // so remote jobs exist with a home-state tag, another state's tag and no tag.
   // Timestamps come in groups of 3 with the SAME key, so the (key, id) tie-break is exercised on every page size.
   const regions = ['CA', 'CA', 'CA', 'NY', 'NY', 'TX', 'WA', 'FL', '', ''];
   const t0 = Date.parse('2026-09-01T12:00:00.000Z');
@@ -92,7 +96,7 @@ before(async () => {
       [id, cc, rc, 'c' + rc, rc ? 'City' : null, key, !!over.remote, over.title || 'Designer', over.countryPrimary ?? true]);
   };
   for (let i = 1; i <= 480; i++) {
-    await add(i, 'US', regions[(i * 7) % 10], { remote: i % 10 === 4, title: i % 5 === 0 ? 'Senior Software Engineer' : 'Designer' });
+    await add(i, 'US', regions[(i * 7) % 10], { remote: i % 9 === 0, title: i % 5 === 0 ? 'Senior Software Engineer' : 'Designer' });
   }
   // second-location rows of NY jobs, in CA: region-primary only, NOT country-primary (the job stays a tier-1 NY job)
   for (let i = 1; i <= 480; i += 17) {
@@ -119,42 +123,74 @@ after(async () => {
   if (pool) { await pool.query('DROP SCHEMA feed_near_test CASCADE'); await pool.end(); }
 });
 
+// Page that holds the last row of tier `from` and the first row of the next non-empty tier.
+const crossingPage = (tiers, from, limit) => Math.floor(tiers.lastIndexOf(from) / limit);
+
 for (const limit of [1, 7, 25, 50]) {
-  test(`tier order across pages (limit ${limit}): all near rows first, no gaps, no duplicates, matches the oracle`, { skip }, async () => {
+  test(`three tiers across pages (limit ${limit}): home state, nationwide remote, rest; no gaps, no duplicates, matches the oracle`, { skip }, async () => {
     const want = await oracle(['CA']);
     const { ids, bodies } = await walk('/jobs/feed?country=US', fromIp('1.0.0.1'), limit);
     assert.deepEqual(ids, want.map(w => w.id));
     assert.equal(new Set(ids).size, ids.length);
-    // every near row comes before any non-near row
+    // tier 0 strictly before tier 1 strictly before tier 2, all three non-empty
     const tiers = want.map(w => w.tier);
+    for (const t of [0, 1, 2]) assert.ok(tiers.includes(t), `tier ${t} exists in the fixture`);
     assert.equal(tiers.indexOf(1), tiers.lastIndexOf(0) + 1);
-    assert.ok(tiers.includes(0) && tiers.includes(1));
+    assert.equal(tiers.indexOf(2), tiers.lastIndexOf(1) + 1);
     for (const b of bodies) assert.deepEqual(b.near, { source: 'ip', regions: ['CA'], label: 'California' });
-    if (limit === 7) {
-      // the page that crosses from tier 0 into tier 1 holds the last near rows followed by the first others
-      const lastNear = tiers.lastIndexOf(0);
-      const pageOf = Math.floor(lastNear / limit);
-      const crossing = bodies[pageOf].jobs.map(j => j.id);
-      assert.deepEqual(crossing, want.slice(pageOf * limit, pageOf * limit + limit).map(w => w.id));
-      assert.ok(crossing.some(id => want.find(w => w.id === id).tier === 0) && crossing.some(id => want.find(w => w.id === id).tier === 1), 'page really crosses the tiers');
+    if (limit === 7 || limit === 25) {
+      // both crossings: 0 -> 1 and 1 -> 2 (the page ends are page-size dependent; check the pages that hold them)
+      for (const from of [0, 1]) {
+        const pageOf = crossingPage(tiers, from, limit);
+        const crossing = bodies[pageOf].jobs.map(j => j.id);
+        assert.deepEqual(crossing, want.slice(pageOf * limit, pageOf * limit + limit).map(w => w.id));
+        const ts = new Set(crossing.map(id => want.find(w => w.id === id).tier));
+        if (limit === 7) assert.ok(ts.has(from) && ts.has(from + 1), `page really crosses tier ${from} -> ${from + 1}`);
+      }
     }
   });
 }
 
-test('remote jobs anywhere in the country count as near; unknown-region rows are tier 1', { skip }, async () => {
+test('remote jobs are placed by geography: home-state tag = tier 0, no tag = tier 1, another state = tier 2', { skip }, async () => {
   const want = await oracle(['CA']);
   const { ids } = await walk('/jobs/feed?country=US', fromIp('1.0.0.1'), 50);
+  assert.deepEqual(ids, want.map(w => w.id));
   const byId = new Map(want.map(w => [w.id, w]));
-  const near = ids.filter(id => byId.get(id).tier === 0).map(id => byId.get(id));
-  assert.ok(near.some(r => r.remote && r.region !== 'CA'), 'remote rows from other regions are tier 0');
-  assert.ok(near.every(r => r.region === 'CA' || r.remote));
-  const far = ids.filter(id => byId.get(id).tier === 1).map(id => byId.get(id));
-  assert.ok(far.some(r => r.region === ''), 'unknown-region rows exist and are in tier 1');
-  assert.ok(far.every(r => r.region !== 'CA' && !r.remote));
-  // a remote job with no region is tier 0 too
-  assert.ok(near.some(r => r.remote && r.region === ''));
-  // a job whose country-primary row is in NY stays tier 1 even with a second CA location row
-  assert.ok(far.some(r => r.region === 'NY'));
+  const rows = ids.map(id => byId.get(id));
+  const t0 = rows.filter(r => r.tier === 0), t1 = rows.filter(r => r.tier === 1), t2 = rows.filter(r => r.tier === 2);
+  assert.ok(t0.every(r => r.region === 'CA'));
+  assert.ok(t0.some(r => r.remote), 'a remote job tagged to the home state is in tier 0');
+  assert.ok(t0.some(r => !r.remote), 'on-site jobs of the home state are in tier 0');
+  assert.ok(t1.length > 0 && t1.every(r => r.remote && r.region === ''), 'tier 1 is exactly the untagged remote jobs');
+  assert.ok(t2.some(r => r.remote && r.region !== '' && r.region !== 'CA'), 'a remote job tagged to ANOTHER state is in tier 2');
+  assert.ok(t2.some(r => r.region === '' && !r.remote), 'on-site jobs with an unknown state are in tier 2');
+  assert.ok(t2.every(r => r.region !== 'CA' && !(r.remote && r.region === '')));
+  // a nationwide remote job sorts ahead of a NEWER remote job tagged to another state
+  const otherRemote = t2.find(r => r.remote && r.region !== '');
+  const nationwide = t1[t1.length - 1];
+  const all = await pool.query('SELECT job_id, coalesce(feed_at, sort_at) AS k FROM job_feed WHERE job_id = ANY($1) AND is_country_primary', [[otherRemote.id, nationwide.id]]);
+  const key = Object.fromEntries(all.rows.map(r => [Number(r.job_id), r.k.getTime()]));
+  if (key[otherRemote.id] > key[nationwide.id]) assert.ok(ids.indexOf(nationwide.id) < ids.indexOf(otherRemote.id));
+  // a job whose country-primary row is in NY stays tier 2 even with a second CA location row
+  assert.ok(t2.some(r => r.region === 'NY'));
+});
+
+test('a remote job tagged to another state, newer than every nationwide remote job, still sorts behind them', { skip }, async () => {
+  await pool.query(`INSERT INTO job (id, tsv) VALUES (9001, to_tsvector('english','x')), (9002, to_tsvector('english','x'))`);
+  const ins = (id, rc, key) => pool.query(
+    `INSERT INTO job_feed (job_id,country_code,region_code,city_key,city,sort_at,feed_at,remote,title,company_name,company_key,apply_url,autofill_ready,is_primary,is_country_primary,is_region_primary)
+     VALUES ($1::bigint,'US',$2::text,'c'||$2::text,'City',$3::timestamptz,$3::timestamptz,true,'Designer','Acme','acme','https://x/'||$1::bigint::text,true,true,true,true)`, [id, rc, key]);
+  await ins(9001, 'NY', '2027-01-01T00:00:00.000Z');   // newest row in the table: remote, New York
+  await ins(9002, '', '2026-01-01T00:00:00.000Z');      // very old, remote, no state
+  try {
+    const { ids } = await walk('/jobs/feed?country=US', fromIp('1.0.0.1'), 48);   // limit not used elsewhere: no stale cached pages
+    assert.ok(ids.indexOf(9002) < ids.indexOf(9001), 'nationwide remote (old) before NY-tagged remote (newest)');
+    const ny = await walk('/jobs/feed?country=US', fromIp('2.0.0.1'), 48);
+    assert.equal(ny.ids[0], 9001, 'for a New Yorker the same job is tier 0 and first');
+  } finally {
+    await pool.query('DELETE FROM job_feed WHERE job_id IN (9001, 9002)');
+    await pool.query('DELETE FROM job WHERE id IN (9001, 9002)');
+  }
 });
 
 test('role=engineering: both tiers keep the filter and the order', { skip }, async () => {
@@ -164,11 +200,12 @@ test('role=engineering: both tiers keep the filter and the order', { skip }, asy
   assert.deepEqual(ids, want.map(w => w.id));
 });
 
-test('a home with no jobs: tier 0 is just the remote jobs, nothing is lost', { skip }, async () => {
+test('a home with no jobs: tier 0 is empty, nationwide remote leads, nothing is lost', { skip }, async () => {
   const want = await oracle(['OR']);
   const { ids } = await walk('/jobs/feed?country=US', fromIp('5.0.0.1'), 25);
   assert.deepEqual(ids, want.map(w => w.id));
-  assert.equal(want.filter(w => w.tier === 0).every(w => w.remote), true);
+  assert.equal(want.filter(w => w.tier === 0).length, 0);
+  assert.equal(want[0].tier, 1);
 });
 
 test('time zone fallback tiers the whole zone; label says so', { skip }, async () => {
@@ -245,6 +282,11 @@ test('cache keys differ per home: pages for different homes never mix', { skip }
   assert.equal('near' in none.body, false);
   const p = parseFeedParams({ country: 'US', limit: '10' }).params;
   assert.notEqual(feedCacheKey(p), feedCacheKey(p, undefined, { regions: ['CA'] }));
+  // the key of the three-tier scheme differs from the old two-tier key (['near', regions]) for the same home
+  const oldKey = JSON.stringify([{ ...p }, null, 'feed_at', ['near', 'CA']]);
+  const newKey = feedCacheKey(p, 'feed_at', { regions: ['CA'] });
+  assert.notEqual(newKey, oldKey);
+  assert.ok(newKey.includes('"n3"') && !newKey.includes('"near"'));
 });
 
 test('cursors: only continue the same tiered list, otherwise 409 restart', { skip }, async () => {
@@ -268,8 +310,18 @@ test('cursors: only continue the same tiered list, otherwise 409 restart', { ski
   // a cursor minted under the other ordering still 409s as before
   r = await get(`/jobs/feed?country=US&limit=5&cursor=${encodeCursor('2026-09-01T00:00:00.000Z', 100, 'sort_at')}`, fromIp('1.0.0.1'));
   assert.equal(r.status, 409);
+  // a cursor minted under the old two-tier scheme: same home, but an unversioned signature -> restart
+  for (const old of [[0, 'CA'], [1, 'CA']]) {
+    const oldCur = Buffer.from(JSON.stringify([old[0], '2026-09-01T00:00:00.000Z', 100, 'f', old[1]])).toString('base64url');
+    r = await get(`/jobs/feed?country=US&limit=5&cursor=${oldCur}`, fromIp('1.0.0.1'));
+    assert.deepEqual([r.status, r.body], [409, { error: 'cursor expired', restart: true }], `old tier ${old[0]} cursor`);
+  }
+  // a tier-2 cursor of the current scheme continues
+  const t2cur = encodeCursor('2026-09-01T00:00:00.000Z', 100, 'feed_at', { tier: 2, sig: homeSig(['CA']) });
+  r = await get(`/jobs/feed?country=US&limit=5&cursor=${t2cur}`, fromIp('1.0.0.1'));
+  assert.equal(r.status, 200);
   // a tiered cursor for a different mode (hand-made)
-  const wrongSig = Buffer.from(JSON.stringify([0, '2026-09-01T00:00:00.000Z', 100, 'f', 'TX'])).toString('base64url');
+  const wrongSig = Buffer.from(JSON.stringify([0, '2026-09-01T00:00:00.000Z', 100, 'f', homeSig(['TX'])])).toString('base64url');
   r = await get(`/jobs/feed?country=US&limit=5&cursor=${wrongSig}`, fromIp('1.0.0.1'));
   assert.equal(r.status, 409);
 });
@@ -307,7 +359,7 @@ test('kill switch: FEED_NEAR off (or FEED_ORDER=sort_at) restores today exactly,
       assert.deepEqual(keys, cols);
       assert.match(r.body.nextCursor ? Buffer.from(r.body.nextCursor, 'base64url').toString() : '[""', /^\[\"/);   // 3-element cursor, no tier
       // a tiered cursor is stale while the feature is off
-      const tiered = encodeCursor('2026-09-01T00:00:00.000Z', 100, process.env.FEED_ORDER === 'feed_at' ? 'feed_at' : 'sort_at', { tier: 0, sig: 'CA' });
+      const tiered = encodeCursor('2026-09-01T00:00:00.000Z', 100, process.env.FEED_ORDER === 'feed_at' ? 'feed_at' : 'sort_at', { tier: 0, sig: homeSig(['CA']) });
       assert.equal((await get(`/jobs/feed?country=US&cursor=${tiered}`, fromIp('1.0.0.1'))).status, 409);
     } finally {
       for (const [k, v] of Object.entries(keep)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }

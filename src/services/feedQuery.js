@@ -8,8 +8,8 @@
 //     a city without a region means the unregioned city (region_code = '').
 //   role / profile match -> an extra title predicate  to_tsvector('simple', f.title) @@ $n::tsquery
 //     (roleMatch.js), served by the GIN index idx_feed_title_tsv (supabase/manual/*_job_feed_title_gin.sql).
-//   country list with a home (FEED_NEAR, nearHome.js) -> buildNearQuery: region arm idx_feed_region_fa, remote arm
-//     idx_feed_country_remote_fa, rest idx_feed_country_fa (docs/near-home-feed.md).
+//   country list with a home (FEED_NEAR, nearHome.js) -> buildNearQuery: home-state arm idx_feed_region_fa, nationwide-remote
+//     arm idx_feed_country_remote_fa, rest idx_feed_country_fa (docs/near-home-feed.md).
 import { prefClauses } from './feedPrefs.js';
 import { isRoleSlug, roleFilter, TITLE_TSV, titleMatches } from './roleMatch.js';
 
@@ -36,9 +36,14 @@ const orderExpr = (mode) => (mode === 'feed_at' ? FEED_AT_EXPR : 'f.sort_at');
 // The cursor carries the ordering key of the last row ('sortAt' holds that key
 // under whichever mode minted it) and the mode ('s' | 'f'), so a cursor minted under
 // one ordering is never applied to the other. A legacy 2-element cursor is mode 's'.
-// A "near home" page (nearHome.js) mints [tier, key, id, mode, sig]: tier 0 | 1 of the last row and
-// the signature of the home region set, so it only continues the same tiered list (feed-core answers
-// 409 otherwise). Everything else keeps the 3-element shape.
+// A "near home" page (nearHome.js) mints [tier, key, id, mode, sig]: tier 0 | 1 | 2 of the last row and
+// the signature of the home region set (versioned: NEAR_SCHEME, so a cursor minted under the old
+// two-tier scheme never matches), so it only continues the same tiered list (feed-core answers 409 otherwise). Everything else keeps the 3-element shape.
+// Version of the near-home tier scheme. It prefixes the cursor signature (nearHome.homeSig) and the cache
+// key, so cursors and cached pages of an older scheme (n2 = two tiers, unprefixed) can never be continued
+// or served by this one. Bump it whenever the meaning of a tier changes.
+export const NEAR_SCHEME = 'n3';
+
 export function encodeCursor(sortAt, jobId, mode = 'sort_at', near = null) {
   const m = mode === 'feed_at' ? 'f' : 's';
   return Buffer.from(JSON.stringify(near ? [near.tier, sortAt, jobId, m, near.sig] : [sortAt, jobId, m])).toString('base64url');
@@ -48,7 +53,7 @@ export function decodeCursor(s) {
   try {
     let arr = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8'));
     let tier = null, sig = '';
-    if (Array.isArray(arr) && (arr[0] === 0 || arr[0] === 1)) {
+    if (Array.isArray(arr) && (arr[0] === 0 || arr[0] === 1 || arr[0] === 2)) {
       if (arr.length !== 5 || typeof arr[4] !== 'string' || arr[4].length > 200) throw new Error('bad');
       tier = arr[0]; sig = arr[4]; arr = arr.slice(1, 4);
     }
@@ -169,16 +174,21 @@ export function buildFeedQuery(p, exclusions = {}, opts = {}) {
   return { text, values };
 }
 
-// "Near home first" page (nearHome.js): two tiers inside the country-level list, same filters on both.
-//   tier 0 = rows in the home region(s) + remote rows of the country   tier 1 = every other row
-// The three arms partition the country scope (no row twice, none lost; region_code '' is in tier 1):
-//   A  region_code = home            one LATERAL probe per home region on idx_feed_region_fa (ordered)
-//   B  remote AND region_code <> home    ordered walk of the remote partial index (idx_feed_country_remote_fa)
-//   C  NOT remote AND region_code <> home   ordered walk of idx_feed_country_fa
+// "Near home first" page (nearHome.js): THREE tiers inside the country-level list, same filters on all of them.
+// Workplace type is separate from geography (as on LinkedIn): a remote job carries a location tag, a state or
+// nothing (= the whole country).
+//   tier 0  region_code in the home region(s)       on-site, hybrid AND remote jobs tagged with that state
+//   tier 1  remote AND region_code = ''             remote, open to the whole country
+//   tier 2  everything else                         other states (remote or not), unknown-state on-site jobs
+// The three arms partition the country scope (no row twice, none lost). region_code and remote are NOT NULL
+// (migration 20261008000000), so the negations below need no NULL handling:
+//   A  region_code = home                                  one LATERAL probe per home region on idx_feed_region_fa
+//   B  remote AND region_code = ''                         ordered walk of idx_feed_country_remote_fa, region test as filter
+//   C  region_code <> ALL(homes) AND NOT (remote AND region_code = '')    ordered walk of idx_feed_country_fa
 // Each arm is ordered and LIMITed on its own, the outer query only sorts the few surviving rows by
-// (tier, key, id) and cuts the page. The keyset cursor carries the tier: a tier-0 cursor continues arms A+B
-// (and C from the top), a tier-1 cursor only arm C. Only meaningful for FEED_ORDER=feed_at (the remote
-// index is built on coalesce(feed_at, sort_at)); feed-core never asks for it otherwise.
+// (tier, key, id) and cuts the page. The keyset cursor carries the tier: a tier-0 cursor continues A, B and C
+// (B, C from the top), a tier-1 cursor B and C (C from the top), a tier-2 cursor only C. Only meaningful for
+// FEED_ORDER=feed_at (the indexes are built on coalesce(feed_at, sort_at)); feed-core never asks otherwise.
 const WIDE_HOME = 8;   // more home regions than this: walk the country index instead of probing each region
 function buildNearQuery(p, exclusions, near, mode, opts) {
   if (mode !== 'feed_at') throw new Error('near-home ordering needs FEED_ORDER=feed_at');
@@ -188,29 +198,31 @@ function buildNearQuery(p, exclusions, near, mode, opts) {
   const expr = orderExpr(mode);
   const after = (c) => (c ? ` AND (${expr}, f.job_id) < (${add(c.sortAt)}::timestamptz, ${add(c.jobId)}::bigint)` : '');
   const c = p.cursor;
-  const cur0 = c && c.tier === 0 ? c : null;
-  const cur1 = c && c.tier === 1 ? c : null;
+  const cur = (t) => (c && c.tier === t ? c : null);
   const arm = (tier, cond, cursor) => `SELECT ${tier}::int AS tier, ${FEED_COLS}, ${expr} AS order_key
         FROM job_feed f WHERE ${where} AND ${cond}${after(cursor)}
         ORDER BY ${expr} DESC, f.job_id DESC LIMIT ${limit}`;
   const arms = [];
-  if (!cur1) {
+  if (!c || c.tier === 0) {
     if (near.regions.length > WIDE_HOME) {
       // A wide home (a time-zone fallback such as Eastern, ~45% of the rows): one ordered walk of the country
       // index with the region test as a filter finds hits quickly and beats 20+ per-region probes.
-      arms.push(arm(0, `f.region_code = ANY(${homes})`, cur0));
+      arms.push(arm(0, `f.region_code = ANY(${homes})`, cur(0)));
     } else {
       arms.push(`SELECT 0::int AS tier, x.id, x.title, x.company_name, x.company_logo_domain, x.provider, x.apply_provider,
         x.autofill_ready, x.apply_url, x.city, x.region_code, x.country_code, x.remote, x.employment_type,
         x.salary_min, x.salary_max, x.salary_currency, x.posted_at, x.order_key
       FROM unnest(${homes}) AS h(r)
       CROSS JOIN LATERAL (SELECT ${FEED_COLS}, ${expr} AS order_key
-        FROM job_feed f WHERE ${where} AND f.is_region_primary AND f.region_code = h.r${after(cur0)}
+        FROM job_feed f WHERE ${where} AND f.is_region_primary AND f.region_code = h.r${after(cur(0))}
         ORDER BY ${expr} DESC, f.job_id DESC LIMIT ${limit}) x`);
     }
-    arms.push(arm(0, `f.remote AND f.region_code <> ALL(${homes})`, cur0));
   }
-  arms.push(arm(1, `NOT f.remote AND f.region_code <> ALL(${homes})`, cur1));
+  if (!c || c.tier <= 1) {
+    // A home region is never '' (nearHome only yields real region codes), so tier 1 and tier 0 cannot overlap.
+    arms.push(arm(1, `f.remote AND f.region_code = ''`, cur(1)));
+  }
+  arms.push(arm(2, `f.region_code <> ALL(${homes}) AND NOT (f.remote AND f.region_code = '')`, cur(2)));
   const text = `
     SELECT * FROM (
       ${arms.map(a => `(${a})`).join('\n      UNION ALL\n      ')}
@@ -253,6 +265,6 @@ export function feedCacheKey(p, mode = feedOrderMode(), home = null) {
   const norm = Object.keys(rest).sort().reduce((o, k) => { o[k] = rest[k]; return o; }, {});
   const cur = cursor ? (cursor.tier == null ? [cursor.sortAt, cursor.jobId] : [cursor.sortAt, cursor.jobId, cursor.tier]) : null;
   const key = [norm, cur, mode];
-  if (home) key.push(['near', [...home.regions].sort().join(',')]);
+  if (home) key.push([NEAR_SCHEME, [...home.regions].sort().join(',')]);
   return JSON.stringify(key);
 }

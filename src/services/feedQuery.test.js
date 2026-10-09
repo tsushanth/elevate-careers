@@ -262,9 +262,10 @@ test('near cursor: [tier, key, id, mode, sig] round-trips; legacy cursors stay 3
   const c = encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 1, sig: 'CA' });
   assert.deepEqual(JSON.parse(Buffer.from(c, 'base64url').toString()), [1, '2026-10-01T00:00:00.000Z', 42, 'f', 'CA']);
   assert.deepEqual(decodeCursor(c), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42, mode: 'feed_at', tier: 1, sig: 'CA' });
+  assert.equal(decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 2, sig: 'n3:CA' })).tier, 2);
   assert.deepEqual(JSON.parse(Buffer.from(encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at'), 'base64url').toString()), ['2026-10-01T00:00:00.000Z', 42, 'f']);
   assert.equal(decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at')).tier, undefined);
-  for (const bad of [[2, 'k', 1, 'f', 'x'], [0, '2026-10-01T00:00:00.000Z', 42, 'f'], [0, '2026-10-01T00:00:00.000Z', 42, 'q', 'x'], [0, '2026-10-01T00:00:00.000Z', 42, 'f', 7]]) {
+  for (const bad of [[3, '2026-10-01T00:00:00.000Z', 42, 'f', 'x'], [2, 'k', 1, 'f', 'x'], [0, '2026-10-01T00:00:00.000Z', 42, 'f'], [0, '2026-10-01T00:00:00.000Z', 42, 'q', 'x'], [0, '2026-10-01T00:00:00.000Z', 42, 'f', 7]]) {
     assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(bad)).toString('base64url')), /invalid cursor/);
   }
 });
@@ -274,6 +275,9 @@ test('near cache key: sorted region set joins the key; no home keeps the old key
   const plain = feedCacheKey(p, 'feed_at');
   assert.equal(feedCacheKey(p, 'feed_at', null), plain);
   const ca = feedCacheKey(p, 'feed_at', { regions: ['CA'] });
+  // never equal to the key the old two-tier scheme produced for the same home
+  assert.notEqual(ca, JSON.stringify([{ country: 'US', hasPlace: true, limit: 25, plain: true, q: '', region: '', city: '', remote: false, type: '', days: null }, null, 'feed_at', ['near', 'CA']]));
+  assert.ok(ca.includes('"n3"') && !ca.includes('"near"'));
   const ny = feedCacheKey(p, 'feed_at', { regions: ['NY'] });
   assert.equal(new Set([plain, ca, ny]).size, 3);
   assert.equal(feedCacheKey(p, 'feed_at', { regions: ['WA', 'CA'] }), feedCacheKey(p, 'feed_at', { regions: ['CA', 'WA'] }));
@@ -286,22 +290,27 @@ test('near cache key: sorted region set joins the key; no home keeps the old key
 test('near query: arms follow the cursor tier, every filter rides on every arm', () => {
   const home = { regions: ['CA'] };
   const build = (q, ex = {}) => { const p = ok(q); return buildFeedQuery(p, ex, { mode: 'feed_at', near: home }); };
-  const cur = (tier) => encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier, sig: 'CA' });
+  const cur = (tier) => encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier, sig: 'n3:CA' });
+  const keyset = /\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </g;
   const first = build({ country: 'US' });
-  assert.equal((first.text.match(/UNION ALL/g) || []).length, 2);              // region + remote + rest
+  assert.equal((first.text.match(/UNION ALL/g) || []).length, 2);              // home state + nationwide remote + rest
   assert.match(first.text, /f\.is_region_primary AND f\.region_code = h\.r/);
-  assert.match(first.text, /f\.remote AND f\.region_code <> ALL\(\$\d+::text\[\]\)/);
-  assert.match(first.text, /NOT f\.remote AND f\.region_code <> ALL\(/);
+  assert.match(first.text, /f\.remote AND f\.region_code = ''/);
+  assert.match(first.text, /f\.region_code <> ALL\(\$\d+::text\[\]\) AND NOT \(f\.remote AND f\.region_code = ''\)/);
   assert.match(first.text, /ORDER BY tier, order_key DESC, id DESC/);
   assert.ok(first.values.some(v => Array.isArray(v) && v[0] === 'CA'));
   assert.doesNotMatch(first.text, /\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </);   // no cursor predicate on the first page
   const t0 = build({ country: 'US', cursor: cur(0) });
   assert.equal((t0.text.match(/UNION ALL/g) || []).length, 2);
-  assert.equal((t0.text.match(/\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </g) || []).length, 2); // regions + remote continue; tier 1 restarts
+  assert.equal((t0.text.match(keyset) || []).length, 1);                       // only the home-state arm continues; tiers 1 and 2 start from the top
   const t1 = build({ country: 'US', cursor: cur(1) });
-  assert.equal((t1.text.match(/UNION ALL/g) || []).length, 0);                 // only the tier-1 arm
+  assert.equal((t1.text.match(/UNION ALL/g) || []).length, 1);                 // nationwide remote + rest
   assert.doesNotMatch(t1.text, /h\.r/);
-  assert.equal((t1.text.match(/\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </g) || []).length, 1);
+  assert.equal((t1.text.match(keyset) || []).length, 1);                       // only the tier-1 arm continues
+  const t2 = build({ country: 'US', cursor: cur(2) });
+  assert.equal((t2.text.match(/UNION ALL/g) || []).length, 0);                 // only the rest
+  assert.doesNotMatch(t2.text, /h\.r|f\.remote AND f\.region_code = ''\n/);
+  assert.equal((t2.text.match(keyset) || []).length, 1);
   // role / prefs / exclusions appear in all three arms
   const withAll = build({ country: 'US', role: 'engineering' }, { dismissed: [1, 2], excludedCompanies: ['acme'], prefs: { titles: [], locations: null, remote: false, salaryMin: 100 } });
   for (const frag of ['f.job_id <> ALL(', 'f.company_key <> ALL(', 'f.salary_min IS NULL OR']) {
