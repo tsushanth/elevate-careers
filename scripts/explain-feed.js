@@ -20,13 +20,15 @@
 //                        crossing (cursors taken from the data), single-state and multi-state (time-zone) homes,
 //                        and with a dense (engineering) / sparse (legal) role.
 //                        No Seq Scan on job_feed; the only Sort allowed is the outer one over the few arm rows.
+//   fit buckets       -> buildNearQuery with near.fit (FEED_FIT_RANK, docs/profile-fit-ranking.md): up to 3 tiers x 2 buckets = 6 arms,
+//                        explained for the example profile with and without a seniority signal, a sparse literal and a rare no-family literal.
 //   node scripts/explain-feed.js            (FEED_ORDER=sort_at, the default)
 //   FEED_ORDER=feed_at node scripts/explain-feed.js   (needs the *_fa indexes, supabase/manual/20261011000300_*)
 // Also fails on an explicit Sort node for non-keyword scenarios: the index must deliver the order.
 import { db } from '../src/db/index.js';
 import { parseFeedParams, buildFeedQuery, buildCountQuery, encodeCursor, feedOrderMode } from '../src/services/feedQuery.js';
 import { TZ_ZONES, homeSig } from '../src/services/nearHome.js';
-import { profileFilter } from '../src/services/roleMatch.js';
+import { profileFilter, fitFilter } from '../src/services/roleMatch.js';
 
 const scenarios = {
   worldwide: {},
@@ -64,7 +66,7 @@ for (const [pn, place] of Object.entries(places)) {
 }
 
 let failed = false;
-async function explain(name, query, exclusions = {}, { count = false, near = null } = {}) {
+async function explain(name, query, exclusions = {}, { count = false, near = null, gated = false } = {}) {
   const parsed = parseFeedParams(query);
   if (!parsed.ok) {
     console.log(`FAIL ${name.padEnd(28)} ${parsed.error}`);
@@ -81,7 +83,8 @@ async function explain(name, query, exclusions = {}, { count = false, near = nul
   // Seq Scan with an early-exit LIMIT, so it only has to stay inside the 300 ms budget.
   // Near-home pages carry exactly one Sort: the outer (tier, key, id) sort over the arms' few rows.
   const sorts = (plan.match(/Sort Key: .*/g) || []);
-  const badSort = near ? sorts.some(k => !/^Sort Key: \((\d)\)|^Sort Key: u\.tier|^Sort Key: tier/.test(k)) : (!keyword && /\bSort\b/.test(plan));
+  // A gated profile (rare literal, no family) may legitimately take the GIN bitmap with a top-N sort of the few hits per arm.
+  const badSort = near ? sorts.some(k => !/^Sort Key: \((\d)\)|^Sort Key: u\.tier|^Sort Key: tier/.test(k)) && !(gated && /idx_feed_title_tsv/.test(plan)) : (!keyword && /\bSort\b/.test(plan));
   const seq = count ? Number(exec) > 300 : (/Seq Scan on job_feed/.test(plan) || badSort || (near && Number(exec) > 150));
   const how = /idx_feed_title_tsv/.test(plan) ? 'gin' : 'ordered-index';
   console.log(`${seq ? 'FAIL' : 'ok  '} ${name.padEnd(28)} ${String(exec).padStart(8)} ms  (wall ${Date.now() - t0} ms)${/role|profile/.test(name) ? '  ' + how : ''}`);
@@ -126,6 +129,62 @@ if (mode === 'feed_at') {
       for (const [cn, cursor] of Object.entries(cursors)) {
         if (cn !== 'first' && !cursor) { console.log(`skip ${hn} ${cn}: not enough rows in that tier`); continue; }
         await explain(`near ${hn} ${role ? 'role=' + role + ' ' : ''}${cn}`, { country: 'US', ...(role ? { role } : {}), ...(cursor ? { cursor } : {}) }, {}, { near: { regions } });
+      }
+    }
+  }
+}
+
+// ---- fit buckets inside the near tiers (FEED_FIT_RANK; docs/profile-fit-ranking.md) ----
+// Up to 3 tiers x 2 buckets = 6 ordered arms per page. Same budget as above (< 150 ms DB time, no Seq Scan on job_feed,
+// only the outer Sort). Two profiles: the example account WITH a seniority signal (level rule on) and the same keywords
+// without one (level rule off). Cursors are taken from the data, so each scenario sits where its name says:
+//   bucket0 deep            inside the strong bucket of tier 0
+//   bucket0->1 crossing     ten strong rows are left in tier 0: the page ends in tier 0's broader bucket
+//   tier0->1 crossing       ten broader rows are left in tier 0: the page ends in tier 1's strong bucket
+//   tier1->2 crossing       ten broader rows are left in tier 1: the page ends in tier 2's strong bucket
+//   tier2 bucket0/1 deep    deep in tier 2
+if (mode === 'feed_at') {
+  const KW = ['Software Engineer', 'Full-Stack', 'Reinforcement Learning'];
+  // fams = the families the phrases fall in (resolveFamilies); the last two are the sparse stress cases: a rare literal
+  // inside the dense engineering family (bucket 0 nearly empty), and a rare literal with no family (page query gated by GIN).
+  const profiles = {
+    'profile+seniority': { keywords: KW, preferredTitles: ['Senior Machine Learning Engineer', 'Staff Software Engineer, Time and Scheduling', 'Team Lead, Software Engineering'], fams: ['engineering'] },
+    'profile no-seniority': { keywords: KW, preferredTitles: [], fams: ['engineering'] },
+    'sparse literal (RL)': { keywords: ['Reinforcement Learning'], preferredTitles: ['Senior Machine Learning Engineer'], fams: ['engineering'] },
+    'rare literal no family': { keywords: ['Paralegal'], preferredTitles: [], fams: [] },
+  };
+  const homes = { 'home CA': ['CA'], 'home TX': ['TX'], 'tz Pacific': TZ_ZONES['America/Los_Angeles'].regions };
+  const EXPR = 'coalesce(f.feed_at, f.sort_at)';
+  const TIER = { 0: 'f.region_code = ANY($1::text[])', 1: "f.remote AND f.region_code = ''", 2: "f.region_code <> ALL($1::text[]) AND NOT (f.remote AND f.region_code = '')" };
+  const SIGF = homeSig(['x'], true);
+  for (const [pn, prof] of Object.entries(profiles)) {
+    const phrases = prof.keywords.map(text => ({ text }));
+    const match = profileFilter(phrases, prof.fams);
+    const fit = fitFilter(phrases, prof, prof.fams);
+    for (const [hn, regions] of Object.entries(homes)) {
+      // the row `skip` rows into (tier, bucket) of the profile list, or `skip` rows from its end with last=true
+      const cursorAt = async (tier, bucket, skip, last = false) => {
+        const dir = last ? 'ASC' : 'DESC';
+        const { rows: [r] } = await db.query(
+          `SELECT ${EXPR} AS k, f.job_id AS id FROM job_feed f
+            WHERE f.is_active AND f.is_country_primary AND f.country_code = 'US' AND ${TIER[tier]} AND cardinality($1::text[]) >= 0
+              AND ts_match_vq(to_tsvector('simple', f.title), $2::tsquery)
+              AND ${bucket === 0 ? '' : 'NOT '}ts_match_vq(to_tsvector('simple', f.title), $3::tsquery)
+            ORDER BY ${EXPR} ${dir}, f.job_id ${dir} OFFSET ${skip} LIMIT 1`, [regions, match.tsquery, fit.strong]);
+        return r ? encodeCursor(new Date(r.k).toISOString(), Number(r.id), mode, { tier, sig: SIGF, bucket }) : null;
+      };
+      const cursors = {
+        first: null,
+        'tier0 bucket0 deep': await cursorAt(0, 0, 300),
+        'tier0 bucket0->1 crossing': await cursorAt(0, 0, 9, true),
+        'tier0->1 crossing': await cursorAt(0, 1, 9, true),
+        'tier1->2 crossing': await cursorAt(1, 1, 9, true),
+        'tier2 bucket0 deep': await cursorAt(2, 0, 1500),
+        'tier2 bucket1 deep': await cursorAt(2, 1, 3000),
+      };
+      for (const [cn, cursor] of Object.entries(cursors)) {
+        if (cn !== 'first' && !cursor) { console.log(`skip fit ${pn} ${hn} ${cn}: not enough rows there`); continue; }
+        await explain(`fit ${pn} ${hn} ${cn}`, { country: 'US', ...(cursor ? { cursor } : {}) }, { match }, { near: { regions, fit: { strong: fit.strong, bucket1: fit.bucket1 } }, gated: prof.fams.length === 0 });
       }
     }
   }

@@ -1,12 +1,12 @@
 // src/routes/feed-core.js
 import express from 'express';
-import { parseFeedParams, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey, encodeCursor, feedOrderMode, COUNT_CAP, EXACT_EXCLUSION_MAX } from '../services/feedQuery.js';
+import { parseFeedParams, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey, encodeCursor, feedOrderMode, fitRankEnabled, COUNT_CAP, EXACT_EXCLUSION_MAX } from '../services/feedQuery.js';
 import { suggestPlaces, placeCount, isAbsorbing } from '../services/geoPlace.js';
 import { COUNTRY_NAME_BY_ISO } from '../services/places.js';
 import { activePrefs, hasSoft, isDefaultList } from '../services/feedPrefs.js';
-import { nearEnabled, nearApplicable, resolveHome, clientIp, nearPayload } from '../services/nearHome.js';
+import { nearEnabled, nearApplicable, resolveHome, clientIp, nearPayload, homeSig } from '../services/nearHome.js';
 import { geoip as defaultGeoip } from '../services/geoip.js';
-import { roleList, roleLabel, roleMatchEnabled, profilePhrases, profileFilter, resolveFamilies } from '../services/roleMatch.js';
+import { roleList, roleLabel, roleMatchEnabled, profilePhrases, profileFilter, fitFilter, resolveFamilies } from '../services/roleMatch.js';
 
 const STATS_TTL_MS = 10 * 60_000;
 
@@ -46,7 +46,7 @@ export function createFeedRouter({ db, cache, getExclusions, geoip = defaultGeoi
   // `home` ({ regions, sig }, nearHome.js) turns on the two-tier "near home first" order for this page.
   async function loadPage(params, exclusions = {}, home = null) {
     const opts = { absorb: params.city && params.region ? await isAbsorbing(db, params) : false };
-    if (home) opts.near = { regions: home.regions };
+    if (home) opts.near = { regions: home.regions, ...(home.fit ? { fit: home.fit } : {}) };
     const mode = feedOrderMode();
     const q = buildFeedQuery(params, exclusions, { ...opts, mode });
     const { rows } = await db.query(q.text, q.values);
@@ -56,7 +56,7 @@ export function createFeedRouter({ db, cache, getExclusions, geoip = defaultGeoi
     // Invariant: job_feed.sort_at (and so feed_at = sort_at - whole hours) is always written with
     // millisecond precision (see jobFeed.js), so this cursor round-trips exactly. The cursor
     // carries the ordering key of the active mode, not necessarily posted_at.
-    const nextCursor = hasMore && last ? encodeCursor(new Date(last.order_key).toISOString(), Number(last.id), mode, home ? { tier: Number(last.tier), sig: home.sig } : null) : null;
+    const nextCursor = hasMore && last ? encodeCursor(new Date(last.order_key).toISOString(), Number(last.id), mode, home ? { tier: Number(last.tier), sig: home.sig, bucket: home.fit ? Number(last.bucket) : undefined } : null) : null;
 
     let count = null;
     let countIsCapped = false;
@@ -77,7 +77,7 @@ export function createFeedRouter({ db, cache, getExclusions, geoip = defaultGeoi
         count = countIsCapped ? COUNT_CAP : n;
       }
     }
-    return { jobs: page.map(({ order_key, tier, ...r }) => toCard(r)), nextCursor, count, countIsCapped };
+    return { jobs: page.map(({ order_key, tier, bucket, ...r }) => toCard(r)), nextCursor, count, countIsCapped };
   }
   router.loadPage = loadPage;
 
@@ -108,6 +108,7 @@ export function createFeedRouter({ db, cache, getExclusions, geoip = defaultGeoi
       let prefsStatus;
       let match = null;          // response `match` (only when a role or the profile was applied)
       let profileMatch = null;   // { tsquery } handed to the SQL builder (profile only; a role rides in params.role)
+      let fit = null;            // { strong, labels } (roleMatch.js fitFilter): the fit buckets, profile default list only
       if (parsed.params.role) {
         match = { source: 'role', roleSlug: parsed.params.role, roleLabel: roleLabel(parsed.params.role), labels: [roleLabel(parsed.params.role)] };
       }
@@ -125,6 +126,7 @@ export function createFeedRouter({ db, cache, getExclusions, geoip = defaultGeoi
           if (filter) {
             profileMatch = filter;
             match = { source: 'profile', roleSlug: null, roleLabel: null, labels: phrases.map(p => p.label) };
+            if (fitRankEnabled()) fit = fitFilter(phrases, exclusions.profile, families);
           }
         }
         if ((active && (active.remote || active.salaryMin !== null)) || profileMatch) prefsStatus = 'applied';
@@ -140,9 +142,15 @@ export function createFeedRouter({ db, cache, getExclusions, geoip = defaultGeoi
           logger.warn({ error: e.message }, 'near-home resolution failed; serving the plain list');
         }
       }
+      // Fit buckets live inside the near tiers: they need a home. The signature (n3f) and the cursor's bucket make a
+      // bucketed cursor continue only a bucketed list of the same home, and vice versa (409 restart otherwise).
+      if (home && fit) {
+        home = { ...home, sig: homeSig(home.regions, true), fit: { strong: fit.strong, bucket1: fit.bucket1 } };
+        if (fit.labels.length) match = { ...match, fit: fit.labels };
+      }
       // A cursor continues only the list it came from: tiered cursors need the same home, plain ones need no home.
       const cur = parsed.params.cursor;
-      if (cur && (home ? (cur.tier == null || cur.sig !== home.sig) : cur.tier != null)) {
+      if (cur && (home ? (cur.tier == null || cur.sig !== home.sig || (cur.bucket !== undefined) !== !!home.fit) : cur.tier != null)) {
         return res.status(409).json({ error: 'cursor expired', restart: true });
       }
       if (home) res.set('Cache-Control', 'private, no-cache');   // the page depends on who asks

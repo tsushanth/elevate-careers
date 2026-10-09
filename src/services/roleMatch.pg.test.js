@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import pg from 'pg';
-import { FAMILIES, familyQuery, familyParts, resolveFamilies, profileFilter, profilePhrases, _clearFamilyMemo, roleFilter, titleMatches } from './roleMatch.js';
+import { FAMILIES, familyQuery, familyParts, resolveFamilies, profileFilter, profilePhrases, _clearFamilyMemo, roleFilter, titleMatches, mismatchQuery, fitFilter } from './roleMatch.js';
 import { parseFeedParams, buildFeedQuery, buildCountQuery } from './feedQuery.js';
 import { CORPUS } from './roleMatch.corpus.js';
 
@@ -92,4 +92,33 @@ test('profile for the example account: phrases plus the families they fall in', 
   const hits = new Set((await pool.query(`SELECT title FROM job_feed f WHERE ${titleMatches('$1')}`, [f.tsquery])).rows.map(r => r.title));
   for (const t of ['Senior Software Engineer', 'Full-Stack Developer', 'Backend Engineer (Node.js/Typescript)', 'Shopify Developer', 'Machine Learning Engineer']) assert.ok(hits.has(t), t);
   for (const t of ['Sales Engineer', 'Mechanical Engineer', 'Registered Nurse (RN)', 'Senior Product Manager']) assert.ok(!hits.has(t), t);
+});
+
+test('fit mismatch rules against real titles, as the live to_tsvector sees them', { skip }, async () => {
+  const hit = async (rules, titles) => new Set((await pool.query(
+    `SELECT t FROM unnest($1::text[]) t WHERE ts_match_vq(to_tsvector('simple', t), $2::tsquery)`, [titles, mismatchQuery(rules)])).rows.map(r => r.t));
+  const level = await hit({ level: true, ic: false }, [
+    'Software Engineer Intern', 'Software Engineering Internship (Summer)', 'Junior Embedded Software Engineer', 'Jr. Developer', 'Software Engineer, New Grad', 'New Graduate Software Engineer',
+    'Entry Level Software Engineer', 'Entry-Level Developer', 'Graduate Programme Engineer', 'Graduate Program, Engineering', 'Apprentice Electrician', 'Trainee Analyst',
+    'Senior Software Engineer', 'Software Engineer II', 'Graduate School Admissions Manager', 'New Product Engineer', 'Internal Tools Engineer', 'Staff Engineer, Level 5']);
+  assert.deepEqual([...level].sort(), [
+    'Apprentice Electrician', 'Entry Level Software Engineer', 'Entry-Level Developer', 'Graduate Program, Engineering', 'Graduate Programme Engineer', 'Jr. Developer',
+    'Junior Embedded Software Engineer', 'New Graduate Software Engineer', 'Software Engineer Intern', 'Software Engineer, New Grad', 'Software Engineering Internship (Summer)', 'Trainee Analyst'].sort());
+  const mgmt = await hit({ level: false, ic: true }, [
+    'Director of Software Engineering', 'Software Engineering Director', 'Senior Director, Data', 'VP Engineering', 'VP, Engineering', 'Vice President of Engineering', 'Head of Platform',
+    'Chief Architect', 'Engineering Manager', 'Software Engineering Manager, Platform', 'Technical Program Manager', 'Senior Software Engineer', 'Head Chef', 'Team Lead, Software Engineering',
+    'Staff Software Engineer', 'Product Engineer', 'Vice Principal']);
+  assert.deepEqual([...mgmt].sort(), [
+    'Chief Architect', 'Director of Software Engineering', 'Engineering Manager', 'Head of Platform', 'Senior Director, Data', 'Software Engineering Director',
+    'Software Engineering Manager, Platform', 'Technical Program Manager', 'VP Engineering', 'VP, Engineering', 'Vice President of Engineering'].sort());
+});
+
+test('fit strong bucket for the example account: literal match minus mismatches', { skip }, async () => {
+  const kw = ['Software Engineer', 'Full-Stack', 'Reinforcement Learning'];
+  const { phrases } = profilePhrases({ keywords: kw });
+  const { strong } = fitFilter(phrases, { keywords: kw, preferredTitles: ['Senior Machine Learning Engineer'] }, ['engineering']);
+  const titles = ['Senior Software Engineer', 'Staff Software Engineer, Backend', 'Full Stack Engineer', 'Senior Full-Stack Software Engineer', 'Software Engineering Manager', 'Software Engineer Intern',
+    'Director of Software Engineering', 'Product Engineer', 'Machine Learning Engineer', 'Reinforcement Learning Engineer', 'Software Engineer – New Grad', 'Forward Deployed Data Engineer'];
+  const got = new Set((await pool.query(`SELECT t FROM unnest($1::text[]) t WHERE ts_match_vq(to_tsvector('simple', t), $2::tsquery)`, [titles, strong])).rows.map(r => r.t));
+  assert.deepEqual([...got].sort(), ['Full Stack Engineer', 'Reinforcement Learning Engineer', 'Senior Full-Stack Software Engineer', 'Senior Software Engineer', 'Staff Software Engineer, Backend']);
 });

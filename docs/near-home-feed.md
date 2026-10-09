@@ -31,6 +31,9 @@ C) tier 2, `region_code <> ALL(homes) AND NOT (remote AND region_code = '')` on 
 The arms partition the scope, so no row is returned twice. A tier-0 cursor continues A (B, C from the top); tier-1 continues B (C from the top); tier-2 only C. No new index.
 Check with `FEED_ORDER=feed_at node scripts/explain-feed.js` (the "near" scenarios: first page, deep tier 0/1/2, the 0->1 and 1->2 crossings, with and without a role).
 
+## Profile fit buckets
+With FEED_FIT_RANK=on a signed-in profile list is split into two fit buckets inside each tier (cursor gets a sixth element, scheme tag `n3f`). See docs/profile-fit-ranking.md.
+
 ## Geo-IP data
 `src/data/geoip-regions.bin.gz` is built by `scripts/build-geoip.js` from DB-IP "IP to City Lite" (CC BY 4.0). It keeps US and CA with state/province, everything else collapses to `XX`; adjacent identical ranges are merged (IPv6 keyed by the upper 64 bits). Refresh when you like (DB-IP publishes monthly):
 
