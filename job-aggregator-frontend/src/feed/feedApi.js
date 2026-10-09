@@ -12,6 +12,8 @@ export function feedUrl(base, state) {
   if (state.type) p.set('type', state.type);
   if (state.days) p.set('days', String(state.days));
   if (state.prefsOff) p.set('prefs', 'off');
+  if (state.nearOff) p.set('near', 'off');
+  if (state.tz) p.set('tz', state.tz);
   if (state.cursor) p.set('cursor', state.cursor);
   const qs = p.toString();
   return `${base}/v2/jobs/feed${qs ? `?${qs}` : ''}`;

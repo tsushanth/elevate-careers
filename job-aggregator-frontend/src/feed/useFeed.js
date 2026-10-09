@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { feedReducer, initialFeedState } from './feedState';
 import { fetchFeed } from './feedApi';
+import { browserTimeZone } from './nearChoice';
 
 // `preload` (optional) is the in-flight first-page request started by the
 // inline script in index.html; it is only used for the very first load.
@@ -28,13 +29,14 @@ export function useFeed({ apiBase, filters, token, preload, onInvalidRole }) {
     dispatch({ type: 'start', append });
     try {
       let data;
-      // The preload is the anonymous page; a signed-in user's page is filtered per user, so never use it.
-      if (!append && !usedPreload.current && preloadRef.current && !token && !filters.role) {
+      // The preload is the anonymous page (its URL has no tz, so the server falls back to IP; a near-you list is
+      // still honoured via data.near). With the near ordering switched off it is skipped, as it would be ordered; a signed-in user's page is filtered per user, so never use it.
+      if (!append && !usedPreload.current && preloadRef.current && !token && !filters.role && !filters.nearOff) {
         usedPreload.current = true;
         try { data = await preloadRef.current(filters); } catch { data = undefined; }
       }
       if (mySeq !== seq.current) return;   // superseded while the preload was pending
-      if (!data) data = await fetchFeed(apiBase, { ...filters, cursor }, { signal: abort.current.signal, token });
+      if (!data) data = await fetchFeed(apiBase, { ...filters, tz: browserTimeZone(), cursor }, { signal: abort.current.signal, token });
       if (mySeq !== seq.current) return;   // a newer request superseded this one
       busyRef.current = false;
       dispatch({ type: 'success', append, data, filters });

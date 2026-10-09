@@ -42,6 +42,9 @@
 .feed-more { display: block; width: calc(100% - 28px); margin: 12px 14px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
 .feed-prefs-note { margin: 0; padding: 8px 14px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .feed-prefs-note button { color: var(--blue); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; }
+.feed-notes { margin: 0; padding: 0; }
+.feed-near-note { margin: 0; padding: 8px 14px; font-size: 13px; line-height: 1.4; color: var(--muted); border-bottom: 1px solid var(--line); }
+.feed-near-note button { color: var(--blue); background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; }
 .feed-empty, .feed-error { padding: 24px 14px; color: var(--muted); }
 .feed-error button { color: var(--blue); background: none; border: 0; font: inherit; cursor: pointer; text-decoration: underline; }
 .feed-stale { opacity: .55; transition: opacity .15s; }
