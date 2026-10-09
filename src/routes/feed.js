@@ -14,6 +14,7 @@ import { normalizeCompanyName } from '../services/normalizer.js';
 import { loadAppliedJobIds } from '../services/appliedJobs.js';
 import { normalizePrefs } from '../services/feedPrefs.js';
 import { roleMatchEnabled } from '../services/roleMatch.js';
+import { nearEnabled } from '../services/nearHome.js';
 
 let _supabase = null;
 function getSupabase() {
@@ -45,6 +46,20 @@ async function loadProfile(sb, userId) {
   }
 }
 
+// The saved free-text location (apply_preferences.location) for the near-home tiers (nearHome.js). Auxiliary and
+// fail-open like the preferences: any problem means no profile home. Skipped entirely while FEED_NEAR is off.
+async function loadHomeLocation(sb, userId) {
+  if (!nearEnabled()) return null;
+  try {
+    const { data, error } = await sb.from('apply_preferences').select('location').eq('user_id', userId).maybeSingle();
+    if (error) throw new Error(error.message || 'location query failed');
+    return typeof data?.location === 'string' ? data.location : null;
+  } catch (e) {
+    logger.warn({ error: e.message }, 'v2 feed: saved location unavailable, using the IP / time zone home');
+    return null;
+  }
+}
+
 // Optional auth, like /jobs: a bad or missing token just means no exclusions.
 async function getExclusions(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -73,7 +88,7 @@ async function getExclusions(req) {
     let applied = [];
     try { applied = await loadAppliedJobIds({ sb, db, userId: user.id }); }
     catch (e) { logger.warn({ error: e.message }, 'v2 feed: applied-jobs lookup failed, continuing without it'); }
-    const { profile, profileUnavailable } = await loadProfile(sb, user.id);
+    const [{ profile, profileUnavailable }, location] = await Promise.all([loadProfile(sb, user.id), loadHomeLocation(sb, user.id)]);
     const dismissed = [...new Set([...(dismissedRows || []).map(r => Number(r.job_id)).filter(Number.isFinite), ...applied])];
     return {
       userId: user.id,
@@ -83,6 +98,7 @@ async function getExclusions(req) {
       prefsUnavailable,
       profile,
       profileUnavailable,
+      location,
     };
   } catch (e) {
     logger.warn({ error: e.message }, 'v2 feed: exclusions lookup failed, continuing unfiltered');

@@ -4,6 +4,8 @@ import { parseFeedParams, buildFeedQuery, buildCountQuery, buildExcludedCountQue
 import { suggestPlaces, placeCount, isAbsorbing } from '../services/geoPlace.js';
 import { COUNTRY_NAME_BY_ISO } from '../services/places.js';
 import { activePrefs, hasSoft, isDefaultList } from '../services/feedPrefs.js';
+import { nearEnabled, nearApplicable, resolveHome, clientIp, nearPayload } from '../services/nearHome.js';
+import { geoip as defaultGeoip } from '../services/geoip.js';
 import { roleList, roleLabel, roleMatchEnabled, profilePhrases, profileFilter, resolveFamilies } from '../services/roleMatch.js';
 
 const STATS_TTL_MS = 10 * 60_000;
@@ -20,7 +22,7 @@ function toCard(row) {
   };
 }
 
-export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {}, error() {} } }) {
+export function createFeedRouter({ db, cache, getExclusions, geoip = defaultGeoip, logger = { warn() {}, error() {} } }) {
   const router = express.Router();
 
   // Signed-in exact count: the precomputed place count (the one anonymous users
@@ -41,8 +43,10 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
   }
 
   // The page itself (rows, next cursor, count). Reused by the warmer.
-  async function loadPage(params, exclusions = {}) {
+  // `home` ({ regions, sig }, nearHome.js) turns on the two-tier "near home first" order for this page.
+  async function loadPage(params, exclusions = {}, home = null) {
     const opts = { absorb: params.city && params.region ? await isAbsorbing(db, params) : false };
+    if (home) opts.near = { regions: home.regions };
     const mode = feedOrderMode();
     const q = buildFeedQuery(params, exclusions, { ...opts, mode });
     const { rows } = await db.query(q.text, q.values);
@@ -52,7 +56,7 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
     // Invariant: job_feed.sort_at (and so feed_at = sort_at - whole hours) is always written with
     // millisecond precision (see jobFeed.js), so this cursor round-trips exactly. The cursor
     // carries the ordering key of the active mode, not necessarily posted_at.
-    const nextCursor = hasMore && last ? encodeCursor(new Date(last.order_key).toISOString(), Number(last.id), mode) : null;
+    const nextCursor = hasMore && last ? encodeCursor(new Date(last.order_key).toISOString(), Number(last.id), mode, home ? { tier: Number(last.tier), sig: home.sig } : null) : null;
 
     let count = null;
     let countIsCapped = false;
@@ -73,7 +77,7 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
         count = countIsCapped ? COUNT_CAP : n;
       }
     }
-    return { jobs: page.map(({ order_key, ...r }) => toCard(r)), nextCursor, count, countIsCapped };
+    return { jobs: page.map(({ order_key, tier, ...r }) => toCard(r)), nextCursor, count, countIsCapped };
   }
   router.loadPage = loadPage;
 
@@ -127,14 +131,29 @@ export function createFeedRouter({ db, cache, getExclusions, logger = { warn() {
         else if (prefsOff && defaultList && (hasSoft(exclusions.prefs) || phrases.length)) prefsStatus = 'off';
         exclusions = { ...exclusions, prefs: active, match: profileMatch };
       }
-      const extras = { ...(prefsStatus ? { prefs: prefsStatus } : {}), ...(match ? { match } : {}) };
-      if (exclusions && (exclusions.dismissed.length || exclusions.excludedCompanies.length || exclusions.prefs || exclusions.match)) {
-        // Per-user results are never shared through the cache.
+      // Near home first (nearHome.js): FEED_NEAR kill switch, a country-level list only, ?near=off opts out.
+      let home = null;
+      if (nearEnabled() && nearApplicable(parsed.params) && req.query.near !== 'off') {
+        try {
+          home = resolveHome({ country: parsed.params.country, profileLocation: exclusions?.location, ip: clientIp(req), tz: req.query.tz, geo: geoip });
+        } catch (e) {
+          logger.warn({ error: e.message }, 'near-home resolution failed; serving the plain list');
+        }
+      }
+      // A cursor continues only the list it came from: tiered cursors need the same home, plain ones need no home.
+      const cur = parsed.params.cursor;
+      if (cur && (home ? (cur.tier == null || cur.sig !== home.sig) : cur.tier != null)) {
+        return res.status(409).json({ error: 'cursor expired', restart: true });
+      }
+      if (home) res.set('Cache-Control', 'private, no-cache');   // the page depends on who asks
+      const extras = { ...(prefsStatus ? { prefs: prefsStatus } : {}), ...(match ? { match } : {}), ...(home ? { near: nearPayload(home) } : {}) };
+      if ((exclusions && (exclusions.dismissed.length || exclusions.excludedCompanies.length || exclusions.prefs || exclusions.match)) || home?.source === 'profile') {
+        // Per-user results are never shared through the cache (a profile-derived home is per user too).
         res.set('X-Cache', 'BYPASS');
-        const page = await loadPage(parsed.params, exclusions);
+        const page = await loadPage(parsed.params, exclusions || {}, home);
         return res.json({ ...page, ...extras });
       }
-      const { value, status } = await cache.getOrLoad(feedCacheKey(parsed.params), () => loadPage(parsed.params));
+      const { value, status } = await cache.getOrLoad(feedCacheKey(parsed.params, undefined, home), () => loadPage(parsed.params, {}, home));
       res.set('X-Cache', status);
       return res.json({ ...value, ...extras });   // 'off': nothing is filtered, the shared page is right
     } catch (e) {
