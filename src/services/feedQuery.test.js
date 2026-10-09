@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFeedParams, encodeCursor, decodeCursor, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey } from './feedQuery.js';
+import { parseFeedParams, encodeCursor, decodeCursor, buildFeedQuery, buildCountQuery, buildExcludedCountQuery, feedCacheKey, fitRankEnabled, NEAR_SCHEME_FIT } from './feedQuery.js';
 
 const ok = (q) => { const r = parseFeedParams(q); assert.equal(r.ok, true, JSON.stringify(r)); return r.params; };
 
@@ -322,4 +322,80 @@ test('near query: arms follow the cursor tier, every filter rides on every arm',
   assert.doesNotMatch(wide.text, /LATERAL/);
   assert.match(wide.text, /f\.region_code = ANY\(/);
   assert.throws(() => buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'sort_at', near: home }), /feed_at/);
+});
+
+// ---- fit buckets (FEED_FIT_RANK) ----
+test('fitRankEnabled: off unless explicitly on', () => {
+  assert.equal(fitRankEnabled({}), false);
+  assert.equal(fitRankEnabled({ FEED_FIT_RANK: 'off' }), false);
+  assert.equal(fitRankEnabled({ FEED_FIT_RANK: 'maybe' }), false);
+  for (const v of ['on', '1', 'true', 'ON']) assert.equal(fitRankEnabled({ FEED_FIT_RANK: v }), true);
+});
+
+test('fit cursor: sixth element carries the bucket; five-element cursors stay valid; bad buckets are rejected', () => {
+  const c = encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 1, sig: 'n3f:CA', bucket: 1 });
+  assert.deepEqual(JSON.parse(Buffer.from(c, 'base64url').toString()), [1, '2026-10-01T00:00:00.000Z', 42, 'f', 'n3f:CA', 1]);
+  assert.deepEqual(decodeCursor(c), { sortAt: '2026-10-01T00:00:00.000Z', jobId: 42, mode: 'feed_at', tier: 1, sig: 'n3f:CA', bucket: 1 });
+  assert.equal(decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 0, sig: 'n3f:CA', bucket: 0 })).bucket, 0);
+  assert.equal(decodeCursor(encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 0, sig: 'n3:CA' })).bucket, undefined);   // old scheme: no bucket
+  for (const bad of [2, -1, '0', null, 0.5]) {
+    assert.throws(() => decodeCursor(Buffer.from(JSON.stringify([0, '2026-10-01T00:00:00.000Z', 42, 'f', 'n3f:CA', bad])).toString('base64url')), /invalid cursor/);
+  }
+  assert.throws(() => decodeCursor(Buffer.from(JSON.stringify([0, '2026-10-01T00:00:00.000Z', 42, 'f', 'x', 0, 0])).toString('base64url')), /invalid cursor/);
+});
+
+test('fit cache key: own scheme tag, differs from the unbucketed key', () => {
+  const p = ok({ country: 'US' });
+  const plain = feedCacheKey(p, 'feed_at', { regions: ['CA'] });
+  const fit = feedCacheKey(p, 'feed_at', { regions: ['CA'], fit: { strong: 'x' } });
+  assert.notEqual(plain, fit);
+  assert.ok(fit.includes(`"${NEAR_SCHEME_FIT}"`) && NEAR_SCHEME_FIT === 'n3f' && plain.includes('"n3"'));
+  const mk = (bucket) => ok({ country: 'US', cursor: encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 0, sig: 'n3f:CA', bucket }) });
+  assert.notEqual(feedCacheKey(mk(0), 'feed_at', { regions: ['CA'], fit: {} }), feedCacheKey(mk(1), 'feed_at', { regions: ['CA'], fit: {} }));
+});
+
+test('fit near query: tier x bucket arms, the bucket test is the same opaque ts_match_vq, ordered (tier, bucket, key, id)', () => {
+  const fit = { strong: "('a')", bucket1: null };
+  const home = { regions: ['CA'], fit };
+  const cur = (tier, bucket) => encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier, sig: 'n3f:CA', bucket });
+  const build = (q) => buildFeedQuery(ok(q), { match: { tsquery: "('a') | ('b')", gate: null, pageGate: false } }, { mode: 'feed_at', near: home });
+  const arms = (b) => (b.text.match(/UNION ALL/g) || []).length + 1;
+  const keyset = /\(coalesce\(f\.feed_at, f\.sort_at\), f\.job_id\) </g;
+  const first = build({ country: 'US' });
+  assert.equal(arms(first), 6);
+  assert.match(first.text, /ORDER BY tier, bucket, order_key DESC, id DESC/);
+  assert.equal((first.text.match(/ AND NOT ts_match_vq\(/g) || []).length, 3);
+  assert.equal(first.values.filter(v => v === fit.strong).length, 1);          // the strong tsquery is bound once
+  assert.doesNotMatch(first.text, keyset);
+  // the cursor position (tier, bucket) drops the arms before it and continues only its own arm
+  const at = (t, b) => build({ country: 'US', cursor: cur(t, b) });
+  assert.equal(arms(at(0, 0)), 6); assert.equal((at(0, 0).text.match(keyset) || []).length, 1);
+  assert.equal(arms(at(0, 1)), 5); assert.equal((at(0, 1).text.match(keyset) || []).length, 1);
+  assert.equal(arms(at(1, 0)), 4); assert.doesNotMatch(at(1, 0).text, /h\.r/);
+  assert.equal(arms(at(1, 1)), 3);
+  assert.equal(arms(at(2, 0)), 2); assert.equal(arms(at(2, 1)), 1);
+  assert.equal((at(2, 1).text.match(keyset) || []).length, 1);
+  assert.match(at(2, 1).text, /NOT ts_match_vq/);
+  // a fit cursor with no bucket (old scheme) cannot be applied
+  assert.throws(() => buildFeedQuery(ok({ country: 'US', cursor: encodeCursor('2026-10-01T00:00:00.000Z', 42, 'feed_at', { tier: 0, sig: 'n3:CA' }) }), {}, { mode: 'feed_at', near: home }), /no fit bucket/);
+  // unbucketed query is untouched: no bucket column, 3 arms
+  const plain = buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'feed_at', near: { regions: ['CA'] } });
+  assert.equal(arms(plain), 3); assert.doesNotMatch(plain.text, /bucket/);
+});
+
+test('fit near query: bucket 1 is pruned when provably empty, GIN-gated when sparse', () => {
+  const run = (bucket1) => buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'feed_at', near: { regions: ['CA'], fit: { strong: "('a')", bucket1 } } });
+  const empty = run({ empty: true });
+  assert.equal((empty.text.match(/UNION ALL/g) || []).length + 1, 3);
+  assert.doesNotMatch(empty.text, /NOT ts_match_vq/);
+  const gated = run({ gate: "('intern')" });
+  assert.equal((gated.text.match(/to_tsvector\('simple', f\.title\) @@ \$\d+::tsquery/g) || []).length, 3);   // only the three bucket-1 arms carry the gate
+  assert.ok(gated.values.includes("('intern')"));
+  // multi-state / wide homes keep the bucket on the single walk
+  const wide = buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'feed_at', near: { regions: Array.from({ length: 9 }, (_, i) => 'A' + i), fit: { strong: "('a')", bucket1: null } } });
+  assert.doesNotMatch(wide.text, /LATERAL/);
+  assert.equal((wide.text.match(/UNION ALL/g) || []).length + 1, 6);
+  // multi-region (<= 8) home: bucket column also on the LATERAL arms
+  const multi = buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'feed_at', near: { regions: ['CA', 'OR', 'WA'], fit: { strong: "('a')", bucket1: null } } });
+  assert.equal((multi.text.match(/LATERAL/g) || []).length, 2);   // one lateral arm per bucket
 });

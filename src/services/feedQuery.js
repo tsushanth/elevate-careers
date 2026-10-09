@@ -43,18 +43,31 @@ const orderExpr = (mode) => (mode === 'feed_at' ? FEED_AT_EXPR : 'f.sort_at');
 // key, so cursors and cached pages of an older scheme (n2 = two tiers, unprefixed) can never be continued
 // or served by this one. Bump it whenever the meaning of a tier changes.
 export const NEAR_SCHEME = 'n3';
+// The fit-ranked variant (FEED_FIT_RANK, roleMatch.js fitFilter): each near tier is split into two fit buckets and the
+// cursor carries the bucket. Its own tag, so a cursor / cache key of the unbucketed list never continues a bucketed one
+// (and the other way round): feed-core answers 409 on a signature mismatch.
+export const NEAR_SCHEME_FIT = 'n3f';
+
+// FEED_FIT_RANK kill switch: off unless explicitly 'on'. Read per call (tests, restarts). Needs FEED_NEAR (the buckets live
+// inside the near tiers) and FEED_ROLE_MATCH (the profile match), so on its own it changes nothing.
+export function fitRankEnabled(env = process.env) {
+  return ['on', '1', 'true'].includes(String(env.FEED_FIT_RANK || '').toLowerCase());
+}
 
 export function encodeCursor(sortAt, jobId, mode = 'sort_at', near = null) {
   const m = mode === 'feed_at' ? 'f' : 's';
-  return Buffer.from(JSON.stringify(near ? [near.tier, sortAt, jobId, m, near.sig] : [sortAt, jobId, m])).toString('base64url');
+  // a fit-ranked near cursor appends the fit bucket (0 | 1) as a sixth element
+  const nearArr = near ? [near.tier, sortAt, jobId, m, near.sig, ...(near.bucket == null ? [] : [near.bucket])] : null;
+  return Buffer.from(JSON.stringify(nearArr || [sortAt, jobId, m])).toString('base64url');
 }
 
 export function decodeCursor(s) {
   try {
     let arr = JSON.parse(Buffer.from(String(s), 'base64url').toString('utf8'));
-    let tier = null, sig = '';
+    let tier = null, sig = '', bucket;
     if (Array.isArray(arr) && (arr[0] === 0 || arr[0] === 1 || arr[0] === 2)) {
-      if (arr.length !== 5 || typeof arr[4] !== 'string' || arr[4].length > 200) throw new Error('bad');
+      if ((arr.length !== 5 && arr.length !== 6) || typeof arr[4] !== 'string' || arr[4].length > 200) throw new Error('bad');
+      if (arr.length === 6) { if (arr[5] !== 0 && arr[5] !== 1) throw new Error('bad'); bucket = arr[5]; }
       tier = arr[0]; sig = arr[4]; arr = arr.slice(1, 4);
     }
     const [sortAt, jobId, m = 's'] = arr;
@@ -62,7 +75,7 @@ export function decodeCursor(s) {
     if (new Date(sortAt).toISOString() !== sortAt) throw new Error('bad');
     if (m !== 's' && m !== 'f') throw new Error('bad');
     const base = { sortAt, jobId, mode: m === 'f' ? 'feed_at' : 'sort_at' };
-    return tier === null ? base : { ...base, tier, sig };   // tier / sig only on a near-home cursor
+    return tier === null ? base : { ...base, tier, sig, ...(bucket === undefined ? {} : { bucket }) };   // tier / sig (/ bucket) only on a near-home cursor
   } catch { throw new Error('invalid cursor'); }
 }
 
@@ -189,6 +202,14 @@ export function buildFeedQuery(p, exclusions = {}, opts = {}) {
 // (tier, key, id) and cuts the page. The keyset cursor carries the tier: a tier-0 cursor continues A, B and C
 // (B, C from the top), a tier-1 cursor B and C (C from the top), a tier-2 cursor only C. Only meaningful for
 // FEED_ORDER=feed_at (the indexes are built on coalesce(feed_at, sort_at)); feed-core never asks otherwise.
+//
+// FIT BUCKETS (near.fit = { strong }, FEED_FIT_RANK, profile default list only): every tier is split in two arms,
+//   bucket 0 "strong fit"   ts_match_vq(title tsvector, strong)       strong = literal profile phrases AND NOT mismatch
+//   bucket 1 "broader fit"  NOT ts_match_vq(title tsvector, strong)   the rest of the profile match
+// and the order is (tier, bucket, key, id). The cursor then carries the bucket too: (tier, bucket) is the position, the
+// arms before it are dropped, the arm it sits in continues after the key, the arms after it start from the top. The bucket
+// test is the same opaque ts_match_vq filter the profile match uses, so every arm still walks its ordered feed_at index
+// (up to 3 x 2 arms, 8+ with a multi-state home; the arms after the cursor stop at their LIMIT or when the tier is empty).
 const WIDE_HOME = 8;   // more home regions than this: walk the country index instead of probing each region
 function buildNearQuery(p, exclusions, near, mode, opts) {
   if (mode !== 'feed_at') throw new Error('near-home ordering needs FEED_ORDER=feed_at');
@@ -196,38 +217,51 @@ function buildNearQuery(p, exclusions, near, mode, opts) {
   const homes = `${add(near.regions)}::text[]`;
   const limit = add(p.limit + 1);
   const expr = orderExpr(mode);
+  const fit = !!near.fit;
+  const strong = fit ? titleMatches(add(near.fit.strong)) : null;
+  // bucket 1 pruning (roleMatch.js fitFilter): provably empty -> no arms; sparse -> a GIN gate ANDed on
+  const b1 = fit ? near.fit.bucket1 : null;
+  const b1Gate = b1 && b1.gate ? ` AND ${TITLE_TSV} @@ ${add(b1.gate)}::tsquery` : '';
+  const skip = (b) => b === 1 && b1 && b1.empty;
   const after = (c) => (c ? ` AND (${expr}, f.job_id) < (${add(c.sortAt)}::timestamptz, ${add(c.jobId)}::bigint)` : '');
   const c = p.cursor;
-  const cur = (t) => (c && c.tier === t ? c : null);
-  const arm = (tier, cond, cursor) => `SELECT ${tier}::int AS tier, ${FEED_COLS}, ${expr} AS order_key
-        FROM job_feed f WHERE ${where} AND ${cond}${after(cursor)}
+  if (fit && c && c.bucket === undefined) throw new Error('cursor has no fit bucket'); // feed-core answers 409 before getting here
+  // Position of the cursor in the (tier, bucket) sequence; arms strictly before it are dropped, the arm it sits in continues.
+  const cur = (t, b) => (c && c.tier === t && (!fit || c.bucket === b) ? c : null);
+  const live = (t, b) => !c || t > c.tier || (t === c.tier && (!fit || b >= c.bucket));
+  const bucketCond = (b) => (b === null ? '' : b === 0 ? ` AND ${strong}` : ` AND NOT ${strong}${b1Gate}`);
+  const bcol = (b) => (b === null ? '' : `, ${b}::int AS bucket`);
+  const arm = (tier, cond, b) => `SELECT ${tier}::int AS tier${bcol(b)}, ${FEED_COLS}, ${expr} AS order_key
+        FROM job_feed f WHERE ${where} AND ${cond}${bucketCond(b)}${after(cur(tier, b))}
         ORDER BY ${expr} DESC, f.job_id DESC LIMIT ${limit}`;
+  const buckets = fit ? [0, 1] : [null];
   const arms = [];
-  if (!c || c.tier === 0) {
+  for (const b of buckets) {
+    if (!live(0, b) || skip(b)) continue;
     if (near.regions.length > WIDE_HOME) {
       // A wide home (a time-zone fallback such as Eastern, ~45% of the rows): one ordered walk of the country
       // index with the region test as a filter finds hits quickly and beats 20+ per-region probes.
-      arms.push(arm(0, `f.region_code = ANY(${homes})`, cur(0)));
+      arms.push(arm(0, `f.region_code = ANY(${homes})`, b));
     } else {
-      arms.push(`SELECT 0::int AS tier, x.id, x.title, x.company_name, x.company_logo_domain, x.provider, x.apply_provider,
+      arms.push(`SELECT 0::int AS tier${bcol(b)}, x.id, x.title, x.company_name, x.company_logo_domain, x.provider, x.apply_provider,
         x.autofill_ready, x.apply_url, x.city, x.region_code, x.country_code, x.remote, x.employment_type,
         x.salary_min, x.salary_max, x.salary_currency, x.posted_at, x.order_key
       FROM unnest(${homes}) AS h(r)
       CROSS JOIN LATERAL (SELECT ${FEED_COLS}, ${expr} AS order_key
-        FROM job_feed f WHERE ${where} AND f.is_region_primary AND f.region_code = h.r${after(cur(0))}
+        FROM job_feed f WHERE ${where} AND f.is_region_primary AND f.region_code = h.r${bucketCond(b)}${after(cur(0, b))}
         ORDER BY ${expr} DESC, f.job_id DESC LIMIT ${limit}) x`);
     }
   }
-  if (!c || c.tier <= 1) {
+  for (const b of buckets) {
     // A home region is never '' (nearHome only yields real region codes), so tier 1 and tier 0 cannot overlap.
-    arms.push(arm(1, `f.remote AND f.region_code = ''`, cur(1)));
+    if (live(1, b) && !skip(b)) arms.push(arm(1, `f.remote AND f.region_code = ''`, b));
   }
-  arms.push(arm(2, `f.region_code <> ALL(${homes}) AND NOT (f.remote AND f.region_code = '')`, cur(2)));
+  for (const b of buckets) if (live(2, b) && !skip(b)) arms.push(arm(2,`f.region_code <> ALL(${homes}) AND NOT (f.remote AND f.region_code = '')`, b));
   const text = `
     SELECT * FROM (
       ${arms.map(a => `(${a})`).join('\n      UNION ALL\n      ')}
     ) u
-    ORDER BY tier, order_key DESC, id DESC
+    ORDER BY tier${fit ? ', bucket' : ''}, order_key DESC, id DESC
     LIMIT ${limit}`;
   return { text, values };
 }
@@ -263,8 +297,8 @@ export function feedCacheKey(p, mode = feedOrderMode(), home = null) {
   const { cursor, ...rest } = p;
   if (!rest.role) delete rest.role;   // keys of role-less requests stay what they were before roles existed
   const norm = Object.keys(rest).sort().reduce((o, k) => { o[k] = rest[k]; return o; }, {});
-  const cur = cursor ? (cursor.tier == null ? [cursor.sortAt, cursor.jobId] : [cursor.sortAt, cursor.jobId, cursor.tier]) : null;
+  const cur = cursor ? (cursor.tier == null ? [cursor.sortAt, cursor.jobId] : [cursor.sortAt, cursor.jobId, cursor.tier, ...(cursor.bucket === undefined ? [] : [cursor.bucket])]) : null;
   const key = [norm, cur, mode];
-  if (home) key.push([NEAR_SCHEME, [...home.regions].sort().join(',')]);
+  if (home) key.push([home.fit ? NEAR_SCHEME_FIT : NEAR_SCHEME, [...home.regions].sort().join(',')]);
   return JSON.stringify(key);
 }

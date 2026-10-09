@@ -420,3 +420,92 @@ export function profileFilter(phrases, familySlugs = []) {
   const gate = gated ? [...lit, ...fams.map(f => familyParts(f.slug).gate)].join(' | ') : null;
   return { tsquery, gate, pageGate: gated && fams.length === 0 };
 }
+
+// ---- fit ranking (FEED_FIT_RANK) ----------------------------------------------------------------
+// Inside each near tier the profile list is split into two FIT BUCKETS (feedQuery.js buildNearQuery):
+//   bucket 0 "strong fit"  the title matches one of the user's LITERAL profile phrases (the explicit keywords, or
+//                          the cleaned preferred-title phrases = profilePhrases().phrases) AND is not a
+//                          level / management mismatch for this user
+//   bucket 1 "broader fit" everything else in the profile match (family-expansion matches, and literal matches
+//                          that are mismatches)
+// Mismatch rules are decided per user from their OWN strings (keywords + preferred titles), whole words only:
+//   (a) LEVEL   active when the user's strings contain an experienced-level word: senior, sr, staff, principal,
+//               lead. Mismatch titles: intern, internship, junior, jr, apprentice, trainee, new grad,
+//               new graduate, entry level / entry-level, graduate programme / graduate program, new college graduate,
+//               college graduate, college grad, university graduate, recent graduate, early career.
+//               ('campus' was checked against production titles and left out: it is mostly a place, "Kelowna Campus", "Campus Pastor".)
+//               No seniority signal -> the rule is off (an entry-level seeker is never demoted away from entry roles).
+//   (b) IC      active when the user's strings contain NONE of: director, vp, vice president, head, chief,
+//               manager (an individual-contributor profile). Mismatch titles: director, vp, vice president,
+//               head of, chief, manager. Any one of those words in the profile switches the rule off.
+// Both are tsqueries over to_tsvector('simple', title), evaluated with ts_match_vq like the profile match itself:
+// no new index, the existing GIN / ordered-index plans are unchanged.
+const EXPERIENCED = ['senior', 'sr', 'staff', 'principal', 'lead'];
+const MGMT_SINGLE = ['director', 'vp', 'head', 'chief', 'manager'];
+const LEVEL_MISMATCH = [q('intern'), q('internship'), q('junior'), q('jr'), q('apprentice'), q('trainee'),
+  phrase(['new', 'grad']), phrase(['new', 'graduate']), phrase(['entry', 'level']),
+  `${q('graduate')} <-> (${q('programme')} | ${q('program')})`,
+  phrase(['new', 'college', 'graduate']), phrase(['college', 'graduate']), phrase(['college', 'grad']), phrase(['university', 'graduate']),
+  phrase(['recent', 'graduate']), phrase(['early', 'career'])];
+const MGMT_MISMATCH = [q('director'), q('vp'), phrase(['vice', 'president']), phrase(['head', 'of']), q('chief'), q('manager')];
+export const FIT_LABELS = { level: 'Senior-level roles', ic: 'Individual contributor roles' };
+
+const profileTokens = (strings) => ` ${strings.map(s => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join(' ')).join(' | ')} `;
+
+// { keywords, preferredTitles } -> { level: bool, ic: bool, labels: [...] }
+export function fitRules({ keywords, preferredTitles } = {}) {
+  const strings = [...(Array.isArray(keywords) ? keywords : []), ...(Array.isArray(preferredTitles) ? preferredTitles : [])];
+  const t = profileTokens(strings);
+  const has = (w) => t.includes(` ${w} `);
+  const level = EXPERIENCED.some(has);
+  const ic = !(MGMT_SINGLE.some(has) || has('vice president'));
+  return { level, ic, labels: [...(level ? [FIT_LABELS.level] : []), ...(ic ? [FIT_LABELS.ic] : [])] };
+}
+
+// The mismatch tsquery text for the active rules, or null when none is active.
+export function mismatchQuery(rules) {
+  const parts = [...(rules.level ? LEVEL_MISMATCH : []), ...(rules.ic ? MGMT_MISMATCH : [])];
+  return parts.length ? parts.map(p => `(${p})`).join(' | ') : null;
+}
+
+// The user's behaviour as strong phrases: the cleaned core of the preferred titles (cleanTitle: seniority / level words, team
+// and company suffixes and parentheticals stripped) that occur at least twice; when none repeats, the five most frequent.
+// At most five either way. Ties keep first-seen order. The profile MATCH is not widened by these, they only decide bucket 0.
+export function behaviourPhrases(preferredTitles) {
+  const freq = new Map();
+  for (const t of Array.isArray(preferredTitles) ? preferredTitles : []) {
+    const c = cleanTitle(t);
+    if (c) freq.set(c, (freq.get(c) || 0) + 1);
+  }
+  const ranked = [...freq.entries()].sort((a, b) => b[1] - a[1]);
+  const repeated = ranked.filter(([, n]) => n >= 2);
+  return (repeated.length ? repeated : ranked).slice(0, MAX_PROFILE_PHRASES).map(([text]) => text);
+}
+
+// The strong (bucket 0) phrase set: the profile phrases (explicit keywords, else the top cleaned titles) UNION behaviourPhrases.
+export function strongPhrases(phrases, profile) {
+  const seen = new Set(), out = [];
+  for (const text of [...phrases.map(p => p.text), ...behaviourPhrases(profile?.preferredTitles)]) {
+    const k = text.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); out.push(text); }
+  }
+  return out;
+}
+
+// Literal phrases + raw profile (+ the families the phrases fall in) -> what the SQL builder needs, or null when there is
+// no literal phrase:
+//   strong   tsquery text of bucket 0 (ts_match_vq); phrases = the strong phrase set (strongPhrases)
+//   bucket1  how bucket 1 ("profile match AND NOT strong") can be pruned. Without any family the profile match IS the
+//            literal match, so bucket 1 = literal AND mismatch: empty when no rule is active ({ empty: true }), else
+//            gated by the positive mismatch words ({ gate }), which GIN walks together with the profile gate instead of
+//            scanning the whole index for a bucket that is almost always empty. With families bucket 1 is dense: null.
+//   labels   the human fit labels for the response (`match.fit`), empty when no rule is active
+export function fitFilter(phrases, profile, familySlugs = []) {
+  const strongTexts = strongPhrases(phrases, profile);
+  const lit = strongTexts.map(t => phraseQuery(t)).filter(Boolean).map(x => `(${x})`);
+  if (!lit.length) return null;
+  const rules = fitRules(profile);
+  const mm = mismatchQuery(rules);
+  const bucket1 = familySlugs.length ? null : mm ? { gate: mm } : { empty: true };
+  return { strong: mm ? `(${lit.join(' | ')}) & !(${mm})` : lit.join(' | '), phrases: strongTexts, bucket1, labels: rules.labels, rules };
+}

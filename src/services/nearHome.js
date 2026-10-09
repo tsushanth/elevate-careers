@@ -16,7 +16,7 @@
 // supporting indexes are built for. Off means nothing changes: no tiers, no `near`, `near`/`tz` params ignored.
 import { US_STATES, CA_PROVINCES, normalizeLocationRow } from './places.js';
 import { geoip as defaultGeoip } from './geoip.js';
-import { feedOrderMode, NEAR_SCHEME } from './feedQuery.js';
+import { feedOrderMode, NEAR_SCHEME, NEAR_SCHEME_FIT } from './feedQuery.js';
 
 export const nearEnabled = (env = process.env) => env.FEED_NEAR === 'on' && feedOrderMode(env) === 'feed_at';
 
@@ -95,7 +95,7 @@ export function ipHome(ip, country, geo = defaultGeoip) {
 
 // The signature of a home: the tier-scheme version plus the sorted region set. Part of the cursor, so a
 // cursor minted under another scheme (the old two-tier one had no prefix) is refused with a 409 restart.
-export const homeSig = (regions) => `${NEAR_SCHEME}:${[...regions].sort().join(',')}`;
+export const homeSig = (regions, fit = false) => `${fit ? NEAR_SCHEME_FIT : NEAR_SCHEME}:${[...regions].sort().join(',')}`;
 
 // ladder: profile > ip > tz > none. Returns { source, regions (sorted), label, sig } or null.
 export function resolveHome({ country, profileLocation = null, ip = '', tz = '', geo = defaultGeoip }) {

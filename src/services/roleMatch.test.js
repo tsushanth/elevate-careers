@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   FAMILIES, roleList, isRoleSlug, roleLabel, roleMatchEnabled, compilePattern, patternAnchor, familyQuery, familyParts, roleFilter,
   cleanTitle, profilePhrases, phraseQuery, profileFilter, resolveFamilies, _clearFamilyMemo, titleMatches,
+  fitRules, mismatchQuery, fitFilter, FIT_LABELS, behaviourPhrases, strongPhrases,
 } from './roleMatch.js';
 import { CORPUS } from './roleMatch.corpus.js';
 
@@ -170,4 +171,83 @@ test('resolveFamilies: one query, memoised, failures are not cached', async () =
 test('corpus is well formed (the Postgres test checks each title against its family)', () => {
   assert.deepEqual(Object.keys(CORPUS), FAMILIES.map(f => f.slug));
   for (const [slug, c] of Object.entries(CORPUS)) assert.ok(c.yes.length >= 5 && c.no.length >= 3, slug);
+});
+
+// ---- fit ranking (FEED_FIT_RANK) ----
+const ME = { keywords: ['Software Engineer', 'Full-Stack', 'Reinforcement Learning'],
+  preferredTitles: ['Machine Learning Engineer, GAI Search Platform - Moveworks', 'Senior Machine Learning Engineer', 'Artificial Intelligence Engineer', 'Software Engineer',
+    'Senior Software Engineer (Java)', 'Software Engineer (Backend)', 'Unity Software Engineer', 'Sr. Software Engineer Networking Team', 'Staff Software Engineer, Time and Scheduling', 'Team Lead, Software Engineering'] };
+
+test('fitRules: the example account has a seniority signal and is an individual contributor', () => {
+  assert.deepEqual(fitRules(ME), { level: true, ic: true, labels: ['Senior-level roles', 'Individual contributor roles'] });
+});
+
+test('fitRules: level rule needs senior / sr / staff / principal / lead as a whole word in keywords or preferred titles', () => {
+  const lvl = (kw, titles = []) => fitRules({ keywords: kw, preferredTitles: titles }).level;
+  for (const t of ['Senior Software Engineer', 'Sr. Software Engineer', 'sr software engineer', 'Staff Engineer', 'Principal Engineer', 'Team Lead, Software', 'Tech LEAD']) assert.equal(lvl([], [t]), true, t);
+  assert.equal(lvl(['Senior Backend'], []), true);                    // keywords count too
+  for (const t of ['Software Engineer', 'Seniority Analyst', 'Leader Engineer', 'Staffing Coordinator', 'Leadership Program', 'Junior Developer']) assert.equal(lvl([t], []), false, t);
+  assert.equal(lvl([], []), false);
+});
+
+test('fitRules: the management rule is off when ANY of director / vp / vice president / head / chief / manager is in the profile', () => {
+  const ic = (kw, titles = []) => fitRules({ keywords: kw, preferredTitles: titles }).ic;
+  assert.equal(ic(['Software Engineer']), true);
+  for (const t of ['Director of Engineering', 'VP Engineering', 'Vice President, Product', 'Head of Data', 'Chief Technology Officer', 'Engineering Manager', 'engineering manager']) {
+    assert.equal(ic([], [t]), false, t);
+    assert.equal(ic([t]), false, t);
+  }
+  assert.equal(ic(['Headhunter Support', 'Managerial Accountant', 'Vice Chair']), true);   // whole words / the pair 'vice president' only
+  assert.deepEqual(fitRules({ keywords: ['Engineering Manager'], preferredTitles: [] }), { level: false, ic: false, labels: [] });
+  assert.deepEqual(fitRules({}), { level: false, ic: true, labels: [FIT_LABELS.ic] });
+});
+
+test('mismatchQuery: tsquery text per active rule, null when none', () => {
+  assert.equal(mismatchQuery({ level: false, ic: false }), null);
+  assert.equal(mismatchQuery({ level: true, ic: false }),
+    "('intern') | ('internship') | ('junior') | ('jr') | ('apprentice') | ('trainee') | ('new' <-> 'grad') | ('new' <-> 'graduate') | ('entry' <-> 'level') | ('graduate' <-> ('programme' | 'program')) | ('new' <-> 'college' <-> 'graduate') | ('college' <-> 'graduate') | ('college' <-> 'grad') | ('university' <-> 'graduate') | ('recent' <-> 'graduate') | ('early' <-> 'career')");
+  assert.equal(mismatchQuery({ level: false, ic: true }), "('director') | ('vp') | ('vice' <-> 'president') | ('head' <-> 'of') | ('chief') | ('manager')");
+  assert.ok(mismatchQuery({ level: true, ic: true }).includes(" | ('director')"));
+});
+
+test('fitFilter: strong = literal phrases AND NOT mismatch; no literal phrase -> null', () => {
+  const { phrases } = profilePhrases(ME);
+  const f = fitFilter(phrases, ME, ['engineering']);
+  assert.equal(f.strong, "(('software' <-> 'engineer':*) | ('full' <-> 'stack') | ('reinforcement' <-> 'learning':*) | ('machine' <-> 'learning' <-> 'engineer':*)) & !(" + mismatchQuery({ level: true, ic: true }) + ")");
+  assert.deepEqual(f.labels, ['Senior-level roles', 'Individual contributor roles']);
+  assert.equal(f.bucket1, null);                                       // families present: bucket 1 is dense, no gate
+  // no rule active: strong is the bare literal query, no negation
+  const mgr = { keywords: ['Software Engineer', 'Engineering Manager'] };
+  const noRule = fitFilter(profilePhrases(mgr).phrases, mgr, ['engineering']);
+  assert.equal(noRule.strong, "('software' <-> 'engineer':*) | ('engineering' <-> 'manager':*)");
+  assert.deepEqual(noRule.labels, []);
+  assert.equal(fitFilter([{ text: '!!!' }], { keywords: ['!!!'], preferredTitles: [] }), null);
+});
+
+test('fitFilter: without a family bucket 1 is pruned (no rule) or gated by the positive mismatch words', () => {
+  const ph = [{ text: 'Paralegal' }];
+  assert.deepEqual(fitFilter(ph, { keywords: ['Paralegal', 'Legal Manager'] }, []).bucket1, { empty: true });
+  assert.deepEqual(fitFilter(ph, { keywords: ['Paralegal'] }, []).bucket1, { gate: mismatchQuery({ level: false, ic: true }) });
+});
+
+test('the strong tsquery text is valid for to_tsquery input (balanced, phrase operators only between lexemes)', () => {
+  const { phrases } = profilePhrases(ME);
+  const { strong } = fitFilter(phrases, ME, []);
+  assert.equal((strong.match(/\(/g) || []).length, (strong.match(/\)/g) || []).length);
+  assert.doesNotMatch(strong, /[A-Z]/);
+});
+
+test('behaviourPhrases: cleaned core of preferred titles that repeat, else the top five; strongPhrases = keywords UNION those', () => {
+  assert.deepEqual(behaviourPhrases(ME.preferredTitles), ['software engineer', 'machine learning engineer']);   // 5x and 2x; the single ones do not count
+  assert.deepEqual(strongPhrases(profilePhrases(ME).phrases, ME), ['Software Engineer', 'Full-Stack', 'Reinforcement Learning', 'machine learning engineer']);   // 'software engineer' is already a keyword
+  // nothing repeats: the top five by frequency, first-seen order on ties
+  assert.deepEqual(behaviourPhrases(['Senior Data Scientist', 'Product Designer', 'Staff Backend Engineer', 'UX Researcher', 'Technical Writer', 'Recruiter, Tech', 'Data Analyst']).length, 5);
+  assert.deepEqual(behaviourPhrases(['Senior Data Scientist', 'Product Designer']), ['data scientist', 'product designer']);
+  assert.deepEqual(behaviourPhrases([]), []); assert.deepEqual(behaviourPhrases(null), []); assert.deepEqual(behaviourPhrases(['Engineer', '']), []);
+  // more than five repeated phrases: the five most frequent
+  const many = ['Data Scientist', 'Data Scientist', 'Product Designer', 'Product Designer', 'Backend Engineer', 'Backend Engineer', 'Technical Writer', 'Technical Writer', 'Data Analyst', 'Data Analyst', 'Account Executive', 'Account Executive', 'Data Scientist'];
+  assert.equal(behaviourPhrases(many).length, 5); assert.equal(behaviourPhrases(many)[0], 'data scientist');
+  // no keywords: profile phrases are the top cleaned titles already; the union adds nothing twice
+  const t = { keywords: [], preferredTitles: ['Senior Machine Learning Engineer', 'Machine Learning Engineer'] };
+  assert.deepEqual(strongPhrases(profilePhrases(t).phrases, t), ['machine learning engineer']);
 });
