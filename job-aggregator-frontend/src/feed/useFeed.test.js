@@ -297,3 +297,64 @@ test('the anonymous preload is never used for a role-filtered list', async () =>
   expect(preload).not.toHaveBeenCalled();
   expect(ids(result)).toEqual([1]);
 });
+
+describe('near-you ordering', () => {
+  const near = { source: 'ip', regions: ['CA'], label: 'California' };
+
+  test('every feed request carries the browser time zone; near comes from the response', async () => {
+    fetchFeed.mockResolvedValue({ ...page([1], 'c1'), near });
+    await render({ apiBase: 'http://x', filters: F1, token: null });
+    expect(fetchFeed.mock.calls[0][1].tz).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(result.current.near).toEqual(near);
+    fetchFeed.mockResolvedValueOnce(page([2]));
+    await act(async () => { result.current.loadMore(); });
+    expect(fetchFeed.mock.calls[1][1].tz).toBeTruthy();
+    expect(result.current.near).toEqual(near);
+  });
+
+  test('near is cleared when a later first page has none', async () => {
+    fetchFeed.mockResolvedValueOnce({ ...page([1]), near });
+    await render({ apiBase: 'http://x', filters: F1, token: null });
+    fetchFeed.mockResolvedValueOnce(page([2]));
+    await render({ apiBase: 'http://x', filters: F2, token: null });
+    expect(result.current.near).toBeUndefined();
+  });
+
+  test('turning near off refetches once from the top with nearOff', async () => {
+    fetchFeed.mockResolvedValueOnce({ ...page([1, 2], 'c1'), near });
+    await render({ apiBase: 'http://x', filters: F1, token: null });
+    fetchFeed.mockResolvedValueOnce(page([5, 6]));
+    await render({ apiBase: 'http://x', filters: { ...F1, nearOff: true }, token: null });
+    expect(fetchFeed).toHaveBeenCalledTimes(2);
+    expect(fetchFeed.mock.calls[1][1]).toMatchObject({ nearOff: true, cursor: '' });
+    expect(ids(result)).toEqual([5, 6]);
+    expect(result.current.near).toBeUndefined();
+  });
+
+  test('the preload response near is honoured when the preload is used', async () => {
+    const preload = jest.fn().mockResolvedValue({ ...page([7]), near });
+    await render({ apiBase: 'http://x', filters: F1, token: null, preload });
+    expect(fetchFeed).not.toHaveBeenCalled();
+    expect(result.current.near).toEqual(near);
+  });
+
+  test('the preload is ignored while near is off', async () => {
+    const preload = jest.fn().mockResolvedValue({ ...page([7]), near });
+    fetchFeed.mockResolvedValue(page([8]));
+    await render({ apiBase: 'http://x', filters: { ...F1, nearOff: true }, token: null, preload });
+    expect(preload).not.toHaveBeenCalled();
+    expect(fetchFeed).toHaveBeenCalledTimes(1);
+    expect(result.current.near).toBeUndefined();
+  });
+
+  test('a 409 on load-more still restarts from the first page', async () => {
+    fetchFeed.mockResolvedValueOnce({ ...page([1], 'c1'), near });
+    await render({ apiBase: 'http://x', filters: F1, token: null });
+    const e = new Error('409'); e.status = 409;
+    fetchFeed.mockRejectedValueOnce(e).mockResolvedValueOnce(page([9]));
+    await act(async () => { result.current.loadMore(); });
+    expect(fetchFeed.mock.calls[2][1]).toMatchObject({ cursor: '' });
+    expect(ids(result)).toEqual([9]);
+    expect(result.current.near).toBeUndefined();
+  });
+});

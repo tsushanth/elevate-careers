@@ -86,3 +86,17 @@ test('fetchRoles returns the list, keeps order, and throws on failure', async ()
   global.fetch = jest.fn(async () => ({ ok: false, status: 500 }));
   await expect(fetchRoles(base)).rejects.toThrow();
 });
+
+test('feedUrl sends tz when known and near=off only when the user turned the ordering off', () => {
+  const place = { country: 'US' };
+  expect(new URL(feedUrl(base, { place, tz: 'America/Los_Angeles' })).searchParams.get('tz')).toBe('America/Los_Angeles');
+  expect(new URL(feedUrl(base, { place, tz: '' })).searchParams.has('tz')).toBe(false);
+  expect(new URL(feedUrl(base, { place })).searchParams.has('tz')).toBe(false);
+  expect(new URL(feedUrl(base, { place, nearOff: true })).searchParams.get('near')).toBe('off');
+  expect(new URL(feedUrl(base, { place, nearOff: false })).searchParams.has('near')).toBe(false);
+});
+
+test('feedUrl param order is stable: filters, role, prefs, near, tz, cursor', () => {
+  const url = feedUrl(base, { place: { country: 'US' }, q: 'go', role: 'design', prefsOff: true, nearOff: true, tz: 'Europe/Paris', cursor: 'c1' });
+  expect(url).toBe(`${base}/v2/jobs/feed?country=US&q=go&role=design&prefs=off&near=off&tz=Europe%2FParis&cursor=c1`);
+});

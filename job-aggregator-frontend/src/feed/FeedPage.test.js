@@ -47,6 +47,7 @@ const button = (label) => [...container.querySelectorAll('button')].find(b => b.
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   // CRA sets resetMocks, so implementations are installed per test.
   guessPlace.mockImplementation(() => ({ country: 'US', region: '', city: '', label: 'United States' }));
   savePlaceSpy.mockImplementation((p) => localStorage.setItem('sa_place', JSON.stringify(p)));
@@ -624,5 +625,83 @@ describe('role filter', () => {
     feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'off' };
     await act(async () => { button('Show all jobs').click(); });
     expect(button('Use my profile')).toBeDefined();
+  });
+});
+
+describe('near-you note', () => {
+  const near = { source: 'ip', regions: ['CA'], label: 'California' };
+  const noteEls = () => [...container.querySelectorAll('.feed-notes > p')].map(p => p.textContent);
+
+  test('shown when the response has near; the heading and list are unchanged', async () => {
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, near };
+    await mount({ selectedJob: job(1) });
+    expect(noteEls()).toEqual(['Showing jobs near California first. Show all jobs equally']);
+    expect(container.querySelector('.feed-heading').textContent).toBe('1 jobs in United States');
+    expect(lastFilters().nearOff).toBe(false);
+  });
+
+  test('absent in the response: nothing, and the notes row takes no space', async () => {
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1 };
+    await mount({ selectedJob: job(1) });
+    expect(container.querySelector('.feed-near-note')).toBeNull();
+    expect(container.querySelector('.feed-notes').children.length).toBe(0);
+  });
+
+  test('not shown for a list that is still being replaced', async () => {
+    useFeed.mockImplementation(() => ({ ...baseFeed(), jobs: [job(1)], count: 1, near, resultFilters: {} }));
+    await mount({ selectedJob: job(1) });
+    expect(container.querySelector('.feed-near-note')).toBeNull();
+  });
+
+  test('Show all jobs equally sets nearOff, remembers it for the session and the label for the way back', async () => {
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, near };
+    await mount({ selectedJob: job(1) });
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1 };
+    await act(async () => { button('Show all jobs equally').click(); });
+    expect(lastFilters().nearOff).toBe(true);
+    expect(sessionStorage.getItem('sa_near_off')).toBe('1');
+    expect(noteEls()).toEqual(['Showing jobs in the order posted. Show jobs near California first']);
+    await act(async () => { button('Show jobs near California first').click(); });
+    expect(lastFilters().nearOff).toBe(false);
+    expect(sessionStorage.getItem('sa_near_off')).toBeNull();
+  });
+
+  test('off from the start with no label seen this session: no note', async () => {
+    sessionStorage.setItem('sa_near_off', '1');
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1 };
+    await mount({ selectedJob: job(1) });
+    expect(lastFilters().nearOff).toBe(true);
+    expect(container.querySelector('.feed-near-note')).toBeNull();
+  });
+
+  test('off after a reload still offers the way back from the stored label', async () => {
+    sessionStorage.setItem('sa_near_off', '1');
+    sessionStorage.setItem('sa_near_label', 'Texas');
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1 };
+    await mount({ selectedJob: job(1) });
+    expect(noteEls()).toEqual(['Showing jobs in the order posted. Show jobs near Texas first']);
+  });
+
+  test('near and tz are not visible filters: nothing but nearOff changes the filters object', async () => {
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, near };
+    await mount({ selectedJob: job(1) });
+    const before = lastFilters();
+    await mount({ selectedJob: job(1) });
+    expect(lastFilters()).toBe(before);
+    expect(Object.keys(before)).not.toContain('near');
+    expect(Object.keys(before)).not.toContain('tz');
+  });
+
+  test('coexists with the profile note: both stack in one notes row, each with its own button', async () => {
+    const match = { source: 'profile', roleSlug: null, roleLabel: null, labels: ['Software Engineer'] };
+    feed = { ...baseFeed(), jobs: [job(1)], count: 1, prefs: 'applied', match, near };
+    await mount({ session: { access_token: 't' }, selectedJob: job(1) });
+    expect(noteEls()).toEqual([
+      'Showing jobs matched to your profile: Software Engineer. Show all jobs',
+      'Showing jobs near California first. Show all jobs equally',
+    ]);
+    await act(async () => { button('Show all jobs equally').click(); });
+    expect(lastFilters().nearOff).toBe(true);
+    expect(lastFilters().prefsOff).toBe(false);
   });
 });

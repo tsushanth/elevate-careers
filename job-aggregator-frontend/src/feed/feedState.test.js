@@ -93,3 +93,18 @@ test('success keeps the match object of the first page and clears it on the next
   s = feedReducer(s, { type: 'success', append: false, data: page([3]) });
   expect(s.match).toBeUndefined();
 });
+
+test('near is stored from the first page and cleared when the next response has none', () => {
+  const near = { source: 'ip', regions: ['CA'], label: 'California' };
+  let s = feedReducer(initialFeedState, { type: 'success', append: false, data: { ...page([1], 'c1'), near } });
+  expect(s.near).toEqual(near);
+  s = feedReducer(s, { type: 'success', append: true, data: page([2]) });
+  expect(s.near).toEqual(near);   // later pages never change it
+  s = feedReducer(s, { type: 'success', append: false, data: page([3]) });
+  expect(s.near).toBeUndefined();
+});
+
+test('a malformed near is ignored', () => {
+  const s = feedReducer(initialFeedState, { type: 'success', append: false, data: { ...page([1]), near: { source: 'ip', regions: [] } } });
+  expect(s.near).toBeUndefined();
+});

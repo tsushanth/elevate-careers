@@ -11,6 +11,8 @@ import { useIsMobile, useSheetA11y } from './useSheetA11y';
 import { loadViewed, addViewed } from './viewed';
 import PrefsNote from './PrefsNote';
 import { loadPrefsOff, savePrefsOff } from './prefsChoice';
+import NearNote from './NearNote';
+import { loadNearOff, saveNearOff, loadNearLabel, saveNearLabel } from './nearChoice';
 import { loadRole, saveRole } from './roleChoice';
 
 // The existing detail pane expects these shapes.
@@ -49,6 +51,10 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const [prefsOff, setPrefsOff] = useState(loadPrefsOff);
   const choosePrefsOff = useCallback((off) => { setPrefsOff(off); savePrefsOff(off); }, []);
 
+  // "Show all jobs equally" on the near-you note: sent as near=off, remembered for the session.
+  const [nearOff, setNearOff] = useState(loadNearOff);
+  const chooseNearOff = useCallback((off) => { setNearOff(off); saveNearOff(off); }, []);
+
   // Role (job family). `roles` is null until /v2/roles answers, then the list ([] = feature off or fetch failed).
   // A saved slug is sent optimistically while the list is pending, so a returning user gets one request, not two.
   const [roles, setRoles] = useState(null);
@@ -68,7 +74,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const role = roles === null || roles.some(r => r.slug === roleSlug) ? roleSlug : '';
   const roleLabel = roles?.find(r => r.slug === role)?.label || '';
 
-  const filters = useMemo(() => ({ place, q, ...pills, prefsOff, role }), [place, q, pills, prefsOff, role]);
+  const filters = useMemo(() => ({ place, q, ...pills, prefsOff, nearOff, role }), [place, q, pills, prefsOff, nearOff, role]);
   const token = session?.access_token;
   const feed = useFeed({ apiBase, filters, token, preload, onInvalidRole: dropRole });
 
@@ -124,6 +130,13 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const settledPrefs = !!token && feed.loaded && feed.resultFilters === filters && !feed.error;
   const where = place.label || 'everywhere';
   const heading = feed.count == null ? 'Jobs' : `${feed.count.toLocaleString()}${feed.countIsCapped ? '+' : ''} ${roleLabel ? `${roleLabel} jobs` : 'jobs'} in ${where}`;
+  // Last near label the server reported this session: the way back after switching off (no `near` is sent then).
+  const settledNear = feed.loaded && feed.resultFilters === filters && !feed.error;
+  const [nearLabel, setNearLabel] = useState(loadNearLabel);
+  const seenNearLabel = settledNear && !nearOff ? feed.near?.label : undefined;
+  useEffect(() => {
+    if (seenNearLabel) { setNearLabel(seenNearLabel); saveNearLabel(seenNearLabel); }
+  }, [seenNearLabel]);
   // Remember that the list the user switched off was a profile match, so the way back says "Use my profile".
   const hadProfileRef = useRef(false);
   useEffect(() => {
@@ -142,7 +155,10 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
       <div className="feed-body">
         <section className="feed-list" aria-label="Job results" aria-busy={feed.loading}>
           <h2 className="feed-heading">{heading}</h2>
-          {settledPrefs && <PrefsNote status={feed.prefs} match={role ? undefined : feed.match} hadProfile={hadProfileRef.current} onShowAll={() => choosePrefsOff(true)} onUsePreferences={() => choosePrefsOff(false)} />}
+          <div className="feed-notes">
+            {settledPrefs && <PrefsNote status={feed.prefs} match={role ? undefined : feed.match} hadProfile={hadProfileRef.current} onShowAll={() => choosePrefsOff(true)} onUsePreferences={() => choosePrefsOff(false)} />}
+            {settledNear && <NearNote near={feed.near} off={nearOff} lastLabel={nearLabel} onTurnOff={() => chooseNearOff(true)} onTurnOn={() => chooseNearOff(false)} />}
+          </div>
           {feed.error && (
             <div className="feed-error" role="alert">
               Couldn't load jobs. <button type="button" onClick={feed.retry}>Retry</button>
