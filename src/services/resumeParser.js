@@ -3,10 +3,10 @@
 
 import pdf from 'pdf-parse';
 import mammoth from 'mammoth';
-import Anthropic from '@anthropic-ai/sdk';
+import { trackedAnthropic, withFeature } from '../utils/llm.js';
 import { logger } from '../utils/logger.js';
 
-const anthropic = new Anthropic({
+const anthropic = trackedAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
 });
 
@@ -90,14 +90,14 @@ Important:
 - Extract achievements and quantifiable results where mentioned`;
 
   try {
-    const message = await anthropic.messages.create({
+    const message = await withFeature('parse_resume', () => anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       messages: [{
         role: 'user',
         content: prompt
       }]
-    });
+    }));
     
     const responseText = message.content[0].text;
     

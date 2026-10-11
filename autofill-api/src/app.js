@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import Anthropic from '@anthropic-ai/sdk';
+import { withFeature } from './llm.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
 
@@ -228,7 +228,7 @@ async function tailorResume(client, jobDescription, jobTitle, customResumeText) 
   if (!customResumeText) throw new Error('no resume text provided');
   const resumeToUse = customResumeText;
 
-  const msg = await client.messages.create({
+  const msg = await withFeature('autofill_tailor_resume', () => client.messages.create({
     model: 'claude-sonnet-4-5',
     max_tokens: 4000,
     system: `You are an expert resume writer optimizing resumes for ATS systems and specific job descriptions.
@@ -243,7 +243,7 @@ Rules:
       role: 'user',
       content: `Job Title: ${jobTitle}\n\nJob Description:\n${jobDescription.slice(0, 3000)}\n\nMaster Resume:\n${resumeToUse}\n\nRewrite the resume optimized for this role. Return plain text only.`,
     }],
-  });
+  }));
 
   return buildPdf(msg.content[0].text.trim());
 }
@@ -313,12 +313,12 @@ ${prof.resume || ''}`;
 }
 
 async function askViaApi(client, systemPrompt, userContent) {
-  const msg = await client.messages.create({
+  const msg = await withFeature('autofill_answer', () => client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
     system: systemPrompt,
     messages: [{ role: 'user', content: userContent }],
-  });
+  }));
 
   return msg.content[0].text.trim();
 }

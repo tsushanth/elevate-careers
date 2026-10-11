@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "vitest run src/app.test.js",
+    "test": "node --test src/llm.test.js && vitest run src/app.test.js",
     "test:e2e": "vitest run src/e2e.test.js",
     "test:all": "vitest run",
     "start": "node src/index.js"

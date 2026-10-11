@@ -1,6 +1,6 @@
 // routes/ai-resume.js - ES Module version for existing project
 import express from 'express';
-import Anthropic from '@anthropic-ai/sdk';
+import { trackedAnthropic, withFeature } from '../utils/llm.js';
 import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
@@ -30,7 +30,7 @@ async function requireAuth(req, res, next) {
 // Lazy-initialized clients
 let _anthropic = null;
 function getAnthropic() {
-  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!_anthropic) _anthropic = trackedAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   return _anthropic;
 }
 
@@ -189,12 +189,12 @@ router.post('/chat', requireAuth, async (req, res) => {
       content: m.content
     }));
 
-    const completion = await getAnthropic().messages.create({
+    const completion = await withFeature('resume_chat', () => getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
       system: SYSTEM_PROMPT + `\nCurrent stage: ${conversation.stage}\nCurrent data collected: ${JSON.stringify(conversation.resumeData)}`,
       messages: chatMessages,
-    });
+    }));
 
     let aiResponse = completion.content[0].text;
 
@@ -290,7 +290,7 @@ async function extractResumeData(messages) {
       .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
       .join('\n');
 
-    const extraction = await getAnthropic().messages.create({
+    const extraction = await withFeature('resume_extract', () => getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
       system: `Extract resume information and return ONLY valid JSON with this structure:
@@ -304,7 +304,7 @@ multiple jobs into a single entry, never use a placeholder like "See resume"
 as a position/company, and never dump raw pasted text verbatim into a single
 responsibility — always break it into short, individual bullet points.`,
       messages: [{ role: 'user', content: `Extract resume data:\n\n${conversationText}` }],
-    });
+    }));
 
     const jsonString = extraction.content[0].text.trim();
     const cleanJson = jsonString.replace(/```json\n?|\n?```/g, '');
@@ -435,12 +435,12 @@ Return enhanced JSON in this exact structure:
   "skills": []
 }`;
 
-    const enhancement = await getAnthropic().messages.create({
+    const enhancement = await withFeature('resume_enhance', () => getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
       system: 'You are a professional resume writer. Enhance resume content to be more professional and impactful. Return only valid JSON, no markdown.',
       messages: [{ role: 'user', content: enhancementPrompt }],
-    });
+    }));
 
     const enhancedJson = enhancement.content[0].text.trim();
     const cleanJson = enhancedJson.replace(/```json\n?|\n?```/g, '');
@@ -597,7 +597,7 @@ router.post('/copilot/answer', requireAuth, async (req, res) => {
         }`
       : '';
 
-    const completion = await getAnthropic().messages.create({
+    const completion = await withFeature('copilot_answer', () => getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 400,
       system: `You are a professional job application assistant. Answer the given job application question concisely and professionally in first person, using the candidate's profile. Write 2-4 sentences max. Do not include any preamble like "Here is my answer:" — just the answer itself.`,
@@ -605,7 +605,7 @@ router.post('/copilot/answer', requireAuth, async (req, res) => {
         role: 'user',
         content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 800)}${learnedCtx}\n\nQuestion: ${question}`,
       }],
-    });
+    }));
     incrementAiUsage(req.user.id);
     res.json({ answer: completion.content[0].text.trim() });
   } catch (e) {
@@ -626,7 +626,7 @@ router.post('/copilot/pick-option', requireAuth, async (req, res) => {
     if (!Array.isArray(options) || options.length === 0) return res.status(400).json({ error: 'options required' });
 
     const numbered = options.map((o, i) => `${i}: ${o}`).join('\n');
-    const completion = await getAnthropic().messages.create({
+    const completion = await withFeature('copilot_pick_option', () => getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 10,
       system: `You are matching a job application form field to one of a fixed list of dropdown options. Given the field's label and the candidate's profile, respond with ONLY the number of the single best-matching option, and nothing else — no words, no punctuation. If none of the options are a reasonable match, respond with -1.`,
@@ -634,7 +634,7 @@ router.post('/copilot/pick-option', requireAuth, async (req, res) => {
         role: 'user',
         content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 500)}\n\nField label: ${label}\n\nOptions:\n${numbered}\n\nRespond with only the index number.`,
       }],
-    });
+    }));
     incrementAiUsage(req.user.id);
 
     const raw = completion.content[0].text.trim();
@@ -695,13 +695,13 @@ ${(jobDescription || '').slice(0, 3000)}
 Candidate's raw resume text:
 ${profile.resume.slice(0, 8000)}`;
 
-    const tailored = await getAnthropic().messages.create({
+    const tailored = await withFeature('resume_tailor', () => getAnthropic().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
       temperature: 0,
       system: 'You are a professional resume writer. Return only valid JSON, no markdown, no commentary.',
       messages: [{ role: 'user', content: tailorPrompt }],
-    });
+    }));
 
     const rawJson = tailored.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
     const resumeData = JSON.parse(rawJson);
@@ -801,13 +801,13 @@ router.post('/resume/audit', requireAuth, async (req, res) => {
     let aiFindings = [];
     let overallScore = null;
     try {
-      const completion = await getAnthropic().messages.create({
+      const completion = await withFeature('resume_audit', () => getAnthropic().messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 800,
         temperature: 0,
         system: `You are an ATS/resume quality auditor, similar to Jobscan or Rezi's resume checker. Judge the resume on its own merits — no target job description is provided. Return ONLY valid JSON, no markdown: {"overallScore": <integer 0-100>, "findings": [{"severity": "warn"|"info", "text": "<specific, actionable finding>"}]}. Focus on things a structural/regex check can't catch: vague or unsubstantiated claims, inconsistent verb tense (past roles should be past tense, current role present tense), passive voice, redundant bullets across roles, and unclear seniority/scope. Don't repeat generic formatting advice (bullets, length, etc.) — that's already checked separately. Be specific and cite the actual phrase when possible.`,
         messages: [{ role: 'user', content: `Resume text:\n${profile.resume.slice(0, 8000)}` }],
-      });
+      }));
       const raw = completion.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
       const parsed = JSON.parse(raw);
       if (Number.isFinite(parsed.overallScore)) overallScore = Math.max(0, Math.min(100, Math.round(parsed.overallScore)));
@@ -939,7 +939,7 @@ router.post('/job-fit', requireAuth, async (req, res) => {
     let matchedKeywords = [];
     let missingKeywords = [];
     try {
-      const completion = await getAnthropic().messages.create({
+      const completion = await withFeature('job_fit_score', () => getAnthropic().messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         temperature: 0, // same job + same profile should score the same every time, not swing wildly between calls
@@ -948,7 +948,7 @@ router.post('/job-fit', requireAuth, async (req, res) => {
           role: 'user',
           content: `Job title: ${jobTitle || '(unknown)'}\nJob description:\n${jobDescription.slice(0, 3000)}\n\nCandidate background:\n${(profile?.background || '').slice(0, 1000)}\n\nCandidate resume:\n${(profile?.resume || '').slice(0, 3000)}`,
         }],
-      });
+      }));
       const raw = completion.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
       const parsed = JSON.parse(raw);
       if (Number.isFinite(parsed.fitScore)) fitScore = Math.max(0, Math.min(100, Math.round(parsed.fitScore)));
@@ -1334,13 +1334,13 @@ router.get('/skills/check', requireAuth, async (req, res) => {
 
     let check = existing.rows[0];
     if (!check) {
-      const completion = await getAnthropic().messages.create({
+      const completion = await withFeature('skill_check_generate', () => getAnthropic().messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
         temperature: 0,
         system: `You write multiple-choice skill-assessment questions for a job-search product. Return ONLY valid JSON, no markdown: {"questions": [{"question": "", "options": ["", "", "", ""], "correctIndex": 0}]}. Write exactly 5 questions testing practical, real-world understanding of the given skill (not obscure trivia). Each question has exactly 4 options with exactly one correct answer. Vary correctIndex across questions — don't always put the answer in the same position.`,
         messages: [{ role: 'user', content: `Skill: ${skillDisplay}` }],
-      });
+      }));
       const raw = completion.content[0].text.trim().replace(/```json\n?|\n?```/g, '');
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) {

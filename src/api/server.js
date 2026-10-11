@@ -13,7 +13,7 @@ import { unescapeMarkdown } from '../utils/unescapeMarkdown.js';
 import { recomputeSignals } from '../services/signals.js';
 import { normalizeCompanyName, normalizeTitle, companySlug } from '../services/normalizer.js';
 import { REGION_CODES, nonUsTitleRegex, resolveLocationToken } from '../services/geo.js';
-import Anthropic from '@anthropic-ai/sdk';
+import { trackedAnthropic, withFeature } from '../utils/llm.js';
 
 const NON_US_REGION_CODES_SQL = REGION_CODES.join('|');
 const NON_US_TITLE_REGEX_SQL = nonUsTitleRegex();
@@ -968,9 +968,9 @@ app.post('/ingest/classify-locations', async (req, res) => {
       return res.json({ ok: true, classified: 0, updated: 0, message: 'nothing unresolved (or everything left is already-confirmed noise)' });
     }
 
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const anthropic = trackedAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const cities = rows.map(r => r.city);
-    const completion = await anthropic.messages.create({
+    const completion = await withFeature('location_classify', () => anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 2000,
       system: `You classify raw, messy job-posting location strings (from many different ATS platforms — Greenhouse, Lever, Ashby, LinkedIn, etc; may include city/region names, noise words like "Remote"/"Hybrid", multiple locations joined with separators, or non-English text) into a single real-world country.
@@ -984,7 +984,7 @@ Rules:
 - If a string names a specific city/region, return that place's country, not the ATS's HQ country.
 - Never guess — a wrong country is worse than a null.`,
       messages: [{ role: 'user', content: JSON.stringify(cities) }],
-    });
+    }));
 
     const text = completion.content[0].text.trim();
     const jsonMatch = text.match(/\[[\s\S]*\]/);
