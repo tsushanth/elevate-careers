@@ -22,7 +22,8 @@ function parseJobId(req, res) {
   return id;
 }
 
-export function createSavedJobsRouter({ db, requireAuth }) {
+// onSaved (optional) is called with no arguments after a job is newly saved; it must never affect the response.
+export function createSavedJobsRouter({ db, requireAuth, onSaved }) {
   const router = express.Router();
 
   // GET /api/saved-jobs -> { jobs, count }, newest first. Same envelope and job fields
@@ -64,10 +65,11 @@ export function createSavedJobsRouter({ db, requireAuth }) {
     try {
       const exists = await db.query(`SELECT 1 FROM job WHERE id = $1`, [jobId]);
       if (!exists.rowCount) return res.status(404).json({ error: 'Job not found' });
-      await db.query(
+      const ins = await db.query(
         `INSERT INTO saved_job (user_id, job_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [req.user.id, jobId]
       );
+      if (ins.rowCount && onSaved) { try { Promise.resolve(onSaved()).catch(() => {}); } catch { /* analytics only */ } }
       res.json({ ok: true, jobId });
     } catch (e) {
       console.error('[saved-jobs] save failed:', e.message);

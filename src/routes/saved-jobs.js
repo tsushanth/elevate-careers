@@ -28,4 +28,9 @@ async function requireAuth(req, res, next) {
   }
 }
 
-export default createSavedJobsRouter({ db, requireAuth });
+// Anonymous count only: no user id, no job id, no visit id (the phone app has none).
+// Needs the surface column from 20261014000000_funnel_events.sql; until that is applied
+// the insert fails and is ignored.
+const onSaved = () => db.query(`INSERT INTO analytics_events (event_name, surface) VALUES ('save_job', 'app')`);
+
+export default createSavedJobsRouter({ db, requireAuth, onSaved });
