@@ -1,6 +1,11 @@
 // Runs on simplyappl.ai — signals to the web app that the extension is installed,
 // and shares the web app's signed-in session with the extension.
 window.__simplyApplyInstalled = true;
+// The window flag above lives in this script's isolated world and is invisible to the page.
+// The DOM is shared, so also mark <html> with the extension version for the web app to read.
+try {
+  document.documentElement.setAttribute('data-simplyapply-ext', chrome.runtime.getManifest().version);
+} catch (_) {}
 
 // supabase-js keeps the session in localStorage under sb-<project-ref>-auth-token.
 const SESSION_KEY = 'sb-owvvrljdfnhntwedepkl-auth-token';
