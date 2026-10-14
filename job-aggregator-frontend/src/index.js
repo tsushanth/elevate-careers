@@ -8,6 +8,8 @@ import DeleteAccount from './DeleteAccount';
 import CompanyPage from './CompanyPage';
 import ResumeCheck from './ResumeCheck';
 import Admin from './Admin';
+import { trackFunnel } from './track';
+import { landingProps } from './funnel';
 
 // Capture traffic source on first page load — persists through auth flow
 (function captureSource() {
@@ -22,6 +24,10 @@ import Admin from './Admin';
   };
   sessionStorage.setItem('sa_source', JSON.stringify(source));
 })();
+
+try {
+  trackFunnel('landing_view', landingProps({ loc: window.location, referrer: document.referrer, width: window.innerWidth }));
+} catch {}
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink, FileText, TrendingUp, Zap } from 'lucide-react';
 import { supabase } from './supabase';
-import { track } from './track';
+import { trackFunnel } from './track';
+import { isFreshSignup } from './funnel';
 import AuthModal from './AuthModal';
 import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './OnboardingModal';
 import ApplicationsTab from './ApplicationsTab';
@@ -126,16 +127,37 @@ function App() {
       setSession(session);
       setSessionChecked(true);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setSessionChecked(true);
+      // Sign-ups that return through a redirect (Google, or the email confirmation link)
+      // never reach AuthModal's onSuccess, so detect them here, once per browser.
+      if (event === 'SIGNED_IN' && session?.user) {
+        try {
+          const pending = localStorage.getItem('sa_signup_pending') === '1';
+          const google = session.user.app_metadata?.provider === 'google';
+          if ((pending || google) && isFreshSignup(session.user) && !localStorage.getItem('sa_signup_tracked')) {
+            localStorage.setItem('sa_signup_tracked', '1');
+            localStorage.removeItem('sa_signup_pending');
+            trackFunnel('signup_complete', { method: google ? 'google' : 'email_confirm' });
+            if (shouldShowOnboarding()) {
+              trackFunnel('onboarding_step', { step: 'shown' });
+              setShowOnboarding(true);
+            }
+          }
+        } catch { /* analytics and onboarding hint only */ }
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    // detect.js sets this flag when the extension is active on simplyappl.ai
-    setExtensionInstalled(!!window.__simplyApplyInstalled);
+    // detect.js runs in the extension's isolated world, so its window flag is invisible here.
+    // Newer builds also write a data attribute on <html>, which is shared with the page.
+    const ver = document.documentElement.getAttribute('data-simplyapply-ext');
+    const installed = !!window.__simplyApplyInstalled || ver !== null;
+    setExtensionInstalled(installed);
+    if (ver !== null) trackFunnel('extension_install_seen', { v: ver });
   }, []);
 
   useEffect(() => {
@@ -376,6 +398,7 @@ function App() {
                 className="apply-button"
                 disabled={seedingJob === selectedJob.id}
                 onClick={async () => {
+                  trackFunnel('apply_click', { job_id: Number(selectedJob.id), signed_in: !!session, ext: extensionInstalled });
                   if (!session) { setShowAuthModal(true); return; }
                   setSeedingJob(selectedJob.id);
                   const url = new URL(selectedJob.apply_url);
@@ -771,9 +794,10 @@ function App() {
           onSuccess={(s, isNewUser) => {
             setSession(s);
             if (isNewUser) {
-              track('signup_completed', { provider: s?.user?.app_metadata?.provider });
+              try { localStorage.setItem('sa_signup_tracked', '1'); } catch {}
+              trackFunnel('signup_complete', { method: 'password' });
               if (shouldShowOnboarding()) {
-                track('onboarding_shown');
+                trackFunnel('onboarding_step', { step: 'shown' });
                 setShowOnboarding(true);
               }
             }
