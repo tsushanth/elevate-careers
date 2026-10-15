@@ -49,7 +49,7 @@ export default function OnboardingWizard({ session, onClose, api = defaultApi, n
   const [existing, setExisting] = useState(null);
   const [form, setForm] = useState(() => toForm(null, { email: accountEmail }));
   const [resumeText, setResumeText] = useState('');
-  const [keepResume, setKeepResume] = useState(true);
+  const [keepResume, setKeepResume] = useState(false); // privacy default: store the resume text only if the user opts in
   const [saving, setSaving] = useState(false);
   const [extFound, setExtFound] = useState(() => (doc ? isExtensionInstalled(doc) : false));
   const [saved, setSaved] = useState(null);
@@ -225,7 +225,7 @@ export default function OnboardingWizard({ session, onClose, api = defaultApi, n
                 {resumeText && (
                   <label className="obw-check">
                     <input type="checkbox" checked={keepResume} onChange={(e) => setKeepResume(e.target.checked)} />
-                    Also save my resume text so the extension can use it to answer questions. Uncheck to save only the fields above.
+                    Also save my resume text so the extension can use it to answer application questions. Off by default: only the fields above are saved.
                   </label>
                 )}
                 {error && <p className="obw-error" role="alert">{error}</p>}

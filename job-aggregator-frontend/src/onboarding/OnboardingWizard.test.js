@@ -51,10 +51,12 @@ test('paste -> parse -> review -> save -> install -> preview -> open job, with t
   expect(w.q('h3').textContent).toBe('Does this look right?');
   expect(w.host.querySelector('input[autocomplete="given-name"]').value).toBe('Jane');
   expect(w.host.querySelector('select').value).toBe(''); // invalid degree dropped
+  // The resume-text box is unticked by default (privacy): saving without it stores no resume text.
+  expect(w.host.querySelector('.obw-check input').checked).toBe(false);
   w.click(w.byText('Save and continue'));
   await flush();
   const saved = w.api.saveProfile.mock.calls[0][0].profile;
-  expect(saved).toMatchObject({ firstName: 'Jane', resume: 'RESUME TEXT', workAuth: 'Yes', sponsorship: 'No' });
+  expect(saved).toMatchObject({ firstName: 'Jane', resume: '', workAuth: 'Yes', sponsorship: 'No' });
   expect(steps()).toEqual(['resume_shown', 'resume_parsed', 'profile_saved', 'install_shown']);
   expect(w.byText('Add to Chrome').getAttribute('href')).toMatch(/chromewebstore\.google\.com/);
   w.click(w.byText('Add to Chrome'));
