@@ -13,6 +13,9 @@ import './App.css';
 import { unescapeMarkdown } from './unescapeMarkdown';
 import FeedPage from './feed/FeedPage';
 import { isFeedV2Enabled } from './feed/flag';
+import ValueHero from './onboarding/ValueHero';
+import { ONBOARDING_ENABLED } from './onboarding/constants';
+import { hasStoredSession } from './onboarding/storedSession';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf';
@@ -87,6 +90,8 @@ function App() {
   // of the wrong list now that a cached list is shown immediately.
   const [sessionChecked, setSessionChecked] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authTab, setAuthTab] = useState('signin');
+  const storedSessionAtLoad = React.useMemo(() => hasStoredSession(), []);
   const [showOnboarding, setShowOnboarding] = useState(false);
   // Honor a #jobs / #applications / #growth link, e.g. the phone app's "Finish on web" button.
   const [activeTab, setActiveTab] = useState(() => {
@@ -399,7 +404,7 @@ function App() {
                 disabled={seedingJob === selectedJob.id}
                 onClick={async () => {
                   trackFunnel('apply_click', { job_id: Number(selectedJob.id), signed_in: !!session, ext: extensionInstalled });
-                  if (!session) { setShowAuthModal(true); return; }
+                  if (!session) { setAuthTab('signin'); setShowAuthModal(true); return; }
                   setSeedingJob(selectedJob.id);
                   const url = new URL(selectedJob.apply_url);
                   url.searchParams.set('sa_autofill', '1');
@@ -509,7 +514,7 @@ function App() {
             ) : (
               <button
                 className="nav-signin"
-                onClick={() => setShowAuthModal(true)}
+                onClick={() => { setAuthTab('signin'); setShowAuthModal(true); }}
               >
                 Sign In
               </button>
@@ -540,6 +545,13 @@ function App() {
             <div className="hero-stat"><b>37K+</b><span>Remote roles</span></div>
           </div>
         </div>
+      )}
+
+      {/* Value-first hero for logged-out visitors on the v2 feed: promise, sign-up button and a
+          looped autofill demo. Waits for the session check unless no stored session exists, so a
+          returning signed-in visitor never sees it flash in. */}
+      {ONBOARDING_ENABLED && feedV2 && !session && activeTab === 'jobs' && (sessionChecked || !storedSessionAtLoad) && (
+        <ValueHero onGetStarted={() => { setAuthTab('signup'); setShowAuthModal(true); }} />
       )}
 
       {/* Extension install banner — signed-in users only */}
@@ -791,6 +803,7 @@ function App() {
       )}
       {showAuthModal && (
         <AuthModal
+          initialTab={authTab}
           onSuccess={(s, isNewUser) => {
             setSession(s);
             if (isNewUser) {

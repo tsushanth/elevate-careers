@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { supabase } from './supabase';
 import { trackFunnel } from './track';
 
-function AuthModal({ onSuccess, onClose }) {
-  const [tab, setTab] = useState('signin');
+function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
+  const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
