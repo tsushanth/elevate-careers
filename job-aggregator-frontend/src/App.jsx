@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink, FileText, TrendingUp, Zap } from 'lucide-react';
@@ -6,13 +6,19 @@ import { supabase } from './supabase';
 import { trackFunnel } from './track';
 import { isFreshSignup } from './funnel';
 import AuthModal from './AuthModal';
-import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './OnboardingModal';
 import ApplicationsTab from './ApplicationsTab';
 import GrowthTab from './GrowthTab';
 import './App.css';
 import { unescapeMarkdown } from './unescapeMarkdown';
 import FeedPage from './feed/FeedPage';
 import { isFeedV2Enabled } from './feed/flag';
+import ValueHero from './onboarding/ValueHero';
+import { ONBOARDING_ENABLED } from './onboarding/constants';
+import { shouldAutoOpen, markSeen } from './onboarding/trigger';
+import { hasStoredSession } from './onboarding/storedSession';
+
+// Loaded on demand so the wizard and its demo never weigh on the first paint.
+const OnboardingWizard = React.lazy(() => import('./onboarding/OnboardingWizard'));
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf';
@@ -87,7 +93,10 @@ function App() {
   // of the wrong list now that a cached list is shown immediately.
   const [sessionChecked, setSessionChecked] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [authTab, setAuthTab] = useState('signin');
+  const storedSessionAtLoad = React.useMemo(() => hasStoredSession(), []);
+  const [showWizard, setShowWizard] = useState(false);
+  const wizardCheckedFor = useRef(null);
   // Honor a #jobs / #applications / #growth link, e.g. the phone app's "Finish on web" button.
   const [activeTab, setActiveTab] = useState(() => {
     const h = (window.location.hash || '').replace('#', '');
@@ -140,16 +149,24 @@ function App() {
             localStorage.setItem('sa_signup_tracked', '1');
             localStorage.removeItem('sa_signup_pending');
             trackFunnel('signup_complete', { method: google ? 'google' : 'email_confirm' });
-            if (shouldShowOnboarding()) {
-              trackFunnel('onboarding_step', { step: 'shown' });
-              setShowOnboarding(true);
-            }
           }
         } catch { /* analytics and onboarding hint only */ }
       }
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Open the setup wizard once per user per browser, after any sign-in path, when the
+  // account has no saved profile. Reopen any time from the header.
+  useEffect(() => {
+    const uid = session?.user?.id;
+    const token = session?.access_token;
+    if (!uid || !token || wizardCheckedFor.current === uid) return;
+    wizardCheckedFor.current = uid;
+    shouldAutoOpen({ uid, token }).then((open) => {
+      if (open) { markSeen(uid); setShowWizard(true); }
+    });
+  }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // detect.js runs in the extension's isolated world, so its window flag is invisible here.
@@ -399,7 +416,7 @@ function App() {
                 disabled={seedingJob === selectedJob.id}
                 onClick={async () => {
                   trackFunnel('apply_click', { job_id: Number(selectedJob.id), signed_in: !!session, ext: extensionInstalled });
-                  if (!session) { setShowAuthModal(true); return; }
+                  if (!session) { setAuthTab('signin'); setShowAuthModal(true); return; }
                   setSeedingJob(selectedJob.id);
                   const url = new URL(selectedJob.apply_url);
                   url.searchParams.set('sa_autofill', '1');
@@ -498,6 +515,9 @@ function App() {
             )}
             {session ? (
               <div className="nav-user">
+                {ONBOARDING_ENABLED && (
+                  <button className="nav-setup" onClick={() => setShowWizard(true)}>Set up autofill</button>
+                )}
                 <span className="nav-email">{session.user.email}</span>
                 <button
                   className="nav-signout"
@@ -509,7 +529,7 @@ function App() {
             ) : (
               <button
                 className="nav-signin"
-                onClick={() => setShowAuthModal(true)}
+                onClick={() => { setAuthTab('signin'); setShowAuthModal(true); }}
               >
                 Sign In
               </button>
@@ -540,6 +560,13 @@ function App() {
             <div className="hero-stat"><b>37K+</b><span>Remote roles</span></div>
           </div>
         </div>
+      )}
+
+      {/* Value-first hero for logged-out visitors on the v2 feed: promise, sign-up button and a
+          looped autofill demo. Waits for the session check unless no stored session exists, so a
+          returning signed-in visitor never sees it flash in. */}
+      {ONBOARDING_ENABLED && feedV2 && !session && activeTab === 'jobs' && (sessionChecked || !storedSessionAtLoad) && (
+        <ValueHero onGetStarted={() => { setAuthTab('signup'); setShowAuthModal(true); }} />
       )}
 
       {/* Extension install banner — signed-in users only */}
@@ -791,25 +818,31 @@ function App() {
       )}
       {showAuthModal && (
         <AuthModal
+          initialTab={authTab}
           onSuccess={(s, isNewUser) => {
             setSession(s);
             if (isNewUser) {
               try { localStorage.setItem('sa_signup_tracked', '1'); } catch {}
               trackFunnel('signup_complete', { method: 'password' });
-              if (shouldShowOnboarding()) {
-                trackFunnel('onboarding_step', { step: 'shown' });
-                setShowOnboarding(true);
-              }
             }
           }}
           onClose={() => setShowAuthModal(false)}
         />
       )}
 
-      {showOnboarding && (
-        <div className="legacy-text">
-          <OnboardingModal onDismiss={() => setShowOnboarding(false)} />
-        </div>
+      {showWizard && session && (
+        <Suspense fallback={null}>
+          <OnboardingWizard
+            session={session}
+            onClose={(why) => {
+              setShowWizard(false);
+              if (why === 'jobs') {
+                setActiveTab('jobs');
+                setTimeout(() => { const el = document.querySelector('.feed-page'); if (el && el.scrollIntoView) el.scrollIntoView(); }, 0);
+              }
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );
