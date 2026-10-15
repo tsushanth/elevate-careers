@@ -1,8 +1,9 @@
 import { chromium } from 'playwright';
-import Anthropic from '@anthropic-ai/sdk';
+import { trackedAnthropic, withFeature, installShutdownFlush } from './llm.js';
 import { fillerFn } from './filler.js';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = trackedAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+installShutdownFlush();
 
 export async function runApply({ jobUrl, profile, jobDescription, dryRun = false }) {
   const browser = await chromium.launch({
@@ -14,7 +15,7 @@ export async function runApply({ jobUrl, profile, jobDescription, dryRun = false
     // Expose AI answer function to the browser page context
     await page.exposeFunction('getAIAnswer', async (question, jobDesc) => {
       try {
-        const msg = await anthropic.messages.create({
+        const msg = await withFeature('playwright_field_answer', () => anthropic.messages.create({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 512,
           messages: [{
@@ -38,7 +39,7 @@ Rules:
 - For "how did you hear about us", say "Job board".
 - Return ONLY the answer text, no preamble.`,
           }],
-        });
+        }));
         return msg.content[0]?.text?.trim() || null;
       } catch (e) {
         console.error('[getAIAnswer] error:', e.message);

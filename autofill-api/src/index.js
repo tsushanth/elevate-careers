@@ -1,8 +1,9 @@
 import { serve } from '@hono/node-server';
-import Anthropic from '@anthropic-ai/sdk';
+import { trackedAnthropic, installShutdownFlush } from './llm.js';
 import { createApp } from './app.js';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = trackedAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+installShutdownFlush();
 const app = createApp({ legacyToken: process.env.AUTH_TOKEN, claudeClient: client });
 
 const PORT = parseInt(process.env.PORT || '8080');

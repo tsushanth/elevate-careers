@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import Anthropic from '@anthropic-ai/sdk';
+import { trackedAnthropic, withFeature } from '../utils/llm.js';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 import { runStructuralAudit } from './ai-resume.js';
@@ -17,7 +17,7 @@ const PER_IP_SUBSCRIBES_PER_DAY = 5;
 const globalDailyCap = () => Number(process.env.RESUME_CHECK_DAILY_CAP) || 200;
 
 let _anthropic = null;
-const getAnthropic = () => (_anthropic ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
+const getAnthropic = () => (_anthropic ??= trackedAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
 
 function clientIp(req) {
   return req.headers['fly-client-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || 'unknown';
@@ -52,13 +52,13 @@ router.post('/resume-check', async (req, res) => {
     let aiFindings = [];
     let score = null;
     try {
-      const completion = await getAnthropic().messages.create({
+      const completion = await withFeature('funnel', () => getAnthropic().messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 700,
         temperature: 0,
         system: 'You are an ATS/resume quality auditor. Judge the resume on its own merits. Respond with ONLY JSON: {"overallScore": integer 0-100, "findings": [{"severity": "warn" or "info", "text": string}]} with at most 5 findings. Each finding must be specific and actionable and may quote the resume\'s own wording. Never invent facts.',
         messages: [{ role: 'user', content: `Resume text:\n${text.slice(0, 8000)}` }],
-      });
+      }));
       const parsed = JSON.parse(completion.content[0].text.trim().replace(/```json\n?|\n?```/g, ''));
       if (Number.isFinite(parsed.overallScore)) score = Math.max(0, Math.min(100, Math.round(parsed.overallScore)));
       aiFindings = (Array.isArray(parsed.findings) ? parsed.findings : []).filter((f) => f && typeof f.text === 'string');

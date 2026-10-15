@@ -1,6 +1,7 @@
 import config from './config/index.js';
 import { logger } from './utils/logger.js';
 import { db } from './db/index.js';
+import { flushLlmUsage } from './utils/llm.js';
 
 async function startServer() {
   try {
@@ -64,9 +65,12 @@ async function startServer() {
       // Graceful shutdown
       const shutdown = async (signal) => {
         logger.info({ signal }, 'Shutdown signal received');
+        // Start sending pending Claude spend rows now (capped at 2.5 s); awaited once the server has drained.
+        const llmFlushed = flushLlmUsage();
         
         server.close(async () => {
           logger.info('HTTP server closed');
+          await llmFlushed;
           await db.close();
           process.exit(0);
         });
