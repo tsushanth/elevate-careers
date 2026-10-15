@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from './supabase';
+import { trackFunnel } from './track';
 
 function AuthModal({ onSuccess, onClose }) {
   const [tab, setTab] = useState('signin');
@@ -10,6 +11,7 @@ function AuthModal({ onSuccess, onClose }) {
   const [message, setMessage] = useState('');
 
   const handleGoogle = async () => {
+    trackFunnel('signup_start', { method: 'google' });
     setError('');
     setMessage('');
     setLoading(true);
@@ -43,6 +45,7 @@ function AuthModal({ onSuccess, onClose }) {
         onSuccess(data.session, false);
         onClose();
       } else {
+        trackFunnel('signup_start', { method: 'password' });
         const source = JSON.parse(sessionStorage.getItem('sa_source') || '{}');
         const { data, error } = await supabase.auth.signUp({
           email,
@@ -54,6 +57,7 @@ function AuthModal({ onSuccess, onClose }) {
           onSuccess(data.session, true);
           onClose();
         } else {
+          try { localStorage.setItem('sa_signup_pending', '1'); } catch {}
           setMessage('Check your email to confirm your account.');
         }
       }

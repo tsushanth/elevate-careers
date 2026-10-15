@@ -19,6 +19,7 @@ copyFileSync('src/detect.js',      'dist/detect.js');
 copyFileSync('src/detect-ats.js', 'dist/detect-ats.js');
 copyFileSync('src/discover.js', 'dist/discover.js');
 copyFileSync('src/sw.js', 'dist/sw.js');
+copyFileSync('src/funnel.js', 'dist/funnel.js');
 copyFileSync('src/options.js', 'dist/options.js');
 copyFileSync('src/options.html', 'dist/options.html');
 copyFileSync('src/manifest.json', 'dist/manifest.json');

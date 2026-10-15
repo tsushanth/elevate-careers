@@ -193,6 +193,19 @@ export default function Admin() {
       <h2>Funnel events</h2>
       <Table rows={d.funnel} cols={[{ h: 'Event', f: (r) => r.event_name }, { h: `Last ${days}d`, f: (r) => r.n_window }, { h: 'All time', f: (r) => r.n_all }, { h: 'Last seen', f: (r) => ago(r.last_seen) }]} empty="No events" />
 
+      {d.web_funnel && (
+        <>
+          <h2>Weekly visitor cohorts (anonymous, by first-seen week)</h2>
+          <Table rows={d.web_funnel.weekly} cols={[
+            { h: 'Week', f: (r) => r.week }, { h: 'Where', f: (r) => r.surface },
+            { h: 'New visitors', f: (r) => r.new_visitors }, { h: 'Signed up', f: (r) => r.signups },
+            { h: 'Activated', f: (r) => r.activated },
+            { h: 'Week-1 return', f: (r) => (r.matured_visitors ? `${r.returned_w1}/${r.matured_visitors}` : 'too new') },
+          ]} empty="No visitor events yet" />
+          <p className="adm-mut">Activated = opened 3 or more jobs, saved a job, or clicked Apply / filled an application within 7 days. Week-1 return counts only visitors whose 7 days have passed. Visit ids are per browser, so one person on two browsers counts twice.</p>
+        </>
+      )}
+
       <h2>Jobs & ingestion</h2>
       <div className="adm-grid">
         <Card n={d.jobs.total_approx} l="Jobs (approx.)" /><Card n={d.jobs.added_24h} l="Added (24h)" /><Card n={d.jobs.added_7d} l="Added (7d, newest 50k)" />

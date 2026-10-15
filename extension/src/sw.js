@@ -1,3 +1,5 @@
+import { recordFill } from './funnel.js';
+
 const PROXY_URL = 'https://elevate-careers-api.fly.dev';
 const SUPABASE_URL = 'https://owvvrljdfnhntwedepkl.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93dnZybGpkZm5obnR3ZWRlcGtsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMDA1NTEsImV4cCI6MjA4Njc3NjU1MX0.WjjwtJn03_5Ayd2Ed9WlQ-lIWiZiTrlfnCl-7nYCoGk';
@@ -180,6 +182,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.storage.local.get('session').then(({ session }) => {
       resolveToken().then(token => sendResponse({ signedIn: !!token, token, email: session?.user?.email }));
     });
+    return true;
+  }
+
+  // Anonymous count of a completed fill (see funnel.js). Sender must be this extension's own content script.
+  if (msg.type === 'FUNNEL_FILL') {
+    recordFill({
+      store: chrome.storage.local,
+      nav: self.navigator,
+      cryptoObj: self.crypto,
+      post: rows => fetch(`${SUPABASE_URL}/rest/v1/analytics_events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, Prefer: 'return=minimal' },
+        body: JSON.stringify(rows),
+      }).then(r => r.ok, () => false),
+    }).then(ok => sendResponse({ ok }), () => sendResponse({ ok: false }));
     return true;
   }
 

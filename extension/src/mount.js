@@ -1679,6 +1679,9 @@ async function run(dryRun) {
         } catch { return null; }
       })();
 
+      // Anonymous count of this fill (no URL/company/values); the service worker applies DNT/GPC.
+      try { chrome.runtime.sendMessage({ type: 'FUNNEL_FILL' }, () => void chrome.runtime.lastError); } catch (_) {}
+
       // Track fill attempt with outcome counts; hold the row ID for self-report
       apiCall('/applications/track', {
         jobUrl:     location.href,

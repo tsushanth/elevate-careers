@@ -14,6 +14,8 @@ import { loadPrefsOff, savePrefsOff } from './prefsChoice';
 import NearNote from './NearNote';
 import { loadNearOff, saveNearOff, loadNearLabel, saveNearLabel } from './nearChoice';
 import { loadRole, saveRole } from './roleChoice';
+import { trackFunnel } from '../track';
+import { bucket } from '../funnel';
 
 // The existing detail pane expects these shapes.
 const toDetailJob = (card) => ({
@@ -88,6 +90,12 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
 
   useEffect(() => { fetchStats(apiBase).then(setStats).catch(() => {}); }, [apiBase]);
 
+  // Funnel: the feed was actually shown with results (once per session; see funnel.js).
+  const shownJobs = feed.loaded && !feed.error && feed.jobs.length > 0;
+  useEffect(() => {
+    if (shownJobs) trackFunnel('jobs_view', { signed_in: !!token, n: bucket(feed.jobs.length) });
+  }, [shownJobs]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // A guessed (never chosen) place with no jobs widens to everywhere, at most once,
   // and only when no keyword or filter could be the reason for the empty result.
   const noRefinement = q === '' && !pills.remote && !pills.type && !pills.days && !role;
@@ -120,11 +128,12 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
 
   // `chosen` is true when the place came from an explicit typeahead choice (including clearing it).
   const onSearch = useCallback((nextQ, nextPlace, chosen) => {
+    trackFunnel('search', { kind: 'query', has_q: !!(nextQ && nextQ.trim()), has_place: !!(nextPlace && nextPlace.label) });
     setQ(nextQ);
     if (chosen) { setPlace(nextPlace); setPlaceSource('user'); savePlace(nextPlace); }
   }, []);
 
-  const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; explicitIdRef.current = job.id; setViewed(addViewed(job.id)); onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
+  const choose = useCallback((job, opener) => { openerRef.current = opener || document.activeElement; explicitIdRef.current = job.id; trackFunnel('job_open', { job_id: Number(job.id), ready: !!job.autofill_ready }); setViewed(addViewed(job.id)); onSelectJob(toDetailJob(job)); setSheetOpen(true); }, [onSelectJob]);
 
   // The note belongs to the list it was computed for, not to a refetch still in flight.
   const settledPrefs = !!token && feed.loaded && feed.resultFilters === filters && !feed.error;
@@ -147,7 +156,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
     <div className="feed-page">
       <div className="feed-top">
         <SearchBar apiBase={apiBase} q={q} place={place} onSearch={onSearch} />
-        <FilterPills filters={pills} onChange={setPills} roles={roles || []} role={role} onRoleChange={chooseRole} />
+        <FilterPills filters={pills} onChange={(p) => { trackFunnel('search', { kind: 'filter', remote: !!p.remote }); setPills(p); }} roles={roles || []} role={role} onRoleChange={(r) => { trackFunnel('search', { kind: 'role' }); chooseRole(r); }} />
         {stats && (
           <p className="feed-stats">{stats.jobs.toLocaleString()} open jobs from {stats.companies.toLocaleString()} companies. <a href={extensionUrl} target="_blank" rel="noopener noreferrer">Add the Chrome extension</a> to autofill applications.</p>
         )}
