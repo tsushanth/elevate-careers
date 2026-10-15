@@ -12,11 +12,13 @@ import './App.css';
 import { unescapeMarkdown } from './unescapeMarkdown';
 import FeedPage from './feed/FeedPage';
 import { isFeedV2Enabled } from './feed/flag';
-const OnboardingWizard = React.lazy(() => import('./onboarding/OnboardingWizard'));
 import ValueHero from './onboarding/ValueHero';
 import { ONBOARDING_ENABLED } from './onboarding/constants';
 import { shouldAutoOpen, markSeen } from './onboarding/trigger';
 import { hasStoredSession } from './onboarding/storedSession';
+
+// Loaded on demand so the wizard and its demo never weigh on the first paint.
+const OnboardingWizard = React.lazy(() => import('./onboarding/OnboardingWizard'));
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 const EXTENSION_URL = 'https://chromewebstore.google.com/detail/simplyapply-%E2%80%94-ai-job-auto/ocdeebjeffdjmfgmclnlphkhfdcdpdkf';
