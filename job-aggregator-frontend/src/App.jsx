@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, DollarSign, Briefcase, Clock, Bookmark, ExternalLink, FileText, TrendingUp, Zap } from 'lucide-react';
@@ -6,15 +6,16 @@ import { supabase } from './supabase';
 import { trackFunnel } from './track';
 import { isFreshSignup } from './funnel';
 import AuthModal from './AuthModal';
-import OnboardingModal, { shouldShowOnboarding, markOnboardingDone } from './OnboardingModal';
 import ApplicationsTab from './ApplicationsTab';
 import GrowthTab from './GrowthTab';
 import './App.css';
 import { unescapeMarkdown } from './unescapeMarkdown';
 import FeedPage from './feed/FeedPage';
 import { isFeedV2Enabled } from './feed/flag';
+const OnboardingWizard = React.lazy(() => import('./onboarding/OnboardingWizard'));
 import ValueHero from './onboarding/ValueHero';
 import { ONBOARDING_ENABLED } from './onboarding/constants';
+import { shouldAutoOpen, markSeen } from './onboarding/trigger';
 import { hasStoredSession } from './onboarding/storedSession';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
@@ -92,7 +93,8 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authTab, setAuthTab] = useState('signin');
   const storedSessionAtLoad = React.useMemo(() => hasStoredSession(), []);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const wizardCheckedFor = useRef(null);
   // Honor a #jobs / #applications / #growth link, e.g. the phone app's "Finish on web" button.
   const [activeTab, setActiveTab] = useState(() => {
     const h = (window.location.hash || '').replace('#', '');
@@ -145,16 +147,24 @@ function App() {
             localStorage.setItem('sa_signup_tracked', '1');
             localStorage.removeItem('sa_signup_pending');
             trackFunnel('signup_complete', { method: google ? 'google' : 'email_confirm' });
-            if (shouldShowOnboarding()) {
-              trackFunnel('onboarding_step', { step: 'shown' });
-              setShowOnboarding(true);
-            }
           }
         } catch { /* analytics and onboarding hint only */ }
       }
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Open the setup wizard once per user per browser, after any sign-in path, when the
+  // account has no saved profile. Reopen any time from the header.
+  useEffect(() => {
+    const uid = session?.user?.id;
+    const token = session?.access_token;
+    if (!uid || !token || wizardCheckedFor.current === uid) return;
+    wizardCheckedFor.current = uid;
+    shouldAutoOpen({ uid, token }).then((open) => {
+      if (open) { markSeen(uid); setShowWizard(true); }
+    });
+  }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // detect.js runs in the extension's isolated world, so its window flag is invisible here.
@@ -503,6 +513,9 @@ function App() {
             )}
             {session ? (
               <div className="nav-user">
+                {ONBOARDING_ENABLED && (
+                  <button className="nav-setup" onClick={() => setShowWizard(true)}>Set up autofill</button>
+                )}
                 <span className="nav-email">{session.user.email}</span>
                 <button
                   className="nav-signout"
@@ -809,20 +822,25 @@ function App() {
             if (isNewUser) {
               try { localStorage.setItem('sa_signup_tracked', '1'); } catch {}
               trackFunnel('signup_complete', { method: 'password' });
-              if (shouldShowOnboarding()) {
-                trackFunnel('onboarding_step', { step: 'shown' });
-                setShowOnboarding(true);
-              }
             }
           }}
           onClose={() => setShowAuthModal(false)}
         />
       )}
 
-      {showOnboarding && (
-        <div className="legacy-text">
-          <OnboardingModal onDismiss={() => setShowOnboarding(false)} />
-        </div>
+      {showWizard && session && (
+        <Suspense fallback={null}>
+          <OnboardingWizard
+            session={session}
+            onClose={(why) => {
+              setShowWizard(false);
+              if (why === 'jobs') {
+                setActiveTab('jobs');
+                setTimeout(() => { const el = document.querySelector('.feed-page'); if (el && el.scrollIntoView) el.scrollIntoView(); }, 0);
+              }
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

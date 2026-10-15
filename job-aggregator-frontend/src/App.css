@@ -911,3 +911,9 @@
   .legacy-light.legacy-page { min-height: 100vh; }
   .legacy-text { color: #000; color-scheme: light; }
 }
+
+/* Header shortcut to reopen autofill setup */
+.nav-setup { background: transparent; color: var(--li-blue); border: 1px solid var(--li-blue); border-radius: 16px; padding: 3px 12px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.nav-setup:hover { background: var(--li-blue-tint); }
+@media (prefers-color-scheme: dark) { .nav-setup:hover { background: var(--li-bg); } }
+@media (max-width: 768px) { .nav-setup { padding: 3px 8px; font-size: 12px; } }
