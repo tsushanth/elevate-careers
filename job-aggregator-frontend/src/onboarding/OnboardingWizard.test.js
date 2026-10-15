@@ -78,7 +78,7 @@ test('events never carry content', async () => {
   w.done();
 });
 
-test('unchecking keep-resume saves an empty resume field', async () => {
+test('ticking keep-resume saves the resume text', async () => {
   const w = setup();
   await flush();
   w.click(w.byText('Paste text'));
@@ -88,7 +88,7 @@ test('unchecking keep-resume saves an empty resume field', async () => {
   w.click(w.q('input[type=checkbox]'));
   w.click(w.byText('Save and continue'));
   await flush();
-  expect(w.api.saveProfile.mock.calls[0][0].profile.resume).toBe('');
+  expect(w.api.saveProfile.mock.calls[0][0].profile.resume).toBe('RESUME TEXT'); // the mocked parser returns the text
   w.done();
 });
 

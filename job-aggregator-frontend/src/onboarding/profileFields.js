@@ -46,14 +46,18 @@ export function toForm(profile, { email = '' } = {}) {
 // Merge confirmed edits over what is already saved so fields the wizard does not
 // show (salary, pronouns, heardAbout, ...) are never wiped by POST /profile/sync,
 // which replaces autofill_data wholesale.
-export function buildSavePayload(existing, form, { keepResume = true } = {}) {
+export function buildSavePayload(existing, form, { keepResume = false } = {}) {
   const base = existing && typeof existing === 'object' ? existing : {};
   const out = { ...base };
   for (const k of FIELDS) {
     if (k === 'resume') continue;
     if (k in form) out[k] = str(form[k]).trim();
   }
-  if ('resume' in form) out.resume = keepResume ? str(form.resume) : '';
+  // Resume text is stored only when the user opts in. Not opting in never erases text that is already saved.
+  if ('resume' in form) {
+    if (keepResume) out.resume = str(form.resume);
+    else if (!('resume' in out)) out.resume = '';
+  }
   return out;
 }
 

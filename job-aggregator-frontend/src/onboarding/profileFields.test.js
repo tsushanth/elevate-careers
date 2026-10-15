@@ -27,7 +27,8 @@ test('buildSavePayload keeps fields the wizard does not show and honours keepRes
   const existing = { salary: '150000', pronouns: 'they/them', heardAbout: 'Friend', resume: 'old' };
   const p = buildSavePayload(existing, { firstName: ' Jane ', resume: 'new text' }, { keepResume: true });
   expect(p).toMatchObject({ salary: '150000', pronouns: 'they/them', heardAbout: 'Friend', firstName: 'Jane', resume: 'new text' });
-  expect(buildSavePayload(existing, { resume: 'x' }, { keepResume: false }).resume).toBe('');
+  expect(buildSavePayload({}, { resume: 'x' }, { keepResume: false }).resume).toBe('');
+  expect(buildSavePayload({ resume: 'kept' }, { resume: 'x' }, { keepResume: false }).resume).toBe('kept'); // not opting in never erases saved text
   expect(buildSavePayload(existing, { firstName: 'J' }).resume).toBe('old');
 });
 
