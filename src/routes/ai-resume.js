@@ -5,6 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
 import { nonUsTextRegexJs } from '../services/geo.js';
+import { makeParseHandler, createDailyLimiter, parseBodyErrorHandler, ACCEPTED_TYPES, MAX_FILE_BYTES } from '../services/resumeParse.js';
+import { getRedis } from '../services/redis.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -981,6 +984,22 @@ router.post('/job-fit', requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ── Resume -> autofill profile (onboarding wizard) ───────────────────────────
+// Body is the raw file (application/pdf, .docx, or text/plain for pasted text), never
+// stored: parsed in memory and only the structured profile is returned. See
+// services/resumeParse.js for the privacy contract. Kill switch: RESUME_PARSE_DISABLED=1.
+router.post(
+  '/resume/parse',
+  requireAuth,
+  express.raw({ type: ACCEPTED_TYPES, limit: MAX_FILE_BYTES }),
+  parseBodyErrorHandler,
+  makeParseHandler({
+    getClient: getAnthropic,
+    limiter: createDailyLimiter({ getRedis }),
+    log: (f) => logger.info(f, 'resume parse'),
+  }),
+);
 
 // ── Profile sync from extension ──────────────────────────────────────────────
 // Fetch saved profile for the signed-in user
