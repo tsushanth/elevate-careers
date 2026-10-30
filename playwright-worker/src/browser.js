@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import Anthropic from '@anthropic-ai/sdk';
 import { fillerFn } from './filler.js';
+import { reportProviderError } from './failureReporter.js';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -42,6 +43,7 @@ Rules:
         return msg.content[0]?.text?.trim() || null;
       } catch (e) {
         console.error('[getAIAnswer] error:', e.message);
+        reportProviderError('anthropic', e);
         return null;
       }
     });

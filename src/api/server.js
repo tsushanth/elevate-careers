@@ -14,6 +14,8 @@ import { recomputeSignals } from '../services/signals.js';
 import { normalizeCompanyName, normalizeTitle, companySlug } from '../services/normalizer.js';
 import { REGION_CODES, nonUsTitleRegex, resolveLocationToken } from '../services/geo.js';
 import Anthropic from '@anthropic-ai/sdk';
+import { reportBackendError, reportFailure, instrumentAnthropic } from '../utils/failureReporter.js';
+import { connection as queueConnection } from '../services/queue.js';
 
 const NON_US_REGION_CODES_SQL = REGION_CODES.join('|');
 const NON_US_TITLE_REGEX_SQL = nonUsTitleRegex();
@@ -61,6 +63,18 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(pinoHttp({ logger }));
 
+// Every 5xx this API sends becomes a backend_error signal, even when a route's own catch swallowed the error and
+// answered 500 itself. Route PATTERN only (never the raw URL: ids and query strings can carry tokens).
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode >= 500) {
+      const path = (req.baseUrl || '') + (req.route?.path || '(unmatched)');
+      reportBackendError(req.method, path, res.locals?.reportedError || new Error(`HTTP ${res.statusCode}`), res.statusCode);
+    }
+  });
+  next();
+});
+
 // Liveness: no database round trip (a cross-region SELECT 1 added ~80 ms per call).
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
@@ -69,7 +83,14 @@ app.get('/health', (req, res) => {
 // Readiness: includes the database. Use this for monitors that must notice a DB outage.
 app.get('/health/deep', async (req, res) => {
   const dbHealthy = await db.healthCheck();
-  res.status(dbHealthy ? 200 : 503).json({ status: dbHealthy ? 'healthy' : 'unhealthy', timestamp: new Date().toISOString() });
+  // Redis backs the apply queue and feed cache; a dead Redis must turn the probe red too.
+  let redisHealthy = true;
+  if (queueConnection) {
+    try { redisHealthy = (await Promise.race([queueConnection.ping(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000))])) === 'PONG'; }
+    catch { redisHealthy = false; }
+  }
+  const ok = dbHealthy && redisHealthy;
+  res.status(ok ? 200 : 503).json({ status: ok ? 'healthy' : 'unhealthy', db: dbHealthy, redis: redisHealthy, timestamp: new Date().toISOString() });
 });
 
 import aiResumeRoutes from '../routes/ai-resume.js';
@@ -968,7 +989,7 @@ app.post('/ingest/classify-locations', async (req, res) => {
       return res.json({ ok: true, classified: 0, updated: 0, message: 'nothing unresolved (or everything left is already-confirmed noise)' });
     }
 
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const anthropic = instrumentAnthropic(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
     const cities = rows.map(r => r.city);
     const completion = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -2099,10 +2120,12 @@ async function runAutoApplyScheduler() {
         }
       } catch (userErr) {
         logger.error({ error: userErr, userId: prefs.user_id }, 'Auto-apply scheduler user error');
+        reportFailure('auto-apply-scheduler', 'auto-apply scheduler failed for a user', { error: String(userErr?.code || userErr?.name || 'unknown') });
       }
     }
   } catch (e) {
     logger.error({ error: e }, 'Auto-apply scheduler error');
+    reportFailure('auto-apply-scheduler', 'auto-apply scheduler run failed', { error: String(e?.code || e?.name || 'unknown') });
   }
 }
 
@@ -2134,6 +2157,7 @@ if (fs.existsSync(frontendBuild)) {
 // Error handler
 app.use((err, req, res, next) => {
   logger.error({ err }, 'Unhandled error');
+  res.locals.reportedError = err;
   res.status(500).json({ error: 'Internal server error' });
 });
 

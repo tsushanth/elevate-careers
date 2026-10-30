@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
+import { instrumentAnthropic } from '../utils/failureReporter.js';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 import { runStructuralAudit } from './ai-resume.js';
@@ -17,7 +18,7 @@ const PER_IP_SUBSCRIBES_PER_DAY = 5;
 const globalDailyCap = () => Number(process.env.RESUME_CHECK_DAILY_CAP) || 200;
 
 let _anthropic = null;
-const getAnthropic = () => (_anthropic ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
+const getAnthropic = () => (_anthropic ??= instrumentAnthropic(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })));
 
 function clientIp(req) {
   return req.headers['fly-client-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || 'unknown';

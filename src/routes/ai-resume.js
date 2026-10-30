@@ -1,6 +1,7 @@
 // routes/ai-resume.js - ES Module version for existing project
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import { instrumentAnthropic } from '../utils/failureReporter.js';
 import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
@@ -33,7 +34,7 @@ async function requireAuth(req, res, next) {
 // Lazy-initialized clients
 let _anthropic = null;
 function getAnthropic() {
-  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!_anthropic) _anthropic = instrumentAnthropic(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
   return _anthropic;
 }
 
