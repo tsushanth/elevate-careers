@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js';
 import { db } from '../db/index.js';
 import { enqueueJob } from '../services/queue.js';
 import { createClient } from '@supabase/supabase-js';
+import { serverErrorReport } from '../utils/failureReporter.js';
 import { unescapeMarkdown } from '../utils/unescapeMarkdown.js';
 
 import { recomputeSignals } from '../services/signals.js';
@@ -28,6 +29,7 @@ function getSupabase() {
 }
 
 const app = express();
+app.use(serverErrorReport()); // any 5xx a route returns itself becomes one backend_error (route pattern, no ids)
 
 // CORS must run before helmet so preflight OPTIONS are answered before
 // helmet's restrictive headers (cross-origin-resource-policy: same-origin)

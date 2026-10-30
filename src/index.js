@@ -1,6 +1,10 @@
 import config from './config/index.js';
 import { logger } from './utils/logger.js';
 import { db } from './db/index.js';
+import { installCrashHandlers } from './utils/failureReporter.js';
+import { createMonitor, startMonitoringSweep } from './services/monitoring.js';
+
+installCrashHandlers();
 
 async function startServer() {
   try {
@@ -54,6 +58,9 @@ async function startServer() {
 
       const HOST = '0.0.0.0';
       
+      // Ingest freshness + extension failure signals on the API's own clock (the ingest cron is a separate machine and may not fire).
+      if (config.nodeEnv !== 'test' && Number(process.env.MONITOR_SWEEP_MS ?? 30 * 60_000) > 0) startMonitoringSweep(createMonitor({ db }), Number(process.env.MONITOR_SWEEP_MS ?? 30 * 60_000));
+
       const server = app.listen(config.port, () => {
         logger.info({ 
           port: config.port, 

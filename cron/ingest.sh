@@ -8,10 +8,20 @@ SECRET="${INGEST_SECRET}"
 
 echo "Starting daily ingestion $(date)"
 
+# Failure signal: POSTs to the central failure reporter (emails the owner, deduped per hour). No-op until FAILURE_REPORTER_KEY is set
+# on this Fly app. Messages are fixed strings; never put company names or other content in them.
+alert() { # $1 = stable message, $2 = counts string
+  [ -z "$FAILURE_REPORTER_KEY" ] && return 0
+  curl -s --max-time 10 -X POST "https://app-failure-reporter.t-sushanth.workers.dev/v1/report" \
+    -H 'Content-Type: application/json' -H "X-Report-Key: $FAILURE_REPORTER_KEY" \
+    -d "{\"kind\":\"failure\",\"platform\":\"backend\",\"version\":\"cron\",\"flow\":\"ingest-cron\",\"message\":\"$1\",\"stack\":\"\",\"context\":{\"detail\":\"$2\"}}" >/dev/null 2>&1 || true
+}
+SYNC_OK=0; SYNC_FAIL=0
+
 echo "Step 1: Refreshing company list from GitHub datasets..."
 BOOTSTRAP=$(curl -sf --max-time 30 -X POST "$API/ingest/bootstrap-discovery" \
   -H 'Content-Type: application/json' \
-  -d "{\"secret\":\"$SECRET\"}" 2>&1) && echo "Bootstrap: $BOOTSTRAP" || echo "Bootstrap failed, continuing with existing list"
+  -d "{\"secret\":\"$SECRET\"}" 2>&1) && echo "Bootstrap: $BOOTSTRAP" || { echo "Bootstrap failed, continuing with existing list"; alert "ingest bootstrap failed" "none"; }
 
 # Give bootstrap time to fetch and upsert before ingesting
 sleep 60
@@ -22,18 +32,22 @@ echo "Step 2: Ingesting jobs for all discovered companies..."
 # mid-run. This machine is untouched by API deploys, so it survives them.
 QUEUE=$(curl -sf --max-time 30 "$API/ingest/queue?secret=$SECRET&limit=6000")
 COUNT=$(echo "$QUEUE" | jq -r '.companies | length' 2>/dev/null)
+if [ -z "$COUNT" ] || [ "$COUNT" = "null" ]; then alert "ingest queue fetch failed" "none"; fi
 echo "Queue: $COUNT companies to ingest"
 
-echo "$QUEUE" | jq -r '.companies[] | "\(.provider) \(.org)"' 2>/dev/null | while read -r provider org; do
+# Read from a file, not a pipe: a piped loop runs in a subshell in ash and the ok/failed counters would be lost.
+echo "$QUEUE" | jq -r '.companies[] | "\(.provider) \(.org)"' > /tmp/ingest-queue.txt 2>/dev/null
+while read -r provider org; do
   [ -z "$org" ] && continue
   echo "Ingesting $provider/$org..."
   curl -sf --max-time 20 -X POST "$API/ingest/sync" \
     -H 'Content-Type: application/json' \
     -d "{\"provider\":\"$provider\",\"org\":\"$org\",\"secret\":\"$SECRET\"}" \
-    >/dev/null || echo "  → failed, continuing"
+    >/dev/null && SYNC_OK=$((SYNC_OK + 1)) || { SYNC_FAIL=$((SYNC_FAIL + 1)); echo "  → failed, continuing"; }
   sleep 2
-done
-echo "Sync loop complete $(date)"
+done < /tmp/ingest-queue.txt
+echo "Sync loop complete $(date) ok=$SYNC_OK failed=$SYNC_FAIL"
+if [ $((SYNC_OK + SYNC_FAIL)) -gt 0 ] && [ $((SYNC_FAIL * 2)) -gt $((SYNC_OK + SYNC_FAIL)) ]; then alert "ingest sync failing for most companies" "ok=$SYNC_OK failed=$SYNC_FAIL"; fi
 
 echo "Step 3: Scraping jobs via JobSpy (Indeed + LinkedIn), one query per request..."
 # One query per HTTP call, not all 8 batched into a single request — the
