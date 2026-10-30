@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
+import { recordApplication, reportOutcome } from '../services/applicationTracker.js';
 import { nonUsTextRegexJs } from '../services/geo.js';
 import { makeParseHandler, createDailyLimiter, parseBodyErrorHandler, ACCEPTED_TYPES, MAX_FILE_BYTES } from '../services/resumeParse.js';
 import { getRedis } from '../services/redis.js';
@@ -1038,28 +1039,13 @@ router.post('/profile/sync', requireAuth, async (req, res) => {
 // ── Job application tracker ───────────────────────────────────────────────────
 router.post('/applications/track', requireAuth, async (req, res) => {
   try {
-    const { jobUrl, jobTitle, company, fieldCount, aiUsed, filled, skipped, errors } = req.body;
-    if (!jobUrl) return res.status(400).json({ error: 'jobUrl required' });
+    if (!req.body.jobUrl) return res.status(400).json({ error: 'jobUrl required' });
 
     const sb = getSupabase();
-    const jobId = await resolveJobIdForUrl(jobUrl);
-    const { data, error } = await sb.from('job_applications').insert({
-      user_id:        req.user.id,
-      job_url:        jobUrl,
-      job_title:      jobTitle || null,
-      company:        company  || null,
-      job_id:         jobId,
-      field_count:    fieldCount || 0,
-      ai_used:        !!aiUsed,
-      fields_filled:  filled  || 0,
-      fields_skipped: skipped || 0,
-      fields_errored: errors  || 0,
-    }).select('id').single();
-
-    if (error) throw error;
+    const { id } = await recordApplication({ sb, resolveJobId: resolveJobIdForUrl, userId: req.user.id, body: req.body });
     // Recompute signals async — don't block the response
     recomputeSignals(req.user.id).catch(() => {});
-    res.json({ ok: true, id: data.id });
+    res.json({ ok: true, id });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1087,13 +1073,7 @@ router.patch('/applications/:id/report', requireAuth, async (req, res) => {
     const { submitted } = req.body;
     if (typeof submitted !== 'boolean') return res.status(400).json({ error: 'submitted must be boolean' });
 
-    const sb = getSupabase();
-    const { error } = await sb.from('job_applications')
-      .update({ submitted, submitted_at: new Date().toISOString() })
-      .eq('id', req.params.id)
-      .eq('user_id', req.user.id);
-
-    if (error) throw error;
+    await reportOutcome({ sb: getSupabase(), userId: req.user.id, id: req.params.id, submitted });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

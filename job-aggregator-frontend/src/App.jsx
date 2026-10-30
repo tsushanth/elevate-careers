@@ -444,6 +444,7 @@ function App() {
                         jobUrl: selectedJob.apply_url,
                         jobTitle: selectedJob.title,
                         company: selectedJob.company_name,
+                        stage: 'opened',
                       }),
                     });
                   } catch (e) {
