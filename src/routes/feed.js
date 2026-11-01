@@ -15,6 +15,7 @@ import { loadAppliedJobIds } from '../services/appliedJobs.js';
 import { normalizePrefs } from '../services/feedPrefs.js';
 import { roleMatchEnabled } from '../services/roleMatch.js';
 import { nearEnabled } from '../services/nearHome.js';
+import { ingestSecretOk } from '../utils/sharedSecret.js';
 
 let _supabase = null;
 function getSupabase() {
@@ -123,7 +124,7 @@ if (process.env.FEED_RECONCILE_DISABLED !== '1') {
 
 export const ingestRouter = express.Router();
 ingestRouter.post('/rebuild-geo-places', async (req, res) => {
-  if (!process.env.INGEST_SECRET || req.body?.secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+  if (!ingestSecretOk(req.body?.secret)) return res.status(401).json({ error: 'unauthorized' });
   try { res.json({ ok: true, ...(await rebuildGeoPlaces(db)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });

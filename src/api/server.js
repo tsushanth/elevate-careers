@@ -17,6 +17,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { reportBackendError, reportFailure, instrumentAnthropic } from '../utils/failureReporter.js';
 import { connection as queueConnection } from '../services/queue.js';
 import { createHash } from 'node:crypto';
+import { ingestSecretOk } from '../utils/sharedSecret.js';
 import { createFeedCache } from '../services/feedCache.js';
 import { getRedis } from '../services/redis.js';
 import { buildJobsQuery, jobsCacheKey, createLimiter, startJobsWarmer } from '../services/jobsList.js';
@@ -122,7 +123,7 @@ app.use('/ingest', feedIngestRoutes);
 app.post('/ingest/bootstrap-discovery', async (req, res) => {
   try {
     const { secret } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     res.json({ ok: true, status: 'bootstrapping in background' });
 
@@ -242,7 +243,7 @@ app.post('/ingest/bootstrap-discovery', async (req, res) => {
 app.post('/ingest/backfill-tsv-weights', async (req, res) => {
   try {
     const { secret } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     const result = await db.query(`
       UPDATE job SET tsv =
@@ -261,7 +262,7 @@ app.post('/ingest/backfill-tsv-weights', async (req, res) => {
 app.post('/ingest/backfill-logos', async (req, res) => {
   try {
     const { secret, limit = 500 } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     const { rows } = await db.query(
       `SELECT id, name FROM company WHERE logo_domain IS NULL ORDER BY id LIMIT $1`,
@@ -328,7 +329,7 @@ app.post('/ingest/report-org', async (req, res) => {
 app.get('/ingest/queue', async (req, res) => {
   try {
     const { secret, limit = 6000 } = req.query;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
     const { rows } = await db.query(
       `SELECT provider, org FROM discovered_company WHERE enabled = true ORDER BY last_ingested_at ASC NULLS FIRST LIMIT $1`,
       [limit]
@@ -344,7 +345,7 @@ app.get('/ingest/queue', async (req, res) => {
 app.post('/ingest/sync-all', async (req, res) => {
   try {
     const { secret } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     // Pull from discovered_company table first, fall back to companies.json
     let tasks = [];
@@ -398,7 +399,7 @@ app.post('/ingest/sync-all', async (req, res) => {
 app.post('/ingest/sync', async (req, res) => {
   try {
     const { provider, org, secret } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
     if (!provider || !org) return res.status(400).json({ error: 'provider and org required' });
     res.json({ ok: true, org, provider, status: 'processing' });
     // Process after response to avoid Fly's 30s request timeout
@@ -549,7 +550,7 @@ app.post('/ingest/discover', async (req, res) => {
 app.post('/ingest/jobspy', async (req, res) => {
   try {
     const { secret, queries, max_results = 50, sites } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     const jobspyUrl = process.env.JOBSPY_URL || 'https://elevate-careers-jobspy.fly.dev';
     const jobspySecret = process.env.JOBSPY_SECRET || '';
@@ -631,7 +632,7 @@ app.post('/ingest/jobspy', async (req, res) => {
 app.post('/ingest/linkedin', async (req, res) => {
   try {
     const { secret, jobs: rawJobs } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
     if (!Array.isArray(rawJobs)) return res.status(400).json({ error: 'jobs must be an array' });
 
     logger.info({ count: rawJobs.length }, 'linkedin ingest received');
@@ -705,7 +706,7 @@ app.post('/ingest/linkedin', async (req, res) => {
 app.post('/ingest/backfill-known-locations', async (req, res) => {
   try {
     const { secret } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     const { rows } = await db.query(`
       SELECT id, city FROM job_location
@@ -758,7 +759,7 @@ app.post('/ingest/backfill-known-locations', async (req, res) => {
 app.post('/ingest/h1b-sponsorship-data', async (req, res) => {
   try {
     const { secret, years } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS company_h1b_sponsorship (
@@ -881,7 +882,7 @@ app.post('/ingest/h1b-sponsorship-data', async (req, res) => {
 app.post('/ingest/h1b-sponsorship-data-raw', async (req, res) => {
   try {
     const { secret, rows } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
     if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows must be an array' });
 
     await db.query(`
@@ -962,7 +963,7 @@ app.post('/ingest/h1b-sponsorship-data-raw', async (req, res) => {
 app.post('/ingest/classify-locations', async (req, res) => {
   try {
     const { secret, limit = 40 } = req.body;
-    if (secret !== process.env.INGEST_SECRET) return res.status(401).json({ error: 'unauthorized' });
+    if (!ingestSecretOk(secret)) return res.status(401).json({ error: 'unauthorized' });
 
     // Confirmed-noise strings ("Remote", "Hybrid", "N/A" — high-volume,
     // genuinely no place name) used to get re-asked about on every single
