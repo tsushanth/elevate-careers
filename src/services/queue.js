@@ -2,6 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import config from '../config/index.js';
 import { logger } from '../utils/logger.js';
+import { reportFailure, reportProviderError } from '../utils/failureReporter.js';
 
 let connection = null;
 let jobQueue = null;
@@ -17,6 +18,7 @@ if (config.redis.host && config.redis.host !== 'localhost') {
     retryStrategy: (times) => {
       if (times > 3) {
         logger.warn('Redis connection failed after 3 retries, disabling queue');
+        reportFailure('redis', 'redis unreachable after retries, queue permanently disabled until restart', { service: process.env.SERVICE_MODE || 'api' });
         return null; // Stop retrying
       }
       return Math.min(times * 1000, 3000);
@@ -29,6 +31,7 @@ if (config.redis.host && config.redis.host !== 'localhost') {
 
   connection.on('error', (err) => {
     logger.warn({ error: err.message }, 'Redis connection error - queue disabled');
+    reportFailure('redis', 'redis connection error', { code: String(err?.code || 'unknown') });
   });
 
   // Job Queue
@@ -68,6 +71,7 @@ export async function enqueueJob(jobType, data) {
     return job;
   } catch (error) {
     logger.error({ error, jobType, data }, 'Failed to enqueue job');
+    reportFailure('enqueue', 'failed to enqueue ingestion job', { jobType: String(jobType), provider: String(data?.provider || '') });
     throw error;
   }
 }
@@ -88,10 +92,18 @@ export function createWorker(processor) {
 
   worker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, err }, 'Job failed');
+    reportProviderError('ingest-source', err);
+    reportFailure('ingest-worker', 'ingestion job failed', { provider: String(job?.data?.provider || ''), attemptsMade: String(job?.attemptsMade ?? '') });
   });
 
   worker.on('error', (err) => {
     logger.error({ err }, 'Worker error');
+    reportFailure('ingest-worker', 'ingestion worker error', { code: String(err?.code || 'unknown') });
+  });
+
+  worker.on('stalled', (jobId) => {
+    logger.warn({ jobId }, 'Job stalled');
+    reportFailure('ingest-worker', 'ingestion job stalled', {});
   });
 
   return worker;

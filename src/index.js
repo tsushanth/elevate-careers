@@ -1,13 +1,27 @@
 import config from './config/index.js';
 import { logger } from './utils/logger.js';
 import { db } from './db/index.js';
+import { reportFailure, reportCrash } from './utils/failureReporter.js';
+import { startMonitor } from './services/monitor.js';
+import { jobQueue } from './services/queue.js';
+
+process.on('unhandledRejection', (reason) => {
+  logger.error({ error: reason }, 'Unhandled rejection');
+  reportFailure('unhandled-rejection', 'unhandled promise rejection', { mode: config.serviceMode });
+});
+process.on('uncaughtException', async (err) => {
+  logger.error({ error: err }, 'Uncaught exception');
+  await reportCrash(`uncaught-exception:${config.serviceMode}`, err);
+  process.exit(1);
+});
+import { createMonitor, startMonitoringSweep } from './services/monitoring.js';
 
 async function startServer() {
   try {
     // Test database connection
     const dbHealthy = await db.healthCheck();
     if (!dbHealthy) {
-      throw new Error('Database health check failed');
+      throw new Error('Database health check failed at startup');
     }
     logger.info('Database connected successfully');
 
@@ -33,6 +47,8 @@ async function startServer() {
       
       // Start the actual worker
       await import('./workers/worker.js');
+      // Dead-man checks (stalled queue, stale ingestion, stuck applies); only the always-on worker runs them.
+      startMonitor({ db, queue: jobQueue });
       
       // Graceful shutdown for worker
       const shutdownWorker = async (signal) => {
@@ -54,6 +70,9 @@ async function startServer() {
 
       const HOST = '0.0.0.0';
       
+      // Ingest freshness + extension failure signals on the API's own clock (the ingest cron is a separate machine and may not fire).
+      if (config.nodeEnv !== 'test' && Number(process.env.MONITOR_SWEEP_MS ?? 30 * 60_000) > 0) startMonitoringSweep(createMonitor({ db }), Number(process.env.MONITOR_SWEEP_MS ?? 30 * 60_000));
+
       const server = app.listen(config.port, () => {
         logger.info({ 
           port: config.port, 
@@ -83,6 +102,7 @@ async function startServer() {
     }
   } catch (error) {
     logger.error({ error }, 'Failed to start server');
+    await reportCrash('startup', error);
     process.exit(1);
   }
 }

@@ -9,6 +9,7 @@
 //   POST /api/repair/admin/rules   — upsert an approved rule
 //   POST /api/repair/admin/resolve — mark queue items resolved
 
+import { reportFailure } from '../utils/failureReporter.js';
 import { Router } from 'express';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
@@ -49,6 +50,7 @@ router.post('/queue', async (req, res) => {
     `, [domain, label, fieldType, html, failReason, fillTried]);
   } catch (e) {
     logger.error({ error: e, domain, label }, 'repair_queue upsert failed');
+    reportFailure('repair:queue_upsert_failed', new Error('repair_queue upsert failed')); // the client got 200 already: this is the only signal
   }
 });
 

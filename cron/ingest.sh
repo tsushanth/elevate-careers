@@ -6,12 +6,22 @@
 API="https://elevate-careers-api.fly.dev"
 SECRET="${INGEST_SECRET}"
 
+# Failure signal to the central reporter (needs a reporter key for app "elevatecareers": fly secrets set
+# FAILURE_REPORTER_KEY=... -a elevate-careers-cron). Stable messages only, no company names. Never fails the run.
+REPORTER_URL="${FAILURE_REPORTER_URL:-https://app-failure-reporter.t-sushanth.workers.dev/v1/report}"
+FAILS=$(mktemp)
+report() { # report <flow> <message>
+  curl -s --max-time 10 -X POST "$REPORTER_URL" -H 'Content-Type: application/json' \
+    -H "X-Report-Key: ${FAILURE_REPORTER_KEY:-elevatecareers}" \
+    -d "{\"kind\":\"failure\",\"platform\":\"backend\",\"flow\":\"$1\",\"message\":\"$2\",\"context\":{}}" >/dev/null 2>&1 || true
+}
+
 echo "Starting daily ingestion $(date)"
 
 echo "Step 1: Refreshing company list from GitHub datasets..."
 BOOTSTRAP=$(curl -sf --max-time 30 -X POST "$API/ingest/bootstrap-discovery" \
   -H 'Content-Type: application/json' \
-  -d "{\"secret\":\"$SECRET\"}" 2>&1) && echo "Bootstrap: $BOOTSTRAP" || echo "Bootstrap failed, continuing with existing list"
+  -d "{\"secret\":\"$SECRET\"}" 2>&1) && echo "Bootstrap: $BOOTSTRAP" || { echo "Bootstrap failed, continuing with existing list"; report "cron:ingest" "ingest bootstrap discovery request failed"; }
 
 # Give bootstrap time to fetch and upsert before ingesting
 sleep 60
@@ -20,8 +30,9 @@ echo "Step 2: Ingesting jobs for all discovered companies..."
 # The loop runs HERE, on the cron machine, not as a background task inside the
 # API process — that used to mean every unrelated API deploy killed ingestion
 # mid-run. This machine is untouched by API deploys, so it survives them.
-QUEUE=$(curl -sf --max-time 30 "$API/ingest/queue?secret=$SECRET&limit=6000")
+QUEUE=$(curl -sf --max-time 30 "$API/ingest/queue?secret=$SECRET&limit=6000") || report "cron:ingest" "ingest queue fetch failed, no companies ingested today"
 COUNT=$(echo "$QUEUE" | jq -r '.companies | length' 2>/dev/null)
+case "$COUNT" in ''|0|null) report "cron:ingest" "ingest queue empty or unreadable, no companies ingested today";; esac
 echo "Queue: $COUNT companies to ingest"
 
 echo "$QUEUE" | jq -r '.companies[] | "\(.provider) \(.org)"' 2>/dev/null | while read -r provider org; do
@@ -30,10 +41,15 @@ echo "$QUEUE" | jq -r '.companies[] | "\(.provider) \(.org)"' 2>/dev/null | whil
   curl -sf --max-time 20 -X POST "$API/ingest/sync" \
     -H 'Content-Type: application/json' \
     -d "{\"provider\":\"$provider\",\"org\":\"$org\",\"secret\":\"$SECRET\"}" \
-    >/dev/null || echo "  → failed, continuing"
+    >/dev/null || { echo "  → failed, continuing"; echo x >> "$FAILS"; }
   sleep 2
 done
-echo "Sync loop complete $(date)"
+FAILED=$(wc -l < "$FAILS" | tr -d ' ')
+echo "Sync loop complete $(date) (failed: $FAILED of ${COUNT:-0})"
+# More than a quarter failing means the API/DB was down or an adapter broke, not a few dead boards.
+if [ "${COUNT:-0}" -gt 0 ] 2>/dev/null && [ $((FAILED * 4)) -gt "$COUNT" ]; then
+  report "cron:ingest" "more than 25 percent of company syncs failed in the daily ingestion"
+fi
 
 echo "Step 3: Scraping jobs via JobSpy (Indeed + LinkedIn), one query per request..."
 # One query per HTTP call, not all 8 batched into a single request — the
@@ -66,9 +82,11 @@ echo "$JOBSPY_QUERIES" | while IFS='|' read -r keyword location; do
       \"max_results\": 50,
       \"sites\": [\"indeed\", \"linkedin\"],
       \"queries\": [{\"keyword\": \"$keyword\", \"location\": \"$location\"}]
-    }") && echo "  → $RESULT" || echo "  → failed, continuing"
+    }") && echo "  → $RESULT" || { echo "  → failed, continuing"; echo x >> "$FAILS.jobspy"; }
   sleep 3
 done
+
+[ "$(wc -l < "$FAILS.jobspy" 2>/dev/null || echo 0)" -ge 8 ] && report "cron:jobspy" "all JobSpy queries failed in the daily ingestion"
 
 echo "Step 4: Backfilling job_location rows geo.js can already resolve..."
 # Runs before the AI classify step — free, instant, exact-match only. Covers
@@ -101,3 +119,4 @@ for i in 1 2 3 4 5 6; do
 done
 
 echo "Daily ingestion triggered $(date)"
+rm -f "$FAILS" "$FAILS.jobspy"
