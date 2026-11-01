@@ -21,7 +21,7 @@ echo "Starting daily ingestion $(date)"
 echo "Step 1: Refreshing company list from GitHub datasets..."
 BOOTSTRAP=$(curl -sf --max-time 30 -X POST "$API/ingest/bootstrap-discovery" \
   -H 'Content-Type: application/json' \
-  -d "{\"secret\":\"$SECRET\"}" 2>&1) && echo "Bootstrap: $BOOTSTRAP" || echo "Bootstrap failed, continuing with existing list"
+  -d "{\"secret\":\"$SECRET\"}" 2>&1) && echo "Bootstrap: $BOOTSTRAP" || { echo "Bootstrap failed, continuing with existing list"; report "cron:ingest" "ingest bootstrap discovery request failed"; }
 
 # Give bootstrap time to fetch and upsert before ingesting
 sleep 60

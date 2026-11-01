@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
+import { reportBackendError } from './failureReporter.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -214,6 +215,14 @@ export function createApp({ legacyToken, claudeClient } = {}) {
     const tier = c.get('tier');
     const count = c.get('monthlyCount') || 0;
     return c.json({ tier, monthlyCount: count, limit: FREE_MONTHLY_LIMIT, userId });
+  });
+
+  // Unhandled errors (including the LLM provider rejecting us: bad key, credit exhausted, rate limit) used to end as Hono's bare 500
+  // with only a console line. One stable report per route + provider status; never the prompt, answer or profile.
+  app.onError((e, c) => {
+    const status = Number.isInteger(e?.status) ? String(e.status) : 'none';
+    reportBackendError(`${c.req.method} ${c.req.routePath ?? '(unmatched)'}`, new Error(status === 'none' ? 'unhandled error' : `upstream provider error ${status}`), { provider_status: status });
+    return c.text('Internal Server Error', 500);
   });
 
   return app;

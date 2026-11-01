@@ -22,7 +22,7 @@ test('reporter is silent under NODE_ENV=test (no network)', () => {
 });
 
 test('reporter posts stable payload without user content when enabled', async () => {
-  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production';
+  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production'; process.env.FAILURE_REPORTER_KEY = 'test-key';
   const orig = globalThis.fetch; const bodies = [];
   globalThis.fetch = async (_u, o) => { bodies.push(JSON.parse(o.body)); return {}; };
   try {
@@ -39,7 +39,7 @@ test('reporter posts stable payload without user content when enabled', async ()
 });
 
 test('instrumentAnthropic reports provider-wide failures once per call and rethrows', async () => {
-  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production';
+  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production'; process.env.FAILURE_REPORTER_KEY = 'test-key';
   const orig = globalThis.fetch; const bodies = [];
   globalThis.fetch = async (_u, o) => { bodies.push(JSON.parse(o.body)); return {}; };
   try {

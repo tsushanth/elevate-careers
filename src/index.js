@@ -14,6 +14,7 @@ process.on('uncaughtException', async (err) => {
   await reportCrash(`uncaught-exception:${config.serviceMode}`, err);
   process.exit(1);
 });
+import { createMonitor, startMonitoringSweep } from './services/monitoring.js';
 
 async function startServer() {
   try {
@@ -69,6 +70,9 @@ async function startServer() {
 
       const HOST = '0.0.0.0';
       
+      // Ingest freshness + extension failure signals on the API's own clock (the ingest cron is a separate machine and may not fire).
+      if (config.nodeEnv !== 'test' && Number(process.env.MONITOR_SWEEP_MS ?? 30 * 60_000) > 0) startMonitoringSweep(createMonitor({ db }), Number(process.env.MONITOR_SWEEP_MS ?? 30 * 60_000));
+
       const server = app.listen(config.port, () => {
         logger.info({ 
           port: config.port, 

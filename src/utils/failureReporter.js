@@ -3,19 +3,24 @@
  * Fire-and-forget: never throws, never blocks. Silent unless NODE_ENV=production, and always when FAILURE_REPORTER_DISABLED=1.
  * Never pass user content (ids, emails, resume text, job text) as message or context. Messages must be STABLE per
  * failure class (the Worker fingerprints on them): put variable detail in context, never in the message.
- * NEEDS a reporter key for app "elevatecareers" (APP_KEYS in the Worker + `fly secrets set FAILURE_REPORTER_KEY=...`
- * on elevate-careers-api, elevate-careers-worker and elevate-playwright-worker). Until then reports are 401'd and dropped.
+ * Uses the reporter key for app "elevatecareers" (also covers SimplyApply, which shares this backend), supplied as the Fly secret
+ * FAILURE_REPORTER_KEY on every service. Without the key every call is a no-op.
  */
 const ENDPOINT = process.env.FAILURE_REPORTER_URL || 'https://app-failure-reporter.t-sushanth.workers.dev/v1/report';
-const KEY = () => process.env.FAILURE_REPORTER_KEY || 'elevatecareers';
+const KEY = () => process.env.FAILURE_REPORTER_KEY || '';
 const VERSION = process.env.FLY_IMAGE_REF || process.env.npm_package_version || 'unknown';
 const isDisabled = () =>
   process.env.FAILURE_REPORTER_DISABLED === '1' || process.env.NODE_ENV !== 'production';
 
+let sink = null;
+/** Tests only: capture reports instead of sending. */
+export function _setSink(fn) { sink = fn; }
+
 async function post(kind, flow, err, context, timeoutMs) {
-  if (isDisabled()) return;
+  const e = err instanceof Error ? err : new Error(String(err));
+  if (sink) { sink({ kind, flow, message: e.message, context }); return; }
+  if (isDisabled() || !KEY()) return;
   try {
-    const e = err instanceof Error ? err : new Error(String(err));
     await fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Report-Key': KEY() },
@@ -36,7 +41,7 @@ export function reportBackendError(method, path, err, statusCode) {
 
 /** A background job / queue / cron failed. `message` is a stable string per class. */
 export function reportFailure(flow, message, context = {}) {
-  void post('failure', flow, new Error(message), context, 5000);
+  void post('failure', flow, message instanceof Error ? message : new Error(message), context, 5000);
 }
 
 /** Process is about to die: await before process.exit so the email goes out. */
