@@ -16,6 +16,10 @@ import { REGION_CODES, nonUsTitleRegex, resolveLocationToken } from '../services
 import Anthropic from '@anthropic-ai/sdk';
 import { reportBackendError, reportFailure, instrumentAnthropic } from '../utils/failureReporter.js';
 import { connection as queueConnection } from '../services/queue.js';
+import { createHash } from 'node:crypto';
+import { createFeedCache } from '../services/feedCache.js';
+import { getRedis } from '../services/redis.js';
+import { buildJobsQuery, jobsCacheKey, createLimiter, startJobsWarmer } from '../services/jobsList.js';
 
 const NON_US_REGION_CODES_SQL = REGION_CODES.join('|');
 const NON_US_TITLE_REGEX_SQL = nonUsTitleRegex();
@@ -1330,36 +1334,40 @@ function setCache(key, data) {
   jobCache.set(key, { data, ts: Date.now() });
 }
 
+// GET /jobs: stale-while-revalidate (60 s fresh, 10 min servable-stale) in Redis + a small in-process
+// layer, single-flight per key, and at most 3 heavy loads at once. See services/jobsList.js for why.
+const jobsCache = createFeedCache({ redis: getRedis(), ttlMs: 60_000, staleMs: 600_000, prefix: 'jobs:v1:' });
+const jobsLimiter = createLimiter(3);
+const NON_US = { regionCodesSql: NON_US_REGION_CODES_SQL, titleRegexSql: NON_US_TITLE_REGEX_SQL };
+const sha1 = (s) => createHash('sha1').update(s).digest('hex');
+
+function jobsLoader({ text, params, limit, offset }) {
+  return () => jobsLimiter(async () => {
+    const result = await db.query(text, params);
+    return { jobs: result.rows, count: result.rows.length, offset, limit };
+  });
+}
+
+// Keep the default first page (the one the Android app requests on launch) fresh.
+if (config.nodeEnv !== 'test' && process.env.JOBS_WARMER !== 'off') {
+  startJobsWarmer({
+    cache: jobsCache, logger,
+    hotKeys: () => {
+      const q = buildJobsQuery({ filters: { limit: 50, offset: 0 }, nonUs: NON_US });
+      return [{ key: jobsCacheKey(q.text, q.params, sha1), load: jobsLoader(q) }];
+    },
+  });
+}
+
 app.get('/jobs', async (req, res) => {
   try {
-    const {
-      keyword,
-      location,
-      remote,
-      company,
-      provider,
-      posted_since,
-      employment_type,
-      salary_min,
-      days,
-      limit = 50,
-      offset = 0,
-    } = req.query;
-
     // Optional auth: unlike /jobs/personalized, a token isn't required here
     // -- this stays the public listing endpoint. But when a signed-in user
     // hits it (e.g. the frontend falls back to this route the moment any
     // search/location/remote filter is active, per fetchJobs in App.jsx),
-    // their preferences must still apply. Before this, /jobs ignored
-    // dismissed jobs, excluded companies/titles/locations, and the
-    // non-US-location filter entirely -- a dismissed card, or a job in a
-    // country the user's profile says "USA," could reappear the instant
-    // any filter box was used, since only /jobs/personalized ever checked
-    // any of that. A bad/expired token here is not an error; it just means
-    // no preference filtering, same as an anonymous request. SQL/params for
-    // this are built below, once paramCount is known, not here.
-    let pref = null;
-    let dismissedJobIds = [];
+    // their preferences must still apply. A bad/expired token here is not an
+    // error; it just means no preference filtering, same as an anonymous request.
+    let exclusions = null;
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (token) {
       try {
@@ -1372,159 +1380,24 @@ app.get('/jobs', async (req, res) => {
               .eq('user_id', user.id).single(),
             sb.from('dismissed_jobs').select('job_id').eq('user_id', user.id),
           ]);
-          pref = prefRow || {};
-          dismissedJobIds = (dismissedRows || []).map(r => r.job_id).filter(Boolean);
+          const pref = prefRow || {};
+          exclusions = {
+            dismissedJobIds: (dismissedRows || []).map(r => r.job_id).filter(Boolean),
+            excludedCompanies: (pref.excluded_companies || []).map(normalizeCompanyName),
+            excludedTitles: (pref.excluded_titles || []).map(normalizeTitle),
+            excludedLocations: pref.excluded_locations || [],
+            locationPref: pref.location || '',
+          };
         }
       } catch (e) {
         logger.warn({ err: e.message }, 'Optional auth pref-filter on /jobs failed -- continuing unfiltered');
       }
     }
 
-    let query = `
-      SELECT 
-        j.*,
-        c.name as company_name,
-        c.domain as company_domain, c.logo_domain as company_logo_domain,
-        array_agg(DISTINCT jl.city) FILTER (WHERE jl.city IS NOT NULL) as cities,
-        array_agg(DISTINCT jl.country) FILTER (WHERE jl.country IS NOT NULL) as countries
-      FROM job j
-      JOIN company c ON j.company_id = c.id
-      LEFT JOIN job_location jl ON j.id = jl.job_id
-      WHERE j.is_active = true
-    `;
-
-    const params = [];
-    let paramCount = 0;
-
-    if (keyword) {
-      paramCount++;
-      query += ` AND j.tsv @@ plainto_tsquery('english', $${paramCount})`;
-      params.push(keyword);
-    }
-    
-    if (location) {
-      paramCount++;
-      query += ` AND EXISTS (
-        SELECT 1 FROM job_location 
-        WHERE job_id = j.id 
-        AND (city ILIKE $${paramCount} OR region ILIKE $${paramCount} OR country ILIKE $${paramCount})
-      )`;
-      params.push(`%${location}%`);
-    }
-    
-    if (remote === 'true') {
-      query += ` AND j.remote = true`;
-    }
-    
-    if (company) {
-      paramCount++;
-      query += ` AND c.name ILIKE $${paramCount}`;
-      params.push(`%${company}%`);
-    }
-
-    if (provider) {
-      paramCount++;
-      query += ` AND j.provider = $${paramCount}`;
-      params.push(provider);
-    }
-
-    if (posted_since) {
-      paramCount++;
-      query += ` AND j.posted_at >= $${paramCount}`;
-      params.push(posted_since);
-    }
-
-    if (days) {
-      paramCount++;
-      query += ` AND j.posted_at >= NOW() - ($${paramCount} || ' days')::interval`;
-      params.push(parseInt(days));
-    }
-    
-    if (employment_type) {
-      paramCount++;
-      query += ` AND j.employment_type = $${paramCount}`;
-      params.push(employment_type);
-    }
-    
-    if (salary_min) {
-      paramCount++;
-      query += ` AND j.salary_min >= $${paramCount}`;
-      params.push(salary_min);
-    }
-
-    // Preference-based exclusions, built now that paramCount reflects every
-    // explicit filter above — see the optional-auth block near the top of
-    // this handler for why this exists at all.
-    if (pref) {
-      if (dismissedJobIds.length) {
-        paramCount++;
-        query += ` AND j.id != ALL($${paramCount}::bigint[])`;
-        params.push(dismissedJobIds);
-      }
-      if ((pref.excluded_companies || []).length) {
-        paramCount++;
-        query += ` AND c.name_normalized != ALL($${paramCount}::text[])`;
-        params.push(pref.excluded_companies.map(normalizeCompanyName));
-      }
-      if ((pref.excluded_titles || []).length) {
-        paramCount++;
-        query += ` AND lower(trim(regexp_replace(j.title, '\\s+', ' ', 'g'))) != ALL($${paramCount}::text[])`;
-        params.push(pref.excluded_titles.map(normalizeTitle));
-      }
-      if ((pref.excluded_locations || []).length) {
-        paramCount++;
-        query += ` AND NOT EXISTS (
-          SELECT 1 FROM job_location xl WHERE xl.job_id = j.id
-            AND (xl.city = ANY($${paramCount}::text[]) OR xl.region = ANY($${paramCount}::text[]) OR xl.country = ANY($${paramCount}::text[]))
-        )`;
-        params.push(pref.excluded_locations);
-      }
-      // Same non-US signal check as /jobs/personalized's wantsUS branch —
-      // only applied if the user's stored location preference is the US.
-      const locPref = (pref.location || '').trim().toLowerCase();
-      if (['usa', 'us', 'u.s.', 'u.s.a.', 'united states', 'united states of america'].includes(locPref)) {
-        query += ` AND (
-          (
-            NOT EXISTS (SELECT 1 FROM job_location anyloc WHERE anyloc.job_id = j.id)
-            OR EXISTS (
-              SELECT 1 FROM job_location jlf WHERE jlf.job_id = j.id
-                AND (jlf.country IS NULL OR jlf.country ~* '\\y(usa|us|united states)\\y')
-                AND (jlf.region IS NULL OR jlf.region !~* '\\y(${NON_US_REGION_CODES_SQL})\\y')
-            )
-          )
-          AND j.title !~* '${NON_US_TITLE_REGEX_SQL}'
-        )`;
-      }
-    }
-
-    query += ` GROUP BY j.id, c.name, c.domain, c.logo_domain`;
-    query += ` ORDER BY j.posted_at DESC NULLS LAST`;
-    
-    paramCount++;
-    query += ` LIMIT $${paramCount}`;
-    params.push(limit);
-    
-    paramCount++;
-    query += ` OFFSET $${paramCount}`;
-    params.push(offset);
-    
-    const cacheKey = JSON.stringify(params) + query.slice(-20);
-    const cached = getCached(cacheKey);
-    if (cached) {
-      res.set('X-Cache', 'HIT');
-      return res.json(cached);
-    }
-
-    const result = await db.query(query, params);
-    const payload = {
-      jobs: result.rows,
-      count: result.rows.length,
-      offset: parseInt(offset),
-      limit: parseInt(limit),
-    };
-    setCache(cacheKey, payload);
-    res.set('X-Cache', 'MISS');
-    res.json(payload);
+    const q = buildJobsQuery({ filters: req.query, exclusions, nonUs: NON_US });
+    const { value, status } = await jobsCache.getOrLoad(jobsCacheKey(q.text, q.params, sha1), jobsLoader(q));
+    res.set('X-Cache', status);
+    res.json(value);
   } catch (error) {
     logger.error({ error }, 'Jobs API error');
     res.status(500).json({ error: 'Failed to fetch jobs' });
