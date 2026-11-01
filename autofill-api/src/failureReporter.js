@@ -16,6 +16,8 @@ async function post(kind, flow, err, context, timeoutMs) {
   if (sink) { sink({ kind, flow, message: e.message, context }); return; }
   const key = process.env.FAILURE_REPORTER_KEY;
   if (!key || process.env.FAILURE_REPORTER_DISABLED === '1' || process.env.NODE_ENV === 'test') return;
+  // Test runners (node --test, vitest, jest) never post; FAILURE_REPORTER_FORCE=1 overrides, for the reporter's own tests.
+  if ((process.env.VITEST || process.env.JEST_WORKER_ID || process.env.NODE_TEST_CONTEXT) && process.env.FAILURE_REPORTER_FORCE !== '1') return;
   try {
     await fetch(ENDPOINT, {
       method: 'POST',

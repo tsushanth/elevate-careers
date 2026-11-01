@@ -10,7 +10,9 @@ const ENDPOINT = process.env.FAILURE_REPORTER_URL || 'https://app-failure-report
 const KEY = () => process.env.FAILURE_REPORTER_KEY || '';
 const VERSION = process.env.FLY_IMAGE_REF || process.env.npm_package_version || 'unknown';
 const isDisabled = () =>
-  process.env.FAILURE_REPORTER_DISABLED === '1' || process.env.NODE_ENV !== 'production';
+  process.env.FAILURE_REPORTER_DISABLED === '1' || process.env.NODE_ENV !== 'production'
+  // Test runners (node --test, vitest, jest) never post; FAILURE_REPORTER_FORCE=1 overrides, for the reporter's own tests.
+  || !!((process.env.VITEST || process.env.JEST_WORKER_ID || process.env.NODE_TEST_CONTEXT) && process.env.FAILURE_REPORTER_FORCE !== '1');
 
 let sink = null;
 /** Tests only: capture reports instead of sending. */

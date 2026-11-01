@@ -22,7 +22,7 @@ test('reporter is silent under NODE_ENV=test (no network)', () => {
 });
 
 test('reporter posts stable payload without user content when enabled', async () => {
-  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production'; process.env.FAILURE_REPORTER_KEY = 'test-key';
+  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production'; process.env.FAILURE_REPORTER_KEY = 'test-key'; process.env.FAILURE_REPORTER_FORCE = '1';
   const orig = globalThis.fetch; const bodies = [];
   globalThis.fetch = async (_u, o) => { bodies.push(JSON.parse(o.body)); return {}; };
   try {
@@ -35,11 +35,11 @@ test('reporter posts stable payload without user content when enabled', async ()
     assert.equal(bodies[0].flow, 'POST /api/apply/enqueue');
     assert.equal(bodies[1].kind, 'failure');
     assert.equal(bodies[1].message, 'ingestion job failed');
-  } finally { globalThis.fetch = orig; process.env.NODE_ENV = prevEnv; }
+  } finally { globalThis.fetch = orig; process.env.NODE_ENV = prevEnv; delete process.env.FAILURE_REPORTER_FORCE; }
 });
 
 test('instrumentAnthropic reports provider-wide failures once per call and rethrows', async () => {
-  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production'; process.env.FAILURE_REPORTER_KEY = 'test-key';
+  const prevEnv = process.env.NODE_ENV; process.env.NODE_ENV = 'production'; process.env.FAILURE_REPORTER_KEY = 'test-key'; process.env.FAILURE_REPORTER_FORCE = '1';
   const orig = globalThis.fetch; const bodies = [];
   globalThis.fetch = async (_u, o) => { bodies.push(JSON.parse(o.body)); return {}; };
   try {
@@ -55,7 +55,7 @@ test('instrumentAnthropic reports provider-wide failures once per call and rethr
     await assert.rejects(() => c2.messages.create({}), /bad input/);
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(bodies.length, 1);
-  } finally { globalThis.fetch = orig; process.env.NODE_ENV = prevEnv; }
+  } finally { globalThis.fetch = orig; process.env.NODE_ENV = prevEnv; delete process.env.FAILURE_REPORTER_FORCE; }
 });
 
 test('evaluateQueue: stalled only when waiting, nothing active, and no recent completion', () => {
