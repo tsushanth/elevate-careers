@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { savePreferences } from './prefsApi';
+import { extRowBadge } from './applicationBadge';
 
 function statusBadge(status) {
   const map = {
@@ -435,7 +436,7 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
                       fontSize: 11, fontWeight: 600, color: '#057642',
                       background: 'rgba(5,118,66,0.1)', border: '1px solid rgba(5,118,66,0.3)',
                       borderRadius: 4, padding: '2px 7px',
-                    }}>✓ Filled</span>
+                    }}>{extRowBadge(app)}</span>
                   )}
                 </div>
               </div>
