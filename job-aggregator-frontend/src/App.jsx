@@ -6,6 +6,8 @@ import { supabase } from './supabase';
 import { trackFunnel } from './track';
 import { isFreshSignup } from './funnel';
 import AuthModal from './AuthModal';
+import PasswordRecovery from './PasswordRecovery';
+import { RECOVERY_AT_LOAD, RESET_PROBLEM_AT_LOAD } from './recovery';
 import ApplicationsTab from './ApplicationsTab';
 import GrowthTab from './GrowthTab';
 import './App.css';
@@ -97,6 +99,10 @@ function App() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authTab, setAuthTab] = useState('signin');
+  // Password reset: the emailed link lands here with the result in the URL hash (see recovery.js).
+  const [recovering, setRecovering] = useState(RECOVERY_AT_LOAD);
+  const [authView, setAuthView] = useState(RESET_PROBLEM_AT_LOAD ? 'forgot' : 'auth');
+  useEffect(() => { if (RESET_PROBLEM_AT_LOAD) setShowAuthModal(true); }, []);
   const storedSessionAtLoad = React.useMemo(() => hasStoredSession(), []);
   const [showWizard, setShowWizard] = useState(false);
   const wizardCheckedFor = useRef(null);
@@ -142,6 +148,7 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setSessionChecked(true);
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
       // Sign-ups that return through a redirect (Google, or the email confirmation link)
       // never reach AuthModal's onSuccess, so detect them here, once per browser.
       if (event === 'SIGNED_IN' && session?.user) {
@@ -821,6 +828,8 @@ function App() {
       {showAuthModal && (
         <AuthModal
           initialTab={authTab}
+          initialView={authView}
+          notice={authView === 'forgot' && RESET_PROBLEM_AT_LOAD ? 'That reset link has expired or was already used. Enter your email to get a new one.' : ''}
           onSuccess={(s, isNewUser) => {
             setSession(s);
             if (isNewUser) {
@@ -828,11 +837,15 @@ function App() {
               trackFunnel('signup_complete', { method: 'password' });
             }
           }}
-          onClose={() => setShowAuthModal(false)}
+          onClose={() => { setShowAuthModal(false); setAuthView('auth'); }}
         />
       )}
 
-      {showWizard && session && (
+      {recovering && session && (
+        <PasswordRecovery onClose={() => setRecovering(false)} onDone={() => setRecovering(false)} />
+      )}
+
+      {showWizard && session && !recovering && (
         <Suspense fallback={null}>
           <OnboardingWizard
             session={session}
