@@ -11,6 +11,7 @@ export function feedUrl(base, state) {
   if (state.remote) p.set('remote', 'true');
   if (state.type) p.set('type', state.type);
   if (state.days) p.set('days', String(state.days));
+  if (state.salary) p.set('salary_min', String(state.salary));
   if (state.prefsOff) p.set('prefs', 'off');
   if (state.nearOff) p.set('near', 'off');
   if (state.tz) p.set('tz', state.tz);

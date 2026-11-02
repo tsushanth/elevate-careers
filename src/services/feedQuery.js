@@ -81,6 +81,10 @@ export function decodeCursor(s) {
 
 const REGION_RE = /^[A-Za-z0-9]{1,3}$/;
 const TYPE_RE = /^[a-z_]{1,30}$/;
+// Minimum-salary filter: whole USD per year in steps of 10,000 up to 500,000. The steps keep the number of
+// distinct values (and so cache keys / cold scans a caller can cause) at 50, like the pill the web offers.
+export const SALARY_STEP = 10_000;
+export const SALARY_MAX = 500_000;
 
 export function parseFeedParams(query) {
   const country = String(query.country || '').toUpperCase();
@@ -106,11 +110,17 @@ export function parseFeedParams(query) {
   if ((region || city) && !country) return { ok: false, error: 'region and city need a country' };
   const role = String(query.role || '').trim().toLowerCase();
   if (role && !isRoleSlug(role)) return { ok: false, error: 'invalid role' };
+  let salaryMin = null;
+  if (query.salary_min !== undefined && query.salary_min !== '') {
+    const raw = String(query.salary_min);
+    salaryMin = /^\d{1,7}$/.test(raw) ? Number(raw) : NaN;
+    if (!Number.isInteger(salaryMin) || salaryMin < SALARY_STEP || salaryMin > SALARY_MAX || salaryMin % SALARY_STEP !== 0) return { ok: false, error: 'invalid salary_min' };
+  }
   const hasPlace = !!country;
   return {
     ok: true,
-    params: { country, region, city, remote, q, type, days, limit, cursor, hasPlace, role,
-      plain: hasPlace && !remote && !q && !type && days === null && !role },
+    params: { country, region, city, remote, q, type, days, limit, cursor, hasPlace, role, salaryMin,
+      plain: hasPlace && !remote && !q && !type && days === null && !role && salaryMin === null },
   };
 }
 
@@ -154,6 +164,10 @@ function buildWhere(p, { dismissed = [], excludedCompanies = [], prefs = null, m
   }
   if (p.remote) where.push('f.remote');
   if (p.type) where.push(`f.employment_type = ${add(p.type)}`);
+  // Explicit filter: only jobs that state a pay floor at or above it (the same rule as GET /jobs?salary_min),
+  // in dollars (a job in another currency would compare raw numbers). Unlike the saved-preference salary
+  // (feedPrefs.js), which keeps jobs with no salary, this drops them: the user asked for a number.
+  if (p.salaryMin != null) where.push(`f.salary_min >= ${add(p.salaryMin)}`, `coalesce(f.salary_currency, 'USD') = 'USD'`);
   if (p.days !== null) where.push(`f.sort_at >= now() - make_interval(days => ${add(p.days)}::int)`);
   if (p.q) where.push(`f.job_id IN (SELECT id FROM job WHERE tsv @@ plainto_tsquery('english', ${add(p.q)}))`);
   if (dismissed.length) where.push(`f.job_id <> ALL(${add(dismissed)}::bigint[])`);
@@ -296,6 +310,7 @@ export function buildExcludedCountQuery(p, { dismissed = [], excludedCompanies =
 export function feedCacheKey(p, mode = feedOrderMode(), home = null) {
   const { cursor, ...rest } = p;
   if (!rest.role) delete rest.role;   // keys of role-less requests stay what they were before roles existed
+  if (rest.salaryMin == null) delete rest.salaryMin;   // likewise for requests without a salary filter
   const norm = Object.keys(rest).sort().reduce((o, k) => { o[k] = rest[k]; return o; }, {});
   const cur = cursor ? (cursor.tier == null ? [cursor.sortAt, cursor.jobId] : [cursor.sortAt, cursor.jobId, cursor.tier, ...(cursor.bucket === undefined ? [] : [cursor.bucket])]) : null;
   const key = [norm, cur, mode];

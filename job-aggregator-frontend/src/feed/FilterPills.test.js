@@ -51,6 +51,39 @@ test('Clear all also clears the role', async () => {
   await render({ roles: ROLES, role: 'design', onChange, onRoleChange });
   const clear = [...container.querySelectorAll('button')].find(b => b.textContent === 'Clear all');
   await act(async () => { clear.click(); });
-  expect(onChange).toHaveBeenCalledWith({ remote: false, type: '', days: '' });
+  expect(onChange).toHaveBeenCalledWith({ remote: false, type: '', days: '', salary: '' });
   expect(onRoleChange).toHaveBeenCalledWith('');
+});
+
+const salarySelect = () => container.querySelector('select[aria-label="Minimum salary"]');
+
+test('Min salary: an accessible select, Min salary first, dollar floors in order', async () => {
+  await render({});
+  const sel = salarySelect();
+  expect(sel).not.toBeNull();
+  expect(sel.className).toContain('feed-pill');
+  expect([...sel.options].map(o => o.textContent)).toEqual(['Min salary', '$50k+', '$80k+', '$100k+', '$120k+', '$150k+', '$200k+']);
+  expect(sel.value).toBe('');
+});
+
+test('choosing a salary reports it with the other filters kept; the pill shows as on', async () => {
+  const onChange = jest.fn();
+  await render({ onChange, filters: { remote: true, type: '', days: '', salary: '' } });
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(salarySelect(), '100000');
+    salarySelect().dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(onChange).toHaveBeenLastCalledWith({ remote: true, type: '', days: '', salary: '100000' });
+  await render({ onChange, filters: { remote: false, type: '', days: '', salary: '100000' } });
+  expect(salarySelect().value).toBe('100000');
+  expect(salarySelect().className).toContain(' on');
+});
+
+test('a salary alone shows Clear all, and Clear all resets it', async () => {
+  const onChange = jest.fn();
+  await render({ onChange, filters: { remote: false, type: '', days: '', salary: '150000' } });
+  const clear = [...container.querySelectorAll('button')].find(b => b.textContent === 'Clear all');
+  expect(clear).toBeDefined();
+  await act(async () => { clear.click(); });
+  expect(onChange).toHaveBeenCalledWith({ remote: false, type: '', days: '', salary: '' });
 });

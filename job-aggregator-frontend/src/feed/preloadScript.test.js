@@ -96,6 +96,7 @@ test('hands over the request once, and only for the matching unfiltered place', 
   expect(win.__feedPreload({ ...US, remote: true })).toBeUndefined();
   expect(win.__feedPreload({ ...US, type: 'full_time' })).toBeUndefined();
   expect(win.__feedPreload({ ...US, days: 7 })).toBeUndefined();
+  expect(win.__feedPreload({ ...US, salary: '100000' })).toBeUndefined();   // the preloaded page has no salary floor
   expect(win.__feedPreload({ ...US, place: { country: 'GB', region: '', city: '' } })).toBeUndefined();
   const pending = win.__feedPreload(US);
   expect(typeof pending.then).toBe('function');

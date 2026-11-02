@@ -66,7 +66,7 @@ export const hasSoft = (p) => !!p && (p.remote || p.salaryMin !== null);
 export const hasHard = (p) => !!p && (p.titles.length > 0 || !!p.locations);
 
 // Soft preferences only shape the default list: no keyword, no pill.
-export const isDefaultList = (params) => !params.q && !params.remote && !params.type && params.days === null;
+export const isDefaultList = (params) => !params.q && !params.remote && !params.type && params.days === null && params.salaryMin == null;
 
 // What actually applies to this request. `off` is prefs=off. Returns null when nothing applies.
 export function activePrefs(prefs, params, { off = false } = {}) {

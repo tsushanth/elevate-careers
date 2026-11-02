@@ -79,3 +79,13 @@ test('query builders: values stay bound and aligned, count query carries the sam
   }
   assert.doesNotMatch(buildFeedQuery(params({ country: 'US' }), { dismissed: [], excludedCompanies: [] }).text, /salary_min >=/);
 });
+
+test('an explicit salary filter makes it a search: soft preferences (including the saved salary) step aside, hard ones stay', () => {
+  const prefs = normalizePrefs({ remote: true, salary_min: 90000, excluded_titles: ['intern'] });
+  const dflt = activePrefs(prefs, params({ country: 'US' }));
+  assert.equal(dflt.salaryMin, 90000);
+  const explicit = activePrefs(prefs, params({ country: 'US', salary_min: '150000' }));
+  assert.equal(explicit.salaryMin, null);
+  assert.equal(explicit.remote, false);
+  assert.deepEqual(explicit.titles, ['intern']);
+});
