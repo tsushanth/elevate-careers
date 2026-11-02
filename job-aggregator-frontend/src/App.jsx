@@ -19,6 +19,8 @@ import { ONBOARDING_ENABLED } from './onboarding/constants';
 import { shouldAutoOpen, markSeen } from './onboarding/trigger';
 import { hasStoredSession } from './onboarding/storedSession';
 import { useSiteStats, fmtCount } from './siteStats';
+import { useSaved } from './feed/useSaved';
+import { BookmarkIcon } from './feed/JobCard';
 
 // Loaded on demand so the wizard and its demo never weigh on the first paint.
 const OnboardingWizard = React.lazy(() => import('./onboarding/OnboardingWizard'));
@@ -98,11 +100,17 @@ function App() {
   // of the wrong list now that a cached list is shown immediately.
   const [sessionChecked, setSessionChecked] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const saved = useSaved({ apiBase: API_URL, session });
   const [authTab, setAuthTab] = useState('signin');
   // Password reset: the emailed link lands here with the result in the URL hash (see recovery.js).
   const [recovering, setRecovering] = useState(RECOVERY_AT_LOAD);
   const [authView, setAuthView] = useState(RESET_PROBLEM_AT_LOAD ? 'forgot' : 'auth');
   useEffect(() => { if (RESET_PROBLEM_AT_LOAD) setShowAuthModal(true); }, []);
+  // Bookmark a job to the shortlist (same list as the phone app). Signed out: ask them to sign in first.
+  const toggleSaved = async (job) => {
+    const signedIn = await saved.toggle(job.id);
+    if (!signedIn) { setAuthTab('signin'); setShowAuthModal(true); }
+  };
   const storedSessionAtLoad = React.useMemo(() => hasStoredSession(), []);
   const [showWizard, setShowWizard] = useState(false);
   const wizardCheckedFor = useRef(null);
@@ -382,7 +390,13 @@ function App() {
                   onClick={() => navigate(`/companies/${slugify(selectedJob.company_name)}`)}
                 >{selectedJob.company_name}</h2>
               </div>
-              <button className="more-button">⋯</button>
+              <div className="job-detail-header-actions">
+                <button type="button" className={`job-save${saved.isSaved(selectedJob.id) ? ' is-saved' : ''}`}
+                  aria-pressed={saved.isSaved(selectedJob.id)} onClick={() => toggleSaved(selectedJob)}>
+                  <BookmarkIcon filled={saved.isSaved(selectedJob.id)} /> {saved.isSaved(selectedJob.id) ? 'Shortlisted' : 'Shortlist'}
+                </button>
+                <button className="more-button">⋯</button>
+              </div>
             </div>
 
             <h1 className="job-detail-title">{selectedJob.title}</h1>
@@ -823,8 +837,12 @@ function App() {
           preload={window.__feedPreload}
           externalQuery={feedQuery}
           appliedJobIds={appliedJobIds}
+          isSaved={saved.isSaved}
+          onToggleSave={toggleSaved}
         />
       )}
+      {saved.error && <div className="save-toast" role="alert">{saved.error}</div>}
+
       {showAuthModal && (
         <AuthModal
           initialTab={authTab}
