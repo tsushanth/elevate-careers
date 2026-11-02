@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from './supabase';
 import { trackFunnel } from './track';
+import { useSiteStats, fmtCount } from './siteStats';
 
 function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'signin');
@@ -9,6 +10,7 @@ function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState('');
   const [message, setMessage] = useState('');
+  const stats = useSiteStats();
 
   const handleGoogle = async () => {
     trackFunnel('signup_start', { method: 'google' });
@@ -76,7 +78,7 @@ function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
         <h2 className="auth-title">Welcome to SimplyApply</h2>
         <p className="auth-subtitle">
           {tab === 'signup'
-            ? '309,000+ real jobs, autofilled applications on Greenhouse, Lever, Ashby, and more — free.'
+            ? `${stats ? `${fmtCount(stats.jobs)} open jobs from ${fmtCount(stats.companies)} companies` : 'Real jobs from company career pages'}, and autofilled applications on Greenhouse, Lever, Ashby, and more — free.`
             : 'Welcome back — pick up your job search where you left off.'}
         </p>
 
