@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SimplyApply — 309K+ Real Jobs, One-Click Autofill</title>
-    <meta name="description" content="Search 309,000+ real job postings from actual company career pages, then apply in one click with an autofill extension that works on Greenhouse, Lever, Ashby, Workday, and more. Free.">
+    <title>SimplyApply — Real Jobs, One-Click Autofill</title>
+    <meta name="description" content="Search real job postings from actual company career pages, then apply in one click with an autofill extension that works on Greenhouse, Lever, Ashby, Workday, and more. Free.">
     <style>
         * {
             margin: 0;
@@ -407,7 +407,7 @@
 <body>
     <!-- Hero Section -->
     <section class="hero">
-        <h1>309,000+ Real Jobs.<br>One-Click Apply.</h1>
+        <h1>Real Jobs.<br>One-Click Apply.</h1>
         <p class="subtitle">Search real openings straight from company career pages — not stale scraped listings — then apply instantly with an autofill extension that works across Greenhouse, Lever, Ashby, Workday, and more.</p>
         <div>
             <a href="/" class="cta-primary">Browse Jobs Free</a>
@@ -418,19 +418,22 @@
     </section>
 
     <!-- Social Proof -->
-    <section class="social-proof">
+    <!-- The numbers are filled in from the live API (GET /v2/stats) by the script at the
+         bottom of the page. The section stays hidden unless that answers, so the page never
+         shows a number that was typed in by hand. -->
+    <section class="social-proof" id="live-stats" hidden>
         <p>What's in the database right now</p>
         <div class="stats">
             <div class="stat">
-                <span class="stat-number">309K+</span>
-                <span class="stat-label">Jobs Available</span>
+                <span class="stat-number" data-stat="jobs"></span>
+                <span class="stat-label">Open Jobs</span>
             </div>
             <div class="stat">
-                <span class="stat-number">11,404</span>
+                <span class="stat-number" data-stat="companies"></span>
                 <span class="stat-label">Companies</span>
             </div>
-            <div class="stat">
-                <span class="stat-number">37K+</span>
+            <div class="stat" data-stat-wrap="remote">
+                <span class="stat-number" data-stat="remote"></span>
                 <span class="stat-label">Remote Roles</span>
             </div>
         </div>
@@ -446,8 +449,8 @@
         <div class="features">
             <div class="feature">
                 <div class="feature-icon">🗂️</div>
-                <h3>309K+ Real Postings</h3>
-                <p>Sourced directly from company career pages across 11,000+ companies. Direct apply links, not third-party redirects that go nowhere.</p>
+                <h3>Real Postings</h3>
+                <p>Sourced directly from company career pages across thousands of companies. Direct apply links, not third-party redirects that go nowhere.</p>
             </div>
 
             <div class="feature">
@@ -464,14 +467,14 @@
 
             <div class="feature">
                 <div class="feature-icon">📊</div>
-                <h3>Application Tracking</h3>
-                <p>Mark jobs Saved, Applied, Phone Screen, Interview, Offer, or Rejected. See your whole pipeline in one place instead of a spreadsheet.</p>
+                <h3>Application History</h3>
+                <p>Applications you start with SimplyApply autofill show up in the Applications tab, so you can see what you have already applied to.</p>
             </div>
 
             <div class="feature">
                 <div class="feature-icon">🔍</div>
                 <h3>Real Search Filters</h3>
-                <p>Filter by keyword, location, remote-only, employment type, salary, and how recently a job was posted.</p>
+                <p>Filter by keyword, location, remote-only, employment type, and how recently a job was posted.</p>
             </div>
 
             <div class="feature">
@@ -490,7 +493,7 @@
                 <div class="step">
                     <div class="step-number">1</div>
                     <h3>Search Jobs</h3>
-                    <p>Browse 309K+ real postings by keyword, location, or remote-only — free, no account needed to search.</p>
+                    <p>Browse real postings by keyword, location, or remote-only — free, no account needed to search.</p>
                 </div>
 
                 <div class="step">
@@ -507,8 +510,8 @@
 
                 <div class="step">
                     <div class="step-number">4</div>
-                    <h3>Track Your Pipeline</h3>
-                    <p>Mark each application's status and keep every job search in one dashboard.</p>
+                    <h3>See What You Applied To</h3>
+                    <p>Applications you start with autofill are listed in your Applications tab, so you can pick up where you left off.</p>
                 </div>
             </div>
         </div>
@@ -585,7 +588,7 @@
 
                 <details class="faq-item">
                     <summary>Can I track applications I submit elsewhere too?</summary>
-                    <p>Yes — the pipeline tracker (Saved, Applied, Phone Screen, Interview, Offer, Rejected) works for any job, whether you applied through SimplyApply's autofill or directly on a company's site.</p>
+                    <p>Not yet. The Applications tab lists the applications you start through SimplyApply (the website and the autofill extension). It does not have a status pipeline (interview, offer, rejected) and it does not see applications you make directly on a company's site.</p>
                 </details>
             </div>
         </div>
@@ -594,7 +597,7 @@
     <!-- Final CTA -->
     <section style="background: #eef3f8; color: #000000e6; padding: 72px 20px; text-align: center; border-top: 1px solid #0000001f;">
         <div class="container">
-            <h2 style="font-size: 36px; margin-bottom: 16px; font-weight: 600;">309,000+ Jobs Are Waiting</h2>
+            <h2 style="font-size: 36px; margin-bottom: 16px; font-weight: 600;">Real Jobs Are Waiting</h2>
             <p style="font-size: 18px; margin-bottom: 32px; color: #00000099;">Search real openings and apply faster with one-click autofill — free.</p>
             <a href="/" class="cta-primary" style="font-size: 20px; padding: 16px 44px;">Browse Jobs Free</a>
             <p style="margin-top: 24px; font-size: 15px; color: #00000099;">No credit card • No trial countdown • Just real jobs</p>
@@ -606,7 +609,7 @@
         <div class="footer-content">
             <div class="footer-section">
                 <h3>SimplyApply</h3>
-                <p>309K+ real jobs and one-click autofill for the modern job search.</p>
+                <p>Real jobs and one-click autofill for the modern job search.</p>
             </div>
 
             <div class="footer-section">
@@ -636,5 +639,23 @@
             <p style="margin-top: 10px;">Made with ❤️ for job seekers everywhere</p>
         </div>
     </footer>
+    <script>
+        // Fill the stat tiles from the live API; leave the section hidden if it does not answer.
+        (function () {
+            fetch('https://elevate-careers-api.fly.dev/v2/stats')
+                .then(function (r) { if (!r.ok) throw new Error('stats ' + r.status); return r.json(); })
+                .then(function (s) {
+                    if (!s || !(s.jobs > 0) || !(s.companies > 0)) return;
+                    var fmt = function (n) { return Number(n).toLocaleString('en-US'); };
+                    document.querySelector('[data-stat="jobs"]').textContent = fmt(s.jobs);
+                    document.querySelector('[data-stat="companies"]').textContent = fmt(s.companies);
+                    var remote = document.querySelector('[data-stat="remote"]');
+                    if (s.remote > 0) { remote.textContent = fmt(s.remote); }
+                    else { document.querySelector('[data-stat-wrap="remote"]').hidden = true; }
+                    document.getElementById('live-stats').hidden = false;
+                })
+                .catch(function () { /* keep the section hidden */ });
+        })();
+    </script>
 </body>
 </html>

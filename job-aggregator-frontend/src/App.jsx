@@ -16,6 +16,7 @@ import ValueHero from './onboarding/ValueHero';
 import { ONBOARDING_ENABLED } from './onboarding/constants';
 import { shouldAutoOpen, markSeen } from './onboarding/trigger';
 import { hasStoredSession } from './onboarding/storedSession';
+import { useSiteStats, fmtCount } from './siteStats';
 
 // Loaded on demand so the wizard and its demo never weigh on the first paint.
 const OnboardingWizard = React.lazy(() => import('./onboarding/OnboardingWizard'));
@@ -41,6 +42,8 @@ function App() {
   });
   // Feed v2 flag. Hook position: top of the body so the effects below can read it.
   const feedV2 = React.useMemo(() => isFeedV2Enabled(window.location.search, window.localStorage), []);
+  // Live inventory numbers for the v1 hero only (v2's feed line fetches its own).
+  const siteStats = useSiteStats(API_URL, !feedV2);
   // Growth-tab skill/title click while v2 is on: FeedPage applies it as its keyword.
   const [feedQuery, setFeedQuery] = useState({ q: '', n: 0 });
   const selectJob = (job) => {
@@ -395,9 +398,6 @@ function App() {
                   </span>
                 </>
               )}
-              {/* feed v2 drops this claim: the data does not support it */}
-              {!feedV2 && <span>•</span>}
-              {!feedV2 && <span>Over 100 people clicked apply</span>}
             </div>
 
             <div className="job-detail-badges">
@@ -540,25 +540,27 @@ function App() {
 
       {/* Hero — logged-out visitors only. There was previously no stated value prop at
           all above the fold for a first-time visitor (straight into a bare job list),
-          which is a likely factor in the near-total post-signup drop-off. Stats are
-          hardcoded from a 2026-08-17 DB snapshot — refresh periodically rather than
-          wiring a live count endpoint, since this is a low-traffic marketing surface. */}
+          which is a likely factor in the near-total post-signup drop-off. The numbers
+          come live from GET /v2/stats and are left out until that answers: they were
+          once hard-coded from a DB snapshot and drifted to about 3x the real count. */}
       {!feedV2 && !session && (
         <div className="hero-card">
           <div className="hero-copy">
-            <h2>309,000+ Real Jobs. One-Click Apply.</h2>
+            <h2>Real Jobs. One-Click Apply.</h2>
             <p>
-              Real openings sourced straight from 11,000+ companies' own career pages — then autofill the application on Greenhouse, Lever, Ashby, Workday, and more. Free.
+              Real openings sourced straight from companies' own career pages — then autofill the application on Greenhouse, Lever, Ashby, Workday, and more. Free.
             </p>
             <a className="hero-cta" href={EXTENSION_URL} target="_blank" rel="noopener noreferrer">
               Add to Chrome — Free
             </a>
           </div>
-          <div className="hero-stats">
-            <div className="hero-stat"><b>309K+</b><span>Jobs</span></div>
-            <div className="hero-stat"><b>11,404</b><span>Companies</span></div>
-            <div className="hero-stat"><b>37K+</b><span>Remote roles</span></div>
-          </div>
+          {siteStats && (
+            <div className="hero-stats">
+              <div className="hero-stat"><b>{fmtCount(siteStats.jobs)}</b><span>Open jobs</span></div>
+              <div className="hero-stat"><b>{fmtCount(siteStats.companies)}</b><span>Companies</span></div>
+              {siteStats.remote > 0 && <div className="hero-stat"><b>{fmtCount(siteStats.remote)}</b><span>Remote roles</span></div>}
+            </div>
+          )}
         </div>
       )}
 
