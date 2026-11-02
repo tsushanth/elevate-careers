@@ -5,6 +5,7 @@ import { db } from '../db/index.js';
 import { createClient } from '@supabase/supabase-js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
 import { normalizeCompanyName, normalizeTitle } from '../services/normalizer.js';
+import { createSavePreferencesHandler } from './preferences-core.js';
 
 const router = express.Router();
 
@@ -72,24 +73,9 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/preferences — upsert user preferences
-router.post('/', requireAuth, async (req, res) => {
-  const { keywords = [], remote = false, location = '', salary_min = null, excluded_companies = [], excluded_titles = [], excluded_locations = [], daily_limit = 10, enabled = false, auto_apply_similar = false, require_visa_sponsor = false } = req.body;
-  try {
-    await db.query(
-      `INSERT INTO apply_preferences (user_id, keywords, remote, location, salary_min, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar, require_visa_sponsor, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
-       ON CONFLICT (user_id) DO UPDATE SET
-         keywords=$2, remote=$3, location=$4, salary_min=$5,
-         excluded_companies=$6, excluded_titles=$7, excluded_locations=$8, daily_limit=$9, enabled=$10, auto_apply_similar=$11, require_visa_sponsor=$12, updated_at=NOW()`,
-      [req.user.id, keywords, remote, location || null, salary_min || null, excluded_companies, excluded_titles, excluded_locations, daily_limit, enabled, auto_apply_similar, require_visa_sponsor]
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('[prefs POST]', e);
-    res.status(500).json({ error: 'Failed to save preferences' });
-  }
-});
+// POST /api/preferences — save user preferences. Fields left out of the body keep their stored
+// value (merge, not replace); see preferences-core.js.
+router.post('/', requireAuth, createSavePreferencesHandler({ db }));
 
 // GET /api/preferences/suggested — return suggested jobs based on past application titles
 router.get('/suggested', requireAuth, async (req, res) => {
