@@ -399,3 +399,45 @@ test('fit near query: bucket 1 is pruned when provably empty, GIN-gated when spa
   const multi = buildFeedQuery(ok({ country: 'US' }), {}, { mode: 'feed_at', near: { regions: ['CA', 'OR', 'WA'], fit: { strong: "('a')", bucket1: null } } });
   assert.equal((multi.text.match(/LATERAL/g) || []).length, 2);   // one lateral arm per bucket
 });
+
+// ---- minimum salary filter ----
+
+test('salary_min: whole 10,000 steps from 10,000 to 500,000, anything else is rejected', () => {
+  assert.equal(ok({ country: 'US' }).salaryMin, null);
+  assert.equal(ok({ country: 'US', salary_min: '' }).salaryMin, null);
+  assert.equal(ok({ country: 'US', salary_min: '100000' }).salaryMin, 100000);
+  assert.equal(ok({ salary_min: '10000' }).salaryMin, 10000);
+  assert.equal(ok({ salary_min: '500000' }).salaryMin, 500000);
+  for (const bad of ['0', '5000', '95000', '510000', '-100000', 'abc', '1e5', '100000.5', ' 100000', '99999999999']) {
+    assert.deepEqual(parseFeedParams({ salary_min: bad }), { ok: false, error: 'invalid salary_min' }, bad);
+  }
+});
+
+test('salary_min: never "plain" (the precomputed place count would be wrong), part of the cache key, old keys unchanged', () => {
+  assert.equal(ok({ country: 'US', salary_min: '100000' }).plain, false);
+  assert.notEqual(feedCacheKey(ok({ country: 'US', salary_min: '100000' })), feedCacheKey(ok({ country: 'US' })));
+  assert.notEqual(feedCacheKey(ok({ country: 'US', salary_min: '100000' })), feedCacheKey(ok({ country: 'US', salary_min: '150000' })));
+  // a request without the filter has exactly the key it had before the filter existed (no cold Redis after the deploy)
+  assert.ok(!feedCacheKey(ok({ country: 'US' })).includes('salaryMin'));
+  const c = encodeCursor('2026-10-01T00:00:00.000Z', 42);
+  assert.notEqual(feedCacheKey(ok({ country: 'US', salary_min: '100000', cursor: c })), feedCacheKey(ok({ country: 'US', cursor: c })));
+});
+
+test('salary_min in SQL: bound value, USD-or-unknown currency, on the page, the count and every near arm', () => {
+  const p = ok({ country: 'US', salary_min: '120000', limit: '5' });
+  const page = buildFeedQuery(p);
+  assert.match(page.text, /f\.salary_min >= \$\d+/);
+  assert.match(page.text, /coalesce\(f\.salary_currency, 'USD'\) = 'USD'/);
+  assert.ok(page.values.includes(120000));
+  assert.doesNotMatch(page.text, /120000/);
+  const count = buildCountQuery(p);
+  assert.match(count.text, /f\.salary_min >= \$\d+/);
+  assert.ok(count.values.includes(120000));
+  const near = buildFeedQuery(p, {}, { mode: 'feed_at', near: { regions: ['TX'] } });
+  assert.equal((near.text.match(/f\.salary_min >= \$/g) || []).length, 3);   // home region(s), remote nationwide, rest
+  // no filter, no clause
+  assert.doesNotMatch(buildFeedQuery(ok({ country: 'US' })).text, /f\.salary_min >=|coalesce\(f\.salary_currency/);
+  // placeholders still line up with the values
+  const holders = [...page.text.matchAll(/\$(\d+)/g)].map(m => Number(m[1]));
+  assert.equal(Math.max(...holders), page.values.length);
+});

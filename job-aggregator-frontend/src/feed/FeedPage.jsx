@@ -33,7 +33,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
   const [place, setPlace] = useState(initial.place);
   const [placeSource, setPlaceSource] = useState(initial.source);
   const [q, setQ] = useState('');
-  const [pills, setPills] = useState({ remote: false, type: '', days: '' });
+  const [pills, setPills] = useState({ remote: false, type: '', days: '', salary: '' });
   const [stats, setStats] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);   // mobile: the detail pane as a full-screen sheet
   const isMobile = useIsMobile();
@@ -98,7 +98,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
 
   // A guessed (never chosen) place with no jobs widens to everywhere, at most once,
   // and only when no keyword or filter could be the reason for the empty result.
-  const noRefinement = q === '' && !pills.remote && !pills.type && !pills.days && !role;
+  const noRefinement = q === '' && !pills.remote && !pills.type && !pills.days && !pills.salary && !role;
   useEffect(() => {
     if (feed.loaded && !feed.loading && feed.resultFilters === filters && !feed.error && feed.jobs.length === 0
       && placeSource === 'guess' && noRefinement && place.country) {

@@ -705,3 +705,18 @@ describe('near-you note', () => {
     expect(lastFilters().prefsOff).toBe(false);
   });
 });
+
+test('the Min salary pill puts the floor into the feed filters (and keeps the empty feed from widening)', async () => {
+  feed = withJobs();
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().salary).toBe('');
+  const sel = container.querySelector('select[aria-label="Minimum salary"]');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, '120000');
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(lastFilters().salary).toBe('120000');
+  feed = baseFeed();
+  await mount({ selectedJob: job(1) });
+  expect(lastFilters().place.country).toBe('US');   // a salary floor is a refinement: zero results do not widen the place
+});

@@ -100,3 +100,11 @@ test('feedUrl param order is stable: filters, role, prefs, near, tz, cursor', ()
   const url = feedUrl(base, { place: { country: 'US' }, q: 'go', role: 'design', prefsOff: true, nearOff: true, tz: 'Europe/Paris', cursor: 'c1' });
   expect(url).toBe(`${base}/v2/jobs/feed?country=US&q=go&role=design&prefs=off&near=off&tz=Europe%2FParis&cursor=c1`);
 });
+
+test('feedUrl sends salary_min only when a salary floor is set', () => {
+  const place = { country: 'US', region: '', city: '', label: 'x' };
+  expect(new URL(feedUrl(base, { place, salary: '100000' })).searchParams.get('salary_min')).toBe('100000');
+  expect(new URL(feedUrl(base, { place, salary: 150000 })).searchParams.get('salary_min')).toBe('150000');
+  expect(new URL(feedUrl(base, { place, salary: '' })).searchParams.has('salary_min')).toBe(false);
+  expect(new URL(feedUrl(base, { place })).searchParams.has('salary_min')).toBe(false);
+});
