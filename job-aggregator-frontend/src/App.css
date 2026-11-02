@@ -828,6 +828,8 @@
 }
 .auth-google:hover:not(:disabled) { background: #f5f5f5; }
 .auth-google:disabled { opacity: 0.6; cursor: not-allowed; }
+.auth-link { background: none; border: 0; padding: 0; color: var(--li-blue); font-size: 13px; cursor: pointer; text-align: left; align-self: flex-start; }
+.auth-link:hover { text-decoration: underline; }
 .auth-or { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; color: #666; font-size: 13px; }
 .auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: #0000001f; }
 

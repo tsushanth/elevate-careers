@@ -3,13 +3,15 @@ import { supabase } from './supabase';
 import { trackFunnel } from './track';
 import { useSiteStats, fmtCount } from './siteStats';
 
-function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
+function AuthModal({ onSuccess, onClose, initialTab = 'signin', initialView = 'auth', notice = '' }) {
   const [tab, setTab] = useState(initialTab === 'signup' ? 'signup' : 'signin');
+  // 'auth' = sign in / sign up, 'forgot' = ask for a password-reset email.
+  const [view, setView] = useState(initialView === 'forgot' ? 'forgot' : 'auth');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(notice);
   const stats = useSiteStats();
 
   const handleGoogle = async () => {
@@ -30,6 +32,26 @@ function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
       // onAuthStateChange when it redirects back.
     } catch (err) {
       setError(err.message || 'Google sign-in failed. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  const handleForgot = async (e) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        // Same landing URL the Google sign-in uses. It must be on the Supabase "Redirect URLs" list.
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (error) throw error;
+      // Same wording whether or not the address has an account, so this cannot be used to probe for accounts.
+      setMessage('If an account exists for that email, a reset link is on its way. Check your inbox and spam folder.');
+    } catch (err) {
+      setError(err.message || 'Could not send the reset email. Please try again.');
+    } finally {
       setLoading(false);
     }
   };
@@ -75,6 +97,35 @@ function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
       <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
         <button className="auth-close" onClick={onClose} aria-label="Close">×</button>
 
+        {view === 'forgot' ? (
+          <>
+            <h2 className="auth-title">Reset your password</h2>
+            <p className="auth-subtitle">Enter your account email and we will send you a link to choose a new password.</p>
+            <form onSubmit={handleForgot} className="auth-form">
+              <div className="auth-field">
+                <label htmlFor="auth-forgot-email">Email</label>
+                <input
+                  id="auth-forgot-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              {error && <p className="auth-error" role="alert">{error}</p>}
+              {message && <p className="auth-message">{message}</p>}
+              <button type="submit" className="auth-submit" disabled={loading}>
+                {loading ? 'Please wait…' : 'Send reset link'}
+              </button>
+              <button type="button" className="auth-link" onClick={() => { setView('auth'); setTab('signin'); setError(''); setMessage(''); }}>
+                Back to sign in
+              </button>
+            </form>
+          </>
+        ) : (
+        <>
         <h2 className="auth-title">Welcome to SimplyApply</h2>
         <p className="auth-subtitle">
           {tab === 'signup'
@@ -135,6 +186,12 @@ function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
             />
           </div>
 
+          {tab === 'signin' && (
+            <button type="button" className="auth-link" onClick={() => { setView('forgot'); setError(''); setMessage(''); }}>
+              Forgot password?
+            </button>
+          )}
+
           {error && <p className="auth-error">{error}</p>}
           {message && <p className="auth-message">{message}</p>}
 
@@ -142,6 +199,8 @@ function AuthModal({ onSuccess, onClose, initialTab = 'signin' }) {
             {loading ? 'Please wait…' : tab === 'signin' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
+        </>
+        )}
       </div>
     </div>
   );
