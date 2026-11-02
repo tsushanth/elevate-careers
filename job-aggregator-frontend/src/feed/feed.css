@@ -28,6 +28,11 @@
 .feed-list { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .feed-heading { font-size: 15px; font-weight: 600; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .feed-card { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; padding: 12px 14px; background: var(--surface); color: var(--ink); border: 0; border-bottom: 1px solid var(--line); font: inherit; cursor: pointer; }
+.feed-card-wrap { position: relative; }
+.feed-card.has-save .feed-card-title { padding-right: 32px; }
+.feed-save { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.feed-save:hover { background: var(--canvas); color: var(--blue); }
+.feed-save.is-saved { color: var(--blue); }
 .feed-card.is-selected { box-shadow: inset 3px 0 0 var(--blue); background: var(--canvas); }
 .feed-card-title { font-size: 16px; font-weight: 600; color: var(--blue); }
 .feed-card.is-viewed .feed-card-title { color: var(--muted); font-weight: 500; }
@@ -83,6 +88,8 @@
   .feed-detail .badge { color: var(--ink); border-color: var(--line); background: transparent; }
   .feed-detail .badge-remote { color: var(--blue); border-color: var(--blue); background: transparent; }
   .feed-detail .save-button { background: transparent; color: var(--blue); border-color: var(--blue); }
+  .feed-detail .job-save { background: transparent; color: var(--ink); border-color: var(--line); }
+  .feed-detail .job-save.is-saved { color: var(--blue); border-color: var(--blue); }
   .feed-detail .save-button:hover { background: var(--canvas); }
   .feed-detail .hint-text { color: var(--muted); }
 }

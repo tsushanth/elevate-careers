@@ -337,18 +337,18 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
         </div>
       )}
 
-      {/* ── Shortlisted on the phone app ── */}
+      {/* ── Shortlist (saved on the web or in the phone app) ── */}
       {session && saved.length > 0 && (
         <div style={{ marginBottom: 36 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#000000e6', margin: 0 }}>Shortlisted on your phone</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#000000e6', margin: 0 }}>Shortlist</h2>
             <span style={{
               background: 'rgba(10,102,194,0.15)', color: '#0a66c2',
               borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600,
             }}>{saved.length}</span>
           </div>
           <p style={{ fontSize: 13, color: '#00000099', margin: '0 0 12px' }}>
-            Open each job to apply. The SimplyApply extension autofills the form.
+            Jobs you bookmarked here or in the phone app. Open each job to apply; the SimplyApply extension autofills the form.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {saved.map(job => (

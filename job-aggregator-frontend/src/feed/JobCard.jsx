@@ -23,11 +23,22 @@ function salary(job) {
   return job.salary_min && job.salary_max ? `$${k(job.salary_min)}–${k(job.salary_max)}${cur}` : `$${k(job.salary_min || job.salary_max)}${cur}`;
 }
 
-export default function JobCard({ job, selected, viewed = false, onSelect }) {
+export function BookmarkIcon({ filled }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+      fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
+    </svg>
+  );
+}
+
+// onToggleSave is optional: without it the card has no bookmark (the control sits beside the card, not inside
+// it, because a button cannot contain a button).
+export default function JobCard({ job, selected, viewed = false, onSelect, saved = false, onToggleSave }) {
   const where = place(job);
   const pay = salary(job);
-  return (
-    <button type="button" className={`feed-card${selected ? ' is-selected' : ''}${viewed ? ' is-viewed' : ''}`}
+  const card = (
+    <button type="button" className={`feed-card${selected ? ' is-selected' : ''}${viewed ? ' is-viewed' : ''}${onToggleSave ? ' has-save' : ''}`}
       aria-current={selected ? 'true' : undefined} onClick={(e) => onSelect(job, e.currentTarget)}>
       <span className="feed-card-title">{job.title}</span>
       <span className="feed-card-company">{job.company_name}</span>
@@ -42,5 +53,16 @@ export default function JobCard({ job, selected, viewed = false, onSelect }) {
         <span className="feed-card-age">{hasRealDate(job.posted_at) ? age(job.posted_at) : ''}</span>
       </span>
     </button>
+  );
+  if (!onToggleSave) return card;
+  return (
+    <div className="feed-card-wrap">
+      {card}
+      <button type="button" className={`feed-save${saved ? ' is-saved' : ''}`} aria-pressed={saved}
+        aria-label={saved ? `Remove ${job.title} from your shortlist` : `Add ${job.title} to your shortlist`}
+        title={saved ? 'Remove from shortlist' : 'Add to shortlist'} onClick={() => onToggleSave(job)}>
+        <BookmarkIcon filled={saved} />
+      </button>
+    </div>
   );
 }
