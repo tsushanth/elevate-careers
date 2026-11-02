@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { savePreferences } from './prefsApi';
 
 function statusBadge(status) {
   const map = {
@@ -33,6 +34,7 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
   const [prefs, setPrefs] = useState({ keywords: [], remote: false, location: '', salary_min: '', daily_limit: 10, auto_apply_similar: false });
   const [prefsSaving, setPrefsSaving] = useState(false);
   const [prefsSaved, setPrefsSaved] = useState(false);
+  const [prefsError, setPrefsError] = useState('');
   const [kwInput, setKwInput] = useState('');
 
   // Applications list (merged)
@@ -73,20 +75,13 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
   const savePrefs = async () => {
     if (!session) return;
     setPrefsSaving(true);
+    setPrefsError('');
     try {
-      await fetch(`${API_URL}/api/preferences`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          ...prefs,
-          salary_min: prefs.salary_min ? parseInt(prefs.salary_min, 10) : null,
-          daily_limit: parseInt(prefs.daily_limit, 10) || 10,
-          excluded_companies: [],
-          enabled: true,
-        }),
-      });
+      await savePreferences(API_URL, session.access_token, prefs);
       setPrefsSaved(true);
       setTimeout(() => setPrefsSaved(false), 2500);
+    } catch (e) {
+      setPrefsError(e.message || 'Could not save preferences.');
     } finally {
       setPrefsSaving(false);
     }
@@ -337,6 +332,7 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
             {prefsSaving ? 'Saving…' : 'Save'}
           </button>
           {prefsSaved && <span style={{ fontSize: 12, color: '#057642' }}>Saved ✓</span>}
+          {prefsError && <span role="alert" style={{ fontSize: 12, color: '#cc1016' }}>{prefsError}</span>}
           </div>
         </div>
       )}
