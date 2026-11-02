@@ -28,11 +28,6 @@ GET  /health              # Health check
 GET  /jobs                      # Search jobs
 GET  /jobs/{id}                 # Get job details
 GET  /companies                 # List companies
-POST /saved-searches            # Create alert
-GET  /saved-searches            # List alerts
-POST /applications              # Track application
-GET  /applications              # List applications
-PATCH /applications/{id}        # Update status
 GET  /health                    # Health check
 GET  /docs                      # Swagger UI
 ```
@@ -95,24 +90,6 @@ curl "https://YOUR-PUBLIC-URL/jobs?posted_since_days=7"
 
 # Salary filter
 curl "https://YOUR-PUBLIC-URL/jobs?salary_min=100000"
-```
-
-### User Features
-```bash
-USER_ID="550e8400-e29b-41d4-a716-446655440000"
-
-# Create saved search
-curl -X POST "https://YOUR-PUBLIC-URL/saved-searches?user_id=$USER_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"My Alert","query":{"keyword":"python"},"frequency":"daily"}'
-
-# Track application
-curl -X POST "https://YOUR-PUBLIC-URL/applications?user_id=$USER_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"job_id":1,"status":"applied","notes":"Great company!"}'
-
-# List applications
-curl "https://YOUR-PUBLIC-URL/applications?user_id=$USER_ID"
 ```
 
 ## 🛠️ Configuration
