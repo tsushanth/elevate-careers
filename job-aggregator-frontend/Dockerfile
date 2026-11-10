@@ -12,7 +12,8 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Build the app
+# Build the app. No source maps in production: they would publish the full source and comments.
+ENV GENERATE_SOURCEMAP=false
 RUN npm run build
 
 # Production stage with nginx
