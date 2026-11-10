@@ -14,7 +14,7 @@ export default function Privacy() {
     <div style={{ minHeight: '100vh', background: '#0f172a' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '60px 24px 120px', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', lineHeight: 1.7 }}>
         <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, color: '#f8fafc' }}>Privacy Policy</h1>
-        <p style={{ color: '#94a3b8', marginBottom: 40 }}>Last updated: September 2026</p>
+        <p style={{ color: '#94a3b8', marginBottom: 40 }}>Last updated: November 2026</p>
 
         <section style={section}>
           <h2 style={h2}>What SimplyApply is</h2>
@@ -67,7 +67,7 @@ export default function Privacy() {
             <li style={item}><strong style={strong}>Supabase</strong> — database and sign-in.</li>
             <li style={item}><strong style={strong}>Fly.io</strong> — hosting for our servers and website.</li>
             <li style={item}><strong style={strong}>Anthropic</strong> — the AI provider that writes fit-check summaries, skill check questions and application answers. For a fit check, our server sends it the text of the job, its title and link, and parts of your saved profile (your country, work-authorization answer, education and an excerpt of your resume). It does not receive your email address or phone number.</li>
-            <li><strong style={strong}>Google</strong> — the app loads company logos from Google's favicon service, which tells Google the company's website address and, like any web request, your IP address.</li>
+            <li><strong style={strong}>Google</strong> — the app loads company logos from Google's favicon service, which tells Google the company's website address and, like any web request, your IP address. The website also loads its text font from Google Fonts, which receives your IP address the same way.</li>
           </ul>
           <p style={{ marginTop: 12 }}>
             When you tap "Apply on company site", you leave SimplyApply and go to the employer's own website, which has its own privacy policy.
