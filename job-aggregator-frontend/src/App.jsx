@@ -11,7 +11,7 @@ import { RECOVERY_AT_LOAD, RESET_PROBLEM_AT_LOAD } from './recovery';
 import ApplicationsTab from './ApplicationsTab';
 import GrowthTab from './GrowthTab';
 import './App.css';
-import { unescapeMarkdown } from './unescapeMarkdown';
+import { descriptionToSafeHtml } from './descriptionHtml';
 import FeedPage from './feed/FeedPage';
 import { isFeedV2Enabled } from './feed/flag';
 import ValueHero from './onboarding/ValueHero';
@@ -496,7 +496,7 @@ function App() {
               {selectedJob.description_md || selectedJob.description_excerpt ? (
                 <div
                   className="description-content"
-                  dangerouslySetInnerHTML={{ __html: unescapeMarkdown(selectedJob.description_md || selectedJob.description_excerpt) }}
+                  dangerouslySetInnerHTML={{ __html: descriptionToSafeHtml(selectedJob.description_md || selectedJob.description_excerpt) }}
                 />
               ) : feedV2 && selectedJob.description_md === undefined ? (
                 // feed v2 only: cards carry no excerpt, so undefined means the
