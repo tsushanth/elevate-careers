@@ -81,15 +81,17 @@ export function isRefusal(text) {
 }
 
 function buildUserContent({ question, jobDescription, learnedAnswers, compact }) {
-  const learned = learnedAnswers && Object.keys(learnedAnswers).length > 0
-    ? `\n\nThe candidate's previous answers on other applications (their known preferences):\n${Object.entries(learnedAnswers).map(([q, a]) => `- ${q}: ${a}`).join('\n')}`
+  // Old extension versions saved refusals as "learned" answers; never feed those back to the model.
+  const usable = Object.entries(learnedAnswers || {}).filter(([, a]) => typeof a === 'string' && a.trim() && !isRefusal(a));
+  const learned = usable.length > 0
+    ? `\n\nThe candidate's previous answers on other applications (their known preferences):\n${usable.map(([q, a]) => `- ${q}: ${a}`).join('\n')}`
     : '';
   return `Candidate profile:\n${JSON.stringify(compact)}\n\nJob description context:\n${String(jobDescription || '').slice(0, 800)}${learned}\n\nQuestion: ${question}`;
 }
 
 export async function answerQuestion(client, { question, jobDescription, profile, learnedAnswers }) {
   const compact = compactProfile(profile);
-  const hasLearned = learnedAnswers && Object.keys(learnedAnswers).length > 0;
+  const hasLearned = Object.values(learnedAnswers || {}).some(a => typeof a === 'string' && a.trim() && !isRefusal(a));
   if (!hasSubstance(compact) && !hasLearned) {
     throw new AnswerUnavailableError(
       'profile_incomplete',
