@@ -9,6 +9,7 @@ import { nonUsTextRegexJs } from '../services/geo.js';
 import { makeParseHandler, createDailyLimiter, parseBodyErrorHandler, ACCEPTED_TYPES, MAX_FILE_BYTES } from '../services/resumeParse.js';
 import { getRedis } from '../services/redis.js';
 import { logger } from '../utils/logger.js';
+import { answerQuestion, AnswerUnavailableError } from '../services/copilotAnswer.js';
 
 const router = express.Router();
 
@@ -595,24 +596,13 @@ router.post('/copilot/answer', requireAuth, async (req, res) => {
     const { question, jobDescription, profile, learnedAnswers } = req.body;
     if (!question) return res.status(400).json({ error: 'question required' });
 
-    const learnedCtx = learnedAnswers && Object.keys(learnedAnswers).length > 0
-      ? `\n\nUser's previously entered answers on job applications (treat as the user's known preferences):\n${
-          Object.entries(learnedAnswers).map(([q, a]) => `- ${q}: ${a}`).join('\n')
-        }`
-      : '';
-
-    const completion = await getAnthropic().messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 400,
-      system: `You are a professional job application assistant. Answer the given job application question concisely and professionally in first person, using the candidate's profile. Write 2-4 sentences max. Do not include any preamble like "Here is my answer:" — just the answer itself.`,
-      messages: [{
-        role: 'user',
-        content: `Candidate profile:\n${JSON.stringify(profile || {})}\n\nJob description context:\n${(jobDescription || '').slice(0, 800)}${learnedCtx}\n\nQuestion: ${question}`,
-      }],
-    });
+    const answer = await answerQuestion(getAnthropic(), { question, jobDescription, profile, learnedAnswers });
     incrementAiUsage(req.user.id);
-    res.json({ answer: completion.content[0].text.trim() });
+    res.json({ answer });
   } catch (e) {
+    // No usable answer: leave the form field empty (the extension shows the message) instead of
+    // typing a refusal into a real application.
+    if (e instanceof AnswerUnavailableError) return res.status(422).json({ error: e.code, message: e.message });
     res.status(500).json({ error: e.message });
   }
 });
