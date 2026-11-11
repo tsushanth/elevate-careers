@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { savePreferences } from './prefsApi';
 import { extRowBadge } from './applicationBadge';
+import { descriptionToSafeHtml } from './descriptionHtml';
 
 function statusBadge(status) {
   const map = {
@@ -555,7 +556,7 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
         {selectedSuggested.description_excerpt ? (
           <div
             style={{ fontSize: 13, color: '#000000e6', lineHeight: 1.6 }}
-            dangerouslySetInnerHTML={{ __html: selectedSuggested.description_excerpt }}
+            dangerouslySetInnerHTML={{ __html: descriptionToSafeHtml(selectedSuggested.description_excerpt) }}
           />
         ) : selectedSuggested.description ? (
           <p style={{ fontSize: 13, color: '#000000e6', lineHeight: 1.6 }}>{selectedSuggested.description}</p>

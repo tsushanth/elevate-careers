@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapPin, ExternalLink, ArrowLeft, Briefcase } from 'lucide-react';
 import { supabase } from './supabase';
+import { descriptionToSafeHtml } from './descriptionHtml';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 
@@ -168,7 +169,7 @@ export default function CompanyPage() {
             {selectedJob.description_excerpt && (
               <div
                 style={{ fontSize: 14, color: '#666666', lineHeight: 1.6, maxHeight: 500, overflowY: 'auto' }}
-                dangerouslySetInnerHTML={{ __html: selectedJob.description_excerpt }}
+                dangerouslySetInnerHTML={{ __html: descriptionToSafeHtml(selectedJob.description_excerpt) }}
               />
             )}
           </div>
