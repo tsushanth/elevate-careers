@@ -86,3 +86,17 @@ test('learned answers alone are enough to attempt an answer', async () => {
   const a = await answerQuestion(c, { question: 'Why us?', profile: {}, learnedAnswers: { 'Why this company?': 'I like small teams.' } });
   assert.equal(a, 'Because the work matters to me.');
 });
+
+test('refusal-looking learned answers are not fed back to the model', async () => {
+  const c = fakeClient(['Because the work matters to me.']);
+  await answerQuestion(c, { question: 'Why us?', profile: PROFILE, learnedAnswers: { 'what excites you about deepgram': REAL_REFUSAL, 'why this company': 'I like small teams.' } });
+  const sent = c.calls[0].messages[0].content;
+  assert.ok(sent.includes('I like small teams.'));
+  assert.ok(!sent.includes('incomplete with empty fields'));
+});
+
+test('learned answers that are all refusals do not count as substance', async () => {
+  const c = fakeClient(['x']);
+  await assert.rejects(answerQuestion(c, { question: 'Why us?', profile: {}, learnedAnswers: { a: REAL_REFUSAL } }), e => e.code === 'profile_incomplete');
+  assert.equal(c.calls.length, 0);
+});

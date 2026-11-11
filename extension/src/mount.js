@@ -1,4 +1,5 @@
 import { findRule, mergeRules } from './rules.js';
+import { isRefusal, purgeRefusals } from './refusal.js';
 import staticRules from './static-rules.js';
 import { reportFailure, RULES_URL } from './reporter.js';
 
@@ -154,7 +155,12 @@ let answerCache = {};
 async function loadCache() {
   try {
     const { answerCache: c } = await chrome.storage.local.get('answerCache');
-    if (c && typeof c === 'object') answerCache = c;
+    if (c && typeof c === 'object') {
+      // A refusal saved by an older version must not be replayed into a form.
+      const { map, removed } = purgeRefusals(c);
+      answerCache = map;
+      if (removed) saveCache();
+    }
   } catch (_) {}
 }
 
@@ -167,10 +173,12 @@ function cacheKey(label) {
 }
 
 function getCached(label) {
-  return answerCache[cacheKey(label)];
+  const v = answerCache[cacheKey(label)];
+  return typeof v === 'string' && isRefusal(v) ? undefined : v;
 }
 
 function setCached(label, value) {
+  if (typeof value === 'string' && isRefusal(value)) return;
   const key = cacheKey(label);
   if (answerCache[key] === value) return; // no change
   answerCache[key] = value;
@@ -184,15 +192,21 @@ let learnedAnswers = {};
 async function loadLearnedAnswers() {
   try {
     const { learnedAnswers: la } = await chrome.storage.local.get('learnedAnswers');
-    if (la && typeof la === 'object') learnedAnswers = la;
+    if (la && typeof la === 'object') {
+      const { map, removed } = purgeRefusals(la);
+      learnedAnswers = map;
+      if (removed) { try { chrome.storage.local.set({ learnedAnswers }); } catch (_) {} }
+    }
   } catch (_) {}
 }
 
 function getLearnedAnswer(label) {
-  return learnedAnswers[cacheKey(label)];
+  const v = learnedAnswers[cacheKey(label)];
+  return typeof v === 'string' && isRefusal(v) ? undefined : v;
 }
 
 function saveLearnedAnswer(label, value) {
+  if (typeof value === 'string' && isRefusal(value)) return;
   const key = cacheKey(label);
   if (learnedAnswers[key] === value) return;
   learnedAnswers[key] = value;
@@ -853,6 +867,7 @@ async function fillOpenEndedWithCache(field, jobDesc, profile) {
   const cached = getCached(field.label);
   if (cached !== undefined) return { answer: cached, fromCache: true };
   const { answer } = await apiCall('/copilot/answer', { question: field.label, jobDescription: jobDesc, learnedAnswers }, profile);
+  if (typeof answer === 'string' && isRefusal(answer)) throw new Error('AI could not write an answer for this question. Type it in yourself.');
   setCached(field.label, answer);
   return { answer, fromCache: false };
 }
@@ -1137,6 +1152,19 @@ shadow.innerHTML = `
   .btn:hover { background:#f1f5f9; }
   .btn.primary { background:#0f172a; color:#fff; border-color:#0f172a; }
   .btn.primary:hover { background:#1e293b; }
+  /* Footer actions: raised, full-size buttons (not a segmented control). One clear primary
+     action, two secondary ones; Pause only works while a run is in progress, so it is
+     disabled otherwise. */
+  #footer .btn { flex:1 1 calc(50% - 4px); display:flex; align-items:center; justify-content:center; gap:6px;
+                 padding:8px 12px; font-size:13px; font-weight:600; color:#0f172a; background:#fff;
+                 border:1px solid #cbd5e1; border-radius:10px; box-shadow:0 1px 2px rgba(15,23,42,.16);
+                 cursor:pointer; user-select:none; }
+  #footer .btn:hover:not(:disabled) { background:#f1f5f9; box-shadow:0 2px 5px rgba(15,23,42,.22); }
+  #footer .btn:active:not(:disabled) { transform:translateY(1px); box-shadow:none; }
+  #footer .btn:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
+  #footer .btn.cta { flex:1 1 100%; padding:11px 14px; font-size:14px; color:#fff; background:#4f46e5;
+                     border-color:#4338ca; box-shadow:0 2px 6px rgba(79,70,229,.45); }
+  #footer .btn.cta:hover:not(:disabled) { background:#4338ca; box-shadow:0 3px 8px rgba(79,70,229,.55); }
 </style>
 <button id="fab">⚡<span id="fitBadge"></span></button>
 <div id="panel">
@@ -1151,9 +1179,9 @@ shadow.innerHTML = `
   </div>
   <ul id="list"></ul>
   <div id="footer">
-    <button class="btn" id="dry">Dry-run</button>
-    <button class="btn primary" id="fill">Fill</button>
-    <button class="btn" id="pause">Pause</button>
+    <button class="btn cta" id="fill" title="Fill in this application now">▶ Fill application</button>
+    <button class="btn" id="dry" title="Dry run: show what would be filled without typing anything">👁 Preview</button>
+    <button class="btn" id="pause" title="Pause or resume while filling" disabled>⏸ Pause</button>
   </div>
 </div>
 `;
@@ -1332,10 +1360,19 @@ function setRow(field, state, msg) {
 let running = false;
 let paused  = false;
 
+// Fill/Preview are only clickable when idle; Pause only while a run is in progress.
+function setRunUi(isRunning) {
+  $('fill').disabled  = isRunning;
+  $('dry').disabled   = isRunning;
+  $('pause').disabled = !isRunning;
+  if (!isRunning) $('pause').textContent = '⏸ Pause';
+}
+
 async function run(dryRun) {
   if (running) return;
   running = true;
   paused  = false;
+  setRunUi(true);
 
   await loadCache();
   await loadLearnedAnswers();
@@ -1372,6 +1409,7 @@ async function run(dryRun) {
     if (msg.includes('invalidated') || msg.includes('Extension context')) {
       setStatus('⚠ Page needs a reload — press ⌘R');
       running = false;
+      setRunUi(false);
       return;
     }
     profile = { ...DEFAULT_PROFILE };
@@ -1382,7 +1420,7 @@ async function run(dryRun) {
 
   $('pause').onclick = () => {
     paused = !paused;
-    $('pause').textContent = paused ? 'Resume' : 'Pause';
+    $('pause').textContent = paused ? '▶ Resume' : '⏸ Pause';
   };
 
   for (const field of fields) {
@@ -1740,6 +1778,7 @@ async function run(dryRun) {
 
   setStatus(`Done — ✓${filled} skip${skipped} err${errors}`);
   running = false;
+  setRunUi(false);
 }
 
 function isContextValid() {
@@ -1754,6 +1793,7 @@ function handleRunError(err) {
     setStatus('⚠ ' + msg);
   }
   running = false;
+  setRunUi(false);
 }
 
 $('dry').addEventListener('click',      () => run(true).catch(handleRunError));
