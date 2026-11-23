@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
 import { normalizeCompanyName, normalizeTitle } from '../services/normalizer.js';
 import { createSavePreferencesHandler } from './preferences-core.js';
+import { keywordsToTsQuery } from '../services/keywordTsQuery.js';
 
 const router = express.Router();
 
@@ -94,7 +95,7 @@ router.get('/suggested', requireAuth, async (req, res) => {
     const prefs = prefsResult.rows[0] || {};
 
     // Use explicit preference keywords if set, otherwise derive from applied job titles
-    let keywords = (prefs.keywords || []).filter(k => k.length > 0);
+    let keywords = (prefs.keywords || []).filter(k => typeof k === 'string' && k.trim().length > 0);
     if (keywords.length === 0) {
       const allWords = titlesResult.rows.flatMap(r => r.job_title.split(/\s+/));
       keywords = [...new Set(
@@ -119,7 +120,9 @@ router.get('/suggested', requireAuth, async (req, res) => {
     );
     const dismissedJobIds = dismissedResult.rows.map(r => r.job_id);
 
-    const tsQuery = keywords.join(' | ');
+    // Phrases, not raw strings: a bare multi-word keyword is a tsquery syntax error (see keywordTsQuery.js).
+    const tsQuery = keywordsToTsQuery(keywords);
+    if (!tsQuery) return res.json({ jobs: [], keywords });
     let jobQuery = `
       SELECT j.id, j.apply_url, j.title, j.remote, j.salary_min, j.salary_max, j.posted_at,
              c.name as company_name, c.domain as company_domain,
