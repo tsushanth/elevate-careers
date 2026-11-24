@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import pg from 'pg';
 import { runApply } from './browser.js';
+import { applyOutcome } from './applyOutcome.js';
 import { reportFailure, reportCrash, reportProviderError } from './failureReporter.js';
 
 const { Pool } = pg;
@@ -40,9 +41,12 @@ const worker = new Worker(
 
     const { filled, skipped, errored, fieldCount, aiUsed, aiFields, screenshot, company } = result;
 
+    const outcome = applyOutcome({ dryRun, filled, fieldCount });
+
     await db.query(
       `UPDATE job_applications SET
          status = $2,
+         error = $11,
          filled_fields = $3,
          skipped_fields = $4,
          errored_fields = $5,
@@ -55,7 +59,7 @@ const worker = new Worker(
        WHERE id = $1`,
       [
         applicationId,
-        dryRun ? 'preview' : 'submitted',
+        outcome.status,
         filled,
         skipped,
         errored,
@@ -64,6 +68,7 @@ const worker = new Worker(
         JSON.stringify(aiFields || []),
         screenshot,
         company,
+        outcome.error,
       ]
     );
 
