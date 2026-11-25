@@ -1062,7 +1062,8 @@ app.get('/jobs/personalized', async (req, res) => {
     // only as a fallback for older rows where job_id couldn't be backfilled.
     const { data: appliedRows } = await sb.from('job_applications')
       .select('job_id, job_url')
-      .eq('user_id', user.id);
+      .eq('user_id', user.id)
+      .neq('status', 'not_submitted');
     const appliedJobIds = (appliedRows || []).map(r => r.job_id).filter(Boolean);
     const appliedUrls = (appliedRows || []).filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
     const appliedCount = (appliedRows || []).length;
@@ -1766,6 +1767,8 @@ app.get('/jobs/:id', async (req, res) => {
 // For each user with preferences.enabled=true, find matching jobs they haven't
 // applied to yet, and enqueue up to daily_limit applications per day.
 async function runAutoApplyScheduler() {
+  // Paused: the worker cannot submit applications (playwright-worker/src/filler.js). Turn on only once it can.
+  if (process.env.AUTO_APPLY_ENABLED !== 'true') return;
   try {
     const { Queue } = await import('bullmq');
     const { connection } = await import('../services/queue.js');

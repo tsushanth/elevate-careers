@@ -1063,6 +1063,7 @@ router.get('/applications', requireAuth, async (req, res) => {
     const { data, error } = await sb.from('job_applications')
       .select('id, job_url, job_title, company, fields_filled, fields_skipped, fields_errored, ai_used, submitted, submitted_at, filled_at')
       .eq('user_id', req.user.id)
+      .eq('status', 'submitted') // tracked rows only (column default); worker rows are in /api/apply/list
       .order('filled_at', { ascending: false })
       .limit(200);
     if (error) throw error;

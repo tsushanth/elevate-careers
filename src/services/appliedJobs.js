@@ -5,7 +5,8 @@ const MAX_ROWS = 5000;
 const MAX_URLS = 500;
 
 export async function loadAppliedJobIds({ sb, db, userId }) {
-  const { data, error } = await sb.from('job_applications').select('job_id, job_url').eq('user_id', userId).limit(MAX_ROWS);
+  const { data, error } = await sb.from('job_applications').select('job_id, job_url').eq('user_id', userId)
+    .neq('status', 'not_submitted').limit(MAX_ROWS);
   if (error || !Array.isArray(data)) return [];
   const ids = new Set(data.map(r => Number(r.job_id)).filter(n => Number.isFinite(n) && n > 0));
   const urls = [...new Set(data.filter(r => !r.job_id && r.job_url).map(r => r.job_url))].slice(0, MAX_URLS);

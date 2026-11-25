@@ -5,7 +5,7 @@ import { loadAppliedJobIds } from './appliedJobs.js';
 const sbWith = (rows, error = null) => ({
   from: (t) => {
     assert.equal(t, 'job_applications');
-    const q = { select: () => q, eq: () => q, limit: async () => ({ data: rows, error }) };
+    const q = { select: () => q, eq: () => q, neq: (col, v) => { assert.deepEqual([col, v], ['status', 'not_submitted']); return q; }, limit: async () => ({ data: rows, error }) };
     return q;
   },
 });

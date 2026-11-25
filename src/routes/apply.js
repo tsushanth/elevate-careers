@@ -106,6 +106,8 @@ router.get('/list', requireAuth, async (req, res) => {
             ai_used, created_at, updated_at
      FROM job_applications
      WHERE user_id = $1
+       -- 'submitted' is the column default for rows the extension or phone only tracked; those are listed elsewhere.
+       AND status <> 'submitted'
      ORDER BY created_at DESC
      LIMIT 50`,
     [req.user.id]

@@ -55,7 +55,8 @@ const worker = new Worker(
        WHERE id = $1`,
       [
         applicationId,
-        dryRun ? 'preview' : 'submitted',
+        // The worker fills fields only: it never clicks submit or uploads a resume, so it must never claim to.
+        dryRun ? 'preview' : 'not_submitted',
         filled,
         skipped,
         errored,
@@ -113,7 +114,7 @@ setInterval(async () => {
     const { rows } = await db.query(`SELECT
         COUNT(*) FILTER (WHERE status IN ('queued','running') AND updated_at < NOW() - INTERVAL '30 minutes') AS stuck,
         COUNT(*) FILTER (WHERE status = 'failed' AND updated_at > NOW() - INTERVAL '24 hours') AS failed_recent,
-        COUNT(*) FILTER (WHERE status IN ('failed','submitted','preview') AND updated_at > NOW() - INTERVAL '24 hours') AS finished_recent
+        COUNT(*) FILTER (WHERE status IN ('failed','not_submitted','preview') AND updated_at > NOW() - INTERVAL '24 hours') AS finished_recent
       FROM job_applications`);
     const r = rows[0] || {};
     if (+r.stuck > 0) reportFailure('monitor:apply', 'auto-apply rows stuck in queued/running for over 30 minutes', { stuck: String(r.stuck) });
