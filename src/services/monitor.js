@@ -54,7 +54,7 @@ export async function runChecks({ db, queue, applyQueue }) {
     const a = await db.query(`SELECT
         COUNT(*) FILTER (WHERE status IN ('queued','running') AND updated_at < NOW() - INTERVAL '30 minutes') AS stuck,
         COUNT(*) FILTER (WHERE status = 'failed' AND updated_at > NOW() - INTERVAL '24 hours') AS failed_recent,
-        COUNT(*) FILTER (WHERE status IN ('failed','submitted','preview') AND updated_at > NOW() - INTERVAL '24 hours') AS finished_recent
+        COUNT(*) FILTER (WHERE status IN ('failed','not_submitted','preview') AND updated_at > NOW() - INTERVAL '24 hours') AS finished_recent
       FROM job_applications`);
     const r = a.rows[0] || {};
     reportProblems('monitor:apply', evaluateApplies({ stuck: +r.stuck, failedRecent: +r.failed_recent, finishedRecent: +r.finished_recent }));

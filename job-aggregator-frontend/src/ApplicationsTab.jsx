@@ -7,7 +7,8 @@ function statusBadge(status) {
   const map = {
     queued: { label: 'Queued', color: '#00000099', bg: 'rgba(148,163,184,0.12)' },
     running: { label: 'Running', color: '#915907', bg: 'rgba(145,89,7,0.12)' },
-    submitted: { label: 'Submitted', color: '#057642', bg: 'rgba(5,118,66,0.12)' },
+    preview: { label: 'Preview', color: '#0a66c2', bg: 'rgba(10,102,194,0.12)' },
+    not_submitted: { label: 'Not submitted: apply on the company site', color: '#915907', bg: 'rgba(145,89,7,0.12)' },
     failed: { label: 'Failed', color: '#cc1016', bg: 'rgba(204,16,22,0.12)' },
   };
   const s = map[status] || { label: status, color: '#00000099', bg: 'rgba(148,163,184,0.1)' };
@@ -302,26 +303,6 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
             onChange={e => setPrefs(p => ({ ...p, daily_limit: e.target.value }))}
             style={{ ...inputStyle, width: 90 }}
           />
-          {/* Auto-apply similar pill toggle */}
-          <button
-            onClick={() => setPrefs(p => ({ ...p, auto_apply_similar: !p.auto_apply_similar }))}
-            title="When on, the scheduler will auto-apply to similar jobs daily without prompting"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-              cursor: 'pointer', border: 'none', transition: 'all 0.15s',
-              background: prefs.auto_apply_similar ? 'rgba(5,118,66,0.18)' : '#fff',
-              color: prefs.auto_apply_similar ? '#057642' : '#00000099',
-              outline: `1px solid ${prefs.auto_apply_similar ? 'rgba(5,118,66,0.4)' : '#0000001f'}`,
-            }}
-          >
-            <span style={{
-              width: 12, height: 12, borderRadius: '50%', display: 'inline-block',
-              background: prefs.auto_apply_similar ? '#057642' : '#666666',
-              transition: 'background 0.15s',
-            }} />
-            Auto-apply similar
-          </button>
           <button
             onClick={savePrefs}
             disabled={prefsSaving}
@@ -453,16 +434,6 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#000000e6', margin: '0 0 2px' }}>Similar Jobs</h2>
             <p style={{ fontSize: 13, color: '#00000099', margin: '0 0 14px' }}>Based on your applications</p>
           </div>
-
-          {prefs.auto_apply_similar && (
-            <div style={{
-              background: 'rgba(5,118,66,0.08)', border: '1px solid rgba(5,118,66,0.2)',
-              borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#057642',
-              marginBottom: 14,
-            }}>
-              Auto-applying to similar jobs daily. They'll appear in Applications when queued.
-            </div>
-          )}
 
           {suggestedLoading ? (
             <div style={{ color: '#00000099', fontSize: 14 }}>Loading…</div>
