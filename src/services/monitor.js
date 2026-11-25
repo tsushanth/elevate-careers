@@ -41,16 +41,36 @@ export function reportProblems(flow, problems, context = {}) {
   for (const p of problems) reportFailure(flow, MESSAGES[p] || p, { check: p, ...context });
 }
 
-export async function runChecks({ db, queue, applyQueue }) {
+// Each check runs on its own, so one broken dependency cannot hide the others, and the report says which one and why.
+async function runCheck(name, fn) {
   try {
-    if (queue) {
+    await fn();
+  } catch (err) {
+    console.error(`[monitor] ${name} could not run:`, err?.message);
+    // A monitor that cannot run is itself a blind spot.
+    reportFailure('monitor:self', 'monitor check could not run', {
+      check: name,
+      error: String(err?.code || err?.name || 'unknown'),
+      detail: String(err?.message || '').slice(0, 160),
+    });
+  }
+}
+
+export async function runChecks({ db, queue }) {
+  if (queue) {
+    await runCheck('ingest-queue', async () => {
       const c = await queue.getJobCounts('waiting', 'active', 'failed');
       const last = await queue.getJobs(['completed'], 0, 0, false);
       const lastCompletedAt = last[0]?.finishedOn ?? null;
       reportProblems('monitor:ingest-queue', evaluateQueue({ ...c, lastCompletedAt }), { waiting: String(c.waiting) });
-    }
-    const f = await db.query('SELECT MAX(updated_at) AS newest FROM job');
+    });
+  }
+  await runCheck('ingest-freshness', async () => {
+    // is_active matches the partial index; without it this scans the whole job table.
+    const f = await db.query('SELECT MAX(updated_at) AS newest FROM job WHERE is_active');
     reportProblems('monitor:ingest-freshness', evaluateIngestFreshness({ newestUpdatedAt: f.rows[0]?.newest }));
+  });
+  await runCheck('apply', async () => {
     const a = await db.query(`SELECT
         COUNT(*) FILTER (WHERE status IN ('queued','running') AND updated_at < NOW() - INTERVAL '30 minutes') AS stuck,
         COUNT(*) FILTER (WHERE status = 'failed' AND updated_at > NOW() - INTERVAL '24 hours') AS failed_recent,
@@ -58,10 +78,7 @@ export async function runChecks({ db, queue, applyQueue }) {
       FROM job_applications`);
     const r = a.rows[0] || {};
     reportProblems('monitor:apply', evaluateApplies({ stuck: +r.stuck, failedRecent: +r.failed_recent, finishedRecent: +r.finished_recent }));
-  } catch (err) {
-    // A monitor that cannot run is itself a blind spot.
-    reportFailure('monitor:self', 'monitor check could not run', { error: String(err?.code || err?.name || 'unknown') });
-  }
+  });
 }
 
 export function startMonitor(deps, intervalMs = 15 * 60_000) {
