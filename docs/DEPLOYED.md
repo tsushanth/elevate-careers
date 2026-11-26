@@ -2,6 +2,13 @@
 
 The API (`elevate-careers-api`) deploys on every push to main (`.github/workflows/fly-deploy.yml`); end a commit subject with `[skip ci]` to avoid that. The worker (`elevate-careers-worker`) is deployed by hand with `flyctl deploy -c worker-fly.toml --remote-only` from a clean checkout of main.
 
+## 2026-11-26: web v125, auto-apply "Not submitted" label reaches the website (PR #58, main 21e0bce)
+- The web app (`elevate-careers-web`, www.simplyappl.ai) does not deploy on merge: `cd job-aggregator-frontend && flyctl deploy -a elevate-careers-web --remote-only` from a clean checkout of main. #58 reached the API on 2026-11-25 but not the web until this release.
+- v124 -> v125, image deployment-01M8CA39JNS74J8G2WCT4NB414, deployed from a clean detached worktree of origin/main 21e0bce. A build of 82e73ce reproduced every v124 asset byte for byte, so the only source change shipped is `src/ApplicationsTab.jsx` from #58. No secret, flag, migration or database row touched; auto-apply stays paused.
+- Verified: 311 web tests; served files match a local build of 21e0bce and `nginx.conf` matches; pages and `/health` answer as before; headless browser on `/`, `/#applications`, `/privacy`, `/companies/stripe`, `/resume-check` with no script errors; with mocked API data the Applications tab shows "Not submitted: apply on the company site" and no "Auto-apply similar". Not verified: a real signed-in session.
+- Open: the web no longer shows the auto-apply toggle, but saved `auto_apply_similar` values are unchanged and one user still has it on, so setting `AUTO_APPLY_ENABLED=true` would resume auto-apply for that user. Clear it or require a new opt-in first. The "Auto Apply" button in the Applications tab checks `window.__simplyApplyInstalled`, which the page cannot see, so it opens the store even with the extension installed.
+- Rollback: `cd job-aggregator-frontend && flyctl deploy -a elevate-careers-web --image registry.fly.io/elevate-careers-web:deployment-01M75G982FHRFGQT1DB1XQEZZJ` (v124; brings back the "Auto-apply similar" switch and the old labels).
+
 ## 2026-11-26: repair queue redaction and limits (PRs #62, #63, main 63cbcee): API v257
 - API v255 -> v256 (image deployment-01M8BAKQNCM55NQZCTC8B216J9, #62) -> v257 (image deployment-01M8BATRNKH8SRFSHH7GYZF4V0, #63), both by GitHub Actions on merge. The worker stays on v7 (b2f168c): it loads neither `server.js` nor the repair routes.
 - `POST /api/repair/queue` redacts typed values before storing, stays signed-out, takes at most 64 KB and 120 reports a minute per caller (600 overall). `GET /api/repair/admin/queue` redacts on the way out.
