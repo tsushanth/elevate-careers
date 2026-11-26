@@ -123,6 +123,13 @@ describe('property hygiene', () => {
   test('extension fill events carry no properties', () => {
     expect(cleanProps('extension_fill', { url: 'https://x', company: 'Acme' })).toEqual({});
   });
+  test('company page clicks say where they came from, and the sign-up click is an event', () => {
+    expect(cleanProps('job_open', { job_id: 1, from: 'company' })).toEqual({ job_id: 1, from: 'company' });
+    expect(cleanProps('apply_click', { job_id: 1, ext: false, from: 'company', url: 'https://x' })).toEqual({ job_id: 1, ext: false, from: 'company' });
+    const { rows, f } = setup();
+    expect(f.track('company_signup_click', { signed_in: false })).toBe(true);
+    expect(rows[0]).toMatchObject({ event_name: 'company_signup_click', surface: 'web' });
+  });
   test('bucket', () => {
     expect([bucket(0), bucket(5), bucket(20), bucket(200)]).toEqual(['0', '1-9', '10-49', '50+']);
   });

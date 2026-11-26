@@ -34,7 +34,7 @@ export function BookmarkIcon({ filled }) {
 
 // onToggleSave is optional: without it the card has no bookmark (the control sits beside the card, not inside
 // it, because a button cannot contain a button).
-export default function JobCard({ job, selected, viewed = false, onSelect, saved = false, onToggleSave }) {
+export default function JobCard({ job, selected, viewed = false, opened = false, onSelect, saved = false, onToggleSave }) {
   const where = place(job);
   const pay = salary(job);
   const card = (
@@ -49,7 +49,7 @@ export default function JobCard({ job, selected, viewed = false, onSelect, saved
       </span>
       <span className="feed-card-foot">
         {job.autofill_ready && <span className="feed-autofill" title="The extension can autofill this application">Autofill</span>}
-        {viewed && <span className="feed-viewed">Viewed</span>}
+        {(opened || viewed) && <span className="feed-viewed">{opened ? 'Opened' : 'Viewed'}</span>}
         <span className="feed-card-age">{hasRealDate(job.posted_at) ? age(job.posted_at) : ''}</span>
       </span>
     </button>

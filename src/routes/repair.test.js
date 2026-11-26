@@ -30,9 +30,12 @@ const body = {
   failReason: 'no option for "+1 415-555-0142"', outerHTML: '<input type="tel" value="jo.person@example.com">',
 };
 
+const upserts = () => queries.filter((q) => /INSERT INTO repair_queue/.test(q.sql));
+const events = () => queries.filter((q) => /INTO analytics_events/.test(q.sql));
+
 test('a signed-out report is stored with no typed value', async () => {
   assert.equal(await report(body), 200);
-  assert.deepEqual(queries[0].params, ['jobs.example.com', 'Phone', 'tel', '<input type="tel" value="[redacted]">', 'no option for "[redacted]"', 'fillStructured']);
+  assert.deepEqual(upserts()[0].params, ['jobs.example.com', 'Phone', 'tel', '<input type="tel" value="[redacted]">', 'no option for "[redacted]"', 'fillStructured']);
 });
 
 test('a report with a bad domain or a non-string label is dropped', async () => {
@@ -56,7 +59,24 @@ test('a body that is not JSON is a 400 that never reaches the app-wide handler, 
 
 test('the largest report a shipped extension builds still fits', async () => {
   assert.equal(await report({ ...body, outerHTML: '"é'.repeat(1500), label: 'é'.repeat(600) }, '10.0.0.3'), 200);
-  assert.equal(queries.length, 1);
+  assert.equal(upserts().length, 1);
+});
+
+test('a report also records an anonymous fill error: the site and the kind of failure only', async () => {
+  await report({ ...body, domain: 'Jobs.Example.com' }, '10.0.0.4');
+  assert.equal(events().length, 1);
+  assert.deepEqual(events()[0].params, ['jobs.example.com', 'no_option']);
+  assert.match(events()[0].sql, /'extension_fill_error', 'extension'/);
+  assert.match(events()[0].sql, /interval '10 minutes'/);
+});
+
+test('a failed event insert still stores the report', async () => {
+  const stub = db.query;
+  db.query = async (sql, params) => { if (/analytics_events/.test(sql)) throw new Error('down'); return stub(sql, params); };
+  try {
+    await report(body, '10.0.0.5');
+    assert.equal(upserts().length, 1);
+  } finally { db.query = stub; }
 });
 
 test('one caller is limited to 120 reports a minute; others are not affected', async () => {

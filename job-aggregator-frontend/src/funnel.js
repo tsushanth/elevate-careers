@@ -10,7 +10,7 @@
 export const FUNNEL_EVENTS = [
   'landing_view', 'jobs_view', 'job_open', 'search', 'signup_start', 'signup_complete',
   'onboarding_step', 'save_job', 'apply_click', 'extension_install_seen',
-  'extension_first_fill', 'extension_fill',
+  'extension_first_fill', 'extension_fill', 'company_signup_click',
 ];
 
 // Events that are only counted once per browser session (page reloads would inflate them).
@@ -21,16 +21,17 @@ const ONCE_PER_SESSION = new Set(['landing_view', 'jobs_view', 'extension_instal
 const PROPS = {
   landing_view: ['path', 'ref', 'utm_source', 'utm_medium', 'utm_campaign', 'dev'],
   jobs_view: ['signed_in', 'n'],
-  job_open: ['job_id', 'ready'],
+  job_open: ['job_id', 'ready', 'from'],
   search: ['kind', 'has_q', 'has_place', 'remote'],
   signup_start: ['method'],
   signup_complete: ['method'],
   onboarding_step: ['step'],
   save_job: ['job_id'],
-  apply_click: ['job_id', 'signed_in', 'ext'],
+  apply_click: ['job_id', 'signed_in', 'ext', 'from'],
   extension_install_seen: ['v'],
   extension_first_fill: [],
   extension_fill: [],
+  company_signup_click: ['signed_in'],
 };
 
 const VID_KEY = 'sa_vid';

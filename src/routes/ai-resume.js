@@ -5,6 +5,7 @@ import { instrumentAnthropic } from '../utils/failureReporter.js';
 import { createClient } from '@supabase/supabase-js';
 import { recomputeSignals } from '../services/signals.js';
 import { resolveJobIdForUrl } from '../services/jobIdentity.js';
+import { classifyTrack } from '../services/applicationTracking.js';
 import { nonUsTextRegexJs } from '../services/geo.js';
 import { makeParseHandler, createDailyLimiter, parseBodyErrorHandler, ACCEPTED_TYPES, MAX_FILE_BYTES } from '../services/resumeParse.js';
 import { getRedis } from '../services/redis.js';
@@ -1033,9 +1034,18 @@ router.post('/applications/track', requireAuth, async (req, res) => {
     if (!jobUrl) return res.status(400).json({ error: 'jobUrl required' });
 
     const sb = getSupabase();
+    const { source, status } = classifyTrack(req.body, req.get('origin'));
+    if (status === 'opened') {
+      // The job stays in the lists, so it can be opened again: one row per person and link is enough.
+      const { data: prior } = await sb.from('job_applications').select('id')
+        .eq('user_id', req.user.id).eq('job_url', jobUrl).eq('status', 'opened').limit(1);
+      if (prior?.length) return res.json({ ok: true, id: prior[0].id });
+    }
     const jobId = await resolveJobIdForUrl(jobUrl);
     const { data, error } = await sb.from('job_applications').insert({
       user_id:        req.user.id,
+      source,
+      status,
       job_url:        jobUrl,
       job_title:      jobTitle || null,
       company:        company  || null,
@@ -1061,9 +1071,10 @@ router.get('/applications', requireAuth, async (req, res) => {
   try {
     const sb = getSupabase();
     const { data, error } = await sb.from('job_applications')
-      .select('id, job_url, job_title, company, fields_filled, fields_skipped, fields_errored, ai_used, submitted, submitted_at, filled_at')
+      .select('id, job_url, job_title, company, status, fields_filled, fields_skipped, fields_errored, ai_used, submitted, submitted_at, filled_at')
       .eq('user_id', req.user.id)
-      .eq('status', 'submitted') // tracked rows only (column default); worker rows are in /api/apply/list
+      // Tracked rows ('submitted' is the column default) and links opened from the website; worker rows are in /api/apply/list.
+      .in('status', ['submitted', 'opened'])
       .order('filled_at', { ascending: false })
       .limit(200);
     if (error) throw error;

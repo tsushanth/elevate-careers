@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { ingestSecretOk } from '../utils/sharedSecret.js';
 import { requireJobId } from '../utils/jobId.js';
 import repairRoutes, { queueBodyLimit } from '../routes/repair.js';
+import { NOT_APPLIED_FILTER } from '../services/appliedJobs.js';
 import { createFeedCache } from '../services/feedCache.js';
 import { getRedis } from '../services/redis.js';
 import { buildJobsQuery, jobsCacheKey, createLimiter, startJobsWarmer } from '../services/jobsList.js';
@@ -1065,7 +1066,7 @@ app.get('/jobs/personalized', async (req, res) => {
     const { data: appliedRows } = await sb.from('job_applications')
       .select('job_id, job_url')
       .eq('user_id', user.id)
-      .neq('status', 'not_submitted');
+      .not('status', 'in', NOT_APPLIED_FILTER);
     const appliedJobIds = (appliedRows || []).map(r => r.job_id).filter(Boolean);
     const appliedUrls = (appliedRows || []).filter(r => !r.job_id).map(r => r.job_url).filter(Boolean);
     const appliedCount = (appliedRows || []).length;

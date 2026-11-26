@@ -1,12 +1,17 @@
 // Jobs the user has applied to are hidden from the feed, as the old list did by default (show_applied=false).
 // Prefer job_id (resolved once at apply time, stable) and fall back to the stored apply URL for older rows whose
 // job_id could not be filled in (apply_url can drift on re-ingestion, so this is only a fallback).
+import { OPEN_ONLY_STATUSES } from './applicationTracking.js';
+
+// Auto-apply rows that were never sent, links only opened, and fills that wrote nothing.
+export const NOT_APPLIED_FILTER = `(${['not_submitted', ...OPEN_ONLY_STATUSES].join(',')})`;
+
 const MAX_ROWS = 5000;
 const MAX_URLS = 500;
 
 export async function loadAppliedJobIds({ sb, db, userId }) {
   const { data, error } = await sb.from('job_applications').select('job_id, job_url').eq('user_id', userId)
-    .neq('status', 'not_submitted').limit(MAX_ROWS);
+    .not('status', 'in', NOT_APPLIED_FILTER).limit(MAX_ROWS);
   if (error || !Array.isArray(data)) return [];
   const ids = new Set(data.map(r => Number(r.job_id)).filter(n => Number.isFinite(n) && n > 0));
   const urls = [...new Set(data.filter(r => !r.job_id && r.job_url).map(r => r.job_url))].slice(0, MAX_URLS);

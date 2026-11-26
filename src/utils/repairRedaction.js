@@ -67,3 +67,15 @@ export function createRateLimiter({ perKey = 120, total = 600, windowMs = 60_000
     return true;
   };
 }
+
+/** The kind of failure only, for counting: no label, no value. Takes an already redacted reason. */
+export function failKind(safeReason) {
+  const s = safeReason || '';
+  if (s.startsWith('Not signed in')) return 'not_signed_in';
+  if (s.startsWith('Session expired')) return 'session_expired';
+  if (s.startsWith('no data')) return 'no_data';
+  if (s.startsWith('No cover letter')) return 'no_cover_letter';
+  if (/option|matched no option/.test(s)) return 'no_option';
+  if (s.startsWith('value did not stick')) return 'value_not_kept';
+  return 'other';
+}

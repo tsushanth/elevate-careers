@@ -13,7 +13,7 @@ import { reportFailure } from '../utils/failureReporter.js';
 import express, { Router } from 'express';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
-import { redactFailReason, redactHtml, redactLabel, identifierOrNull, createRateLimiter } from '../utils/repairRedaction.js';
+import { redactFailReason, redactHtml, redactLabel, identifierOrNull, createRateLimiter, failKind } from '../utils/repairRedaction.js';
 
 function requireAdminSecret(req, res, next) {
   const secret = process.env.REPAIR_ADMIN_SECRET;
@@ -24,6 +24,16 @@ function requireAdminSecret(req, res, next) {
 }
 
 const router = Router();
+
+// A field report is the only sign the server gets of an autofill run that filled nothing (shipped extensions record a run
+// only when something was filled). One anonymous row per site per 10 minutes, roughly one per run: site and kind of
+// failure, with no account, id, label or value. Runs that neither fill nor fail a field still leave nothing.
+const FILL_ERROR_EVENT = `
+  INSERT INTO analytics_events (event_name, surface, properties)
+  SELECT 'extension_fill_error', 'extension', jsonb_build_object('host', $1::text, 'reason', $2::text)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM analytics_events
+    WHERE event_name = 'extension_fill_error' AND created_at > now() - interval '10 minutes' AND properties->>'host' = $1::text)`;
 
 // POST /queue needs no sign-in (the extension reports signed-out failures too), so it is bounded instead. Mounted by
 // server.js before the global 50x larger parser. Shipped extensions send with keepalive, which the browser caps at 64 KB.
@@ -48,6 +58,13 @@ router.post('/queue', async (req, res) => {
 
   // Redacted before anything is stored or logged (utils/repairRedaction.js).
   const safeLabel = redactLabel(label);
+  const safeReason = redactFailReason(failReason);
+
+  try {
+    await db.query(FILL_ERROR_EVENT, [domain.toLowerCase(), failKind(safeReason)]);
+  } catch (e) {
+    logger.warn({ error: e, domain }, 'fill error event not recorded');
+  }
 
   try {
     await db.query(`
@@ -60,7 +77,7 @@ router.post('/queue', async (req, res) => {
         count       = repair_queue.count + 1,
         last_seen   = now(),
         resolved    = false
-    `, [domain, safeLabel, identifierOrNull(fieldType), redactHtml(outerHTML), redactFailReason(failReason), identifierOrNull(fillTried)]);
+    `, [domain, safeLabel, identifierOrNull(fieldType), redactHtml(outerHTML), safeReason, identifierOrNull(fillTried)]);
   } catch (e) {
     logger.error({ error: e, domain, label: safeLabel }, 'repair_queue upsert failed');
     reportFailure('repair:queue_upsert_failed', new Error('repair_queue upsert failed')); // the client got 200 already: this is the only signal
