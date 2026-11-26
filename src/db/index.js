@@ -53,9 +53,10 @@ class Database {
     return await this.pool.query();
   }
 
-  async close() {
-    await this.pool.end();
-    logger.info('Database pool closed');
+  // Fly sends SIGINT and then SIGTERM on a deploy, so shutdown runs twice, and pg rejects a second end().
+  close() {
+    this.closing ??= this.pool.end().then(() => logger.info('Database pool closed'));
+    return this.closing;
   }
 
   async healthCheck() {
