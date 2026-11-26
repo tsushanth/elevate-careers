@@ -18,6 +18,7 @@ import { reportBackendError, reportFailure, instrumentAnthropic } from '../utils
 import { connection as queueConnection } from '../services/queue.js';
 import { createHash } from 'node:crypto';
 import { ingestSecretOk } from '../utils/sharedSecret.js';
+import { requireJobId } from '../utils/jobId.js';
 import { createFeedCache } from '../services/feedCache.js';
 import { getRedis } from '../services/redis.js';
 import { buildJobsQuery, jobsCacheKey, createLimiter, startJobsWarmer } from '../services/jobsList.js';
@@ -1717,7 +1718,7 @@ app.get('/companies/:slug/jobs', async (req, res) => {
   }
 });
 
-app.get('/jobs/:id', async (req, res) => {
+app.get('/jobs/:id', requireJobId, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1754,6 +1755,8 @@ app.get('/jobs/:id', async (req, res) => {
     res.json(row);
   } catch (error) {
     logger.error({ error }, 'Job detail API error');
+    // The report carries the database code, never the message (it can quote request input).
+    res.locals.reportedError = new Error(`job detail failed: ${error.code || error.name}`);
     res.status(500).json({ error: 'Failed to fetch job details' });
   }
 });
