@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapPin, ExternalLink, ArrowLeft, Briefcase } from 'lucide-react';
 import { supabase } from './supabase';
 import { descriptionToSafeHtml } from './descriptionHtml';
 import { trackFunnel } from './track';
 import { extensionVersion } from './onboarding/extension';
+import './CompanyPage.css';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
+const NARROW = '(max-width: 760px)'; // keep in step with CompanyPage.css
 
 function slugify(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -28,6 +30,7 @@ export default function CompanyPage() {
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
   const [signedIn, setSignedIn] = useState(null); // null until the session check answers
+  const detailRef = useRef(null);
 
   useEffect(() => {
     setLoading(true);
@@ -59,6 +62,8 @@ export default function CompanyPage() {
   const handleOpen = (job) => {
     trackFunnel('job_open', { job_id: Number(job.id), from: 'company' });
     setSelectedJob(job);
+    // On a phone the detail sits above the list: bring it, and its apply button, into view.
+    if (window.matchMedia?.(NARROW).matches) detailRef.current?.scrollIntoView({ block: 'start' });
   };
 
   const handleApply = (job) => {
@@ -109,7 +114,7 @@ export default function CompanyPage() {
               style={{ width: 64, height: 64, borderRadius: 12, objectFit: 'contain', border: '1px solid #0000001f', background: '#fff', padding: 6 }}
             />
           )}
-          <div>
+          <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
             <h1 style={{ fontSize: 24, fontWeight: 600, color: '#000000e6', margin: 0 }}>{company.name}</h1>
             {domain && (
               <a href={`https://${domain}`} target="_blank" rel="noopener noreferrer"
@@ -143,9 +148,9 @@ export default function CompanyPage() {
       )}
 
       {/* Job list + detail */}
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px', display: 'grid', gridTemplateColumns: '380px 1fr', gap: 20, alignItems: 'start' }}>
+      <div className="company-jobs">
         {/* Left: job list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="company-job-list">
           {jobs.length === 0 && (
             <div style={{ color: '#00000099', fontSize: 14, padding: '20px 0' }}>No open roles found.</div>
           )}
@@ -178,9 +183,9 @@ export default function CompanyPage() {
 
         {/* Right: job detail */}
         {selectedJob && (
-          <div style={{ background: '#fff', border: '1px solid #0000001f', borderRadius: 14, padding: '24px', position: 'sticky', top: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div>
+          <div ref={detailRef} className="company-job-detail">
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+              <div style={{ minWidth: 0, flex: '1 1 240px' }}>
                 <h2 style={{ fontSize: 20, fontWeight: 600, color: '#000000e6', margin: 0 }}>{selectedJob.title}</h2>
                 <div style={{ fontSize: 13, color: '#00000099', marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   {selectedJob.remote && <span style={{ color: '#057642', fontWeight: 600 }}>Remote</span>}
@@ -200,7 +205,7 @@ export default function CompanyPage() {
             </div>
             {selectedJob.description_excerpt && (
               <div
-                style={{ fontSize: 14, color: '#666666', lineHeight: 1.6, maxHeight: 500, overflowY: 'auto' }}
+                className="company-job-description"
                 dangerouslySetInnerHTML={{ __html: descriptionToSafeHtml(selectedJob.description_excerpt) }}
               />
             )}
