@@ -2,6 +2,12 @@
 
 The API (`elevate-careers-api`) deploys on every push to main (`.github/workflows/fly-deploy.yml`); end a commit subject with `[skip ci]` to avoid that. The worker (`elevate-careers-worker`) is deployed by hand with `flyctl deploy -c worker-fly.toml --remote-only` from a clean checkout of main.
 
+## 2026-11-26: company pages fit a phone screen (PR #68, main 4fa45082): web v127
+- Web v126 -> v127, image deployment-01M8CSQNTRRCNJANF7KCZRMXYQ, from a clean detached worktree of origin/main 4fa45082 (`job-aggregator-frontend` tree b195b9b6). API (v258) and worker not deployed; merged with `[skip ci]`. No secret, flag, migration or row touched.
+- `/companies/:slug` under 761 px: one column, the selected job and its apply button above the list, tapping a role scrolls to it. Wider screens keep two columns.
+- Verified: 320 web tests; headless browser on the live site. Before: a 390 px phone laid the page out 758 to 788 px wide. After: 390 and 320 px have no horizontal overflow and the apply button is on the first screen (stripe, samsara, airbnb; dropbox has no open roles); 768 and 1280 px have no overflow. Not verified: a physical phone, Safari, the server-rendered page that crawlers get (unchanged).
+- Rollback: `cd job-aggregator-frontend && flyctl deploy -a elevate-careers-web --image registry.fly.io/elevate-careers-web:deployment-01M8CPRDJ5NTJCZBNB1Z2EVWAJ` (v126).
+
 ## 2026-11-26: honest apply buttons, company page sign-up, autofill outcomes (PR #66, main 0b6767cd): API v258, web v126
 - API v257 -> v258, image deployment-01M8CPMXXRVAV5ADKGBD6Q9800 (GitHub Actions run 45886829059, on merge). Web v125 -> v126, image deployment-01M8CPRDJ5NTJCZBNB1Z2EVWAJ, from a clean detached worktree of origin/main 0b6767cd (`job-aggregator-frontend` tree 997ea9bc). The worker was not deployed (nothing it loads changed). No secret or flag touched; auto-apply stays paused; no existing row or saved setting changed.
 - Web: the Applications tab button opens the job with `sa_autofill=1` ("Apply on company site", or "Open and autofill" when the extension is detected). Without a detected extension a job is labelled "Opened", stays in the lists and is stored with status `opened`. Company pages have a "Sign up free" card (`/?signup=1`).
