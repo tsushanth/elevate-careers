@@ -19,6 +19,7 @@ import { connection as queueConnection } from '../services/queue.js';
 import { createHash } from 'node:crypto';
 import { ingestSecretOk } from '../utils/sharedSecret.js';
 import { requireJobId } from '../utils/jobId.js';
+import repairRoutes, { queueBodyLimit } from '../routes/repair.js';
 import { createFeedCache } from '../services/feedCache.js';
 import { getRedis } from '../services/redis.js';
 import { buildJobsQuery, jobsCacheKey, createLimiter, startJobsWarmer } from '../services/jobsList.js';
@@ -66,6 +67,7 @@ app.use(helmet({
   },
 }));
 app.use(compression());
+app.use('/api/repair/queue', queueBodyLimit); // unauthenticated: a small limit, ahead of the large one
 app.use(express.json({ limit: '10mb' }));
 app.use(pinoHttp({ logger }));
 
@@ -102,7 +104,6 @@ app.get('/health/deep', async (req, res) => {
 import aiResumeRoutes from '../routes/ai-resume.js';
 app.use('/api/ai-resume', aiResumeRoutes);
 
-import repairRoutes from '../routes/repair.js';
 app.use('/api/repair', repairRoutes);
 
 import applyRoutes from '../routes/apply.js';

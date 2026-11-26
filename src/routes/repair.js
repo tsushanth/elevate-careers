@@ -10,9 +10,10 @@
 //   POST /api/repair/admin/resolve — mark queue items resolved
 
 import { reportFailure } from '../utils/failureReporter.js';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { db } from '../db/index.js';
 import { logger } from '../utils/logger.js';
+import { redactFailReason, redactHtml, redactLabel, identifierOrNull, createRateLimiter } from '../utils/repairRedaction.js';
 
 function requireAdminSecret(req, res, next) {
   const secret = process.env.REPAIR_ADMIN_SECRET;
@@ -24,17 +25,25 @@ function requireAdminSecret(req, res, next) {
 
 const router = Router();
 
+// POST /queue needs no sign-in (the extension reports signed-out failures too), so it is bounded instead. Mounted by
+// server.js before the global 50x larger parser. Shipped extensions send with keepalive, which the browser caps at 64 KB.
+export const queueBodyLimit = express.json({ limit: '64kb' });
+const allowReport = createRateLimiter();
+
 // ── POST /queue ───────────────────────────────────────────────────────────────
 // Receives a failure report from the extension. Upserts by (domain, label):
 // first report creates the row; subsequent ones increment count + refresh HTML.
 // Fire-and-forget from the client — always returns 200.
 router.post('/queue', async (req, res) => {
+  // The extension never reads the answer, so a refused report costs the user nothing.
+  if (!allowReport(String(req.headers['fly-client-ip'] || req.ip))) return res.status(429).json({ ok: false });
   res.json({ ok: true }); // respond immediately, don't block the user's fill run
 
   const { domain, label, fieldType, outerHTML, failReason, fillTried } = req.body || {};
-  if (!domain || !label) return;
+  if (typeof domain !== 'string' || !/^[A-Za-z0-9._-]{1,253}$/.test(domain) || typeof label !== 'string' || !label) return;
 
-  const html = typeof outerHTML === 'string' ? outerHTML.slice(0, 3000) : null;
+  // Redacted before anything is stored or logged (utils/repairRedaction.js).
+  const safeLabel = redactLabel(label);
 
   try {
     await db.query(`
@@ -47,9 +56,9 @@ router.post('/queue', async (req, res) => {
         count       = repair_queue.count + 1,
         last_seen   = now(),
         resolved    = false
-    `, [domain, label, fieldType, html, failReason, fillTried]);
+    `, [domain, safeLabel, identifierOrNull(fieldType), redactHtml(outerHTML), redactFailReason(failReason), identifierOrNull(fillTried)]);
   } catch (e) {
-    logger.error({ error: e, domain, label }, 'repair_queue upsert failed');
+    logger.error({ error: e, domain, label: safeLabel }, 'repair_queue upsert failed');
     reportFailure('repair:queue_upsert_failed', new Error('repair_queue upsert failed')); // the client got 200 already: this is the only signal
   }
 });
@@ -86,7 +95,13 @@ router.get('/admin/queue', requireAdminSecret, async (req, res) => {
        FROM repair_queue ${where} ORDER BY count DESC, last_seen DESC LIMIT 50`,
       params,
     );
-    res.json(rows);
+    // Redacted again on the way out: rows stored before redaction still hold typed values.
+    res.json(rows.map((row) => ({
+      ...row,
+      outer_html: redactHtml(row.outer_html),
+      fail_reason: redactFailReason(row.fail_reason),
+      fill_tried: identifierOrNull(row.fill_tried),
+    })));
   } catch (e) {
     logger.error({ error: e }, 'admin/queue fetch failed');
     res.status(500).json({ error: 'query failed' });
