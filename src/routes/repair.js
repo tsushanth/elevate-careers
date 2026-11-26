@@ -27,7 +27,11 @@ const router = Router();
 
 // POST /queue needs no sign-in (the extension reports signed-out failures too), so it is bounded instead. Mounted by
 // server.js before the global 50x larger parser. Shipped extensions send with keepalive, which the browser caps at 64 KB.
-export const queueBodyLimit = express.json({ limit: '64kb' });
+// A refused body is answered here: the app-wide handler would turn it into a 500 and log the raw body of a bad one.
+export const queueBodyLimit = [
+  express.json({ limit: '64kb' }),
+  (err, _req, res, _next) => res.status(err.status || 400).json({ ok: false }),
+];
 const allowReport = createRateLimiter();
 
 // ── POST /queue ───────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import express from 'express';
 import { db } from '../db/index.js';
 import router, { queueBodyLimit } from './repair.js';
 
-let server, base, queries = [], rows = [];
+let server, base, queries = [], rows = [], reachedCatchAll = [];
 before(() => {
   db.query = async (sql, params) => { queries.push({ sql, params }); return { rows }; };
   process.env.REPAIR_ADMIN_SECRET = 'test-only';
@@ -13,11 +13,12 @@ before(() => {
   app.use('/api/repair/queue', queueBodyLimit);
   app.use(express.json({ limit: '10mb' }));
   app.use('/api/repair', router);
+  app.use((err, _req, res, _next) => { reachedCatchAll.push(err.type); res.status(500).end(); }); // as server.js ends
   server = app.listen(0);
   base = `http://127.0.0.1:${server.address().port}/api/repair`;
 });
 after(() => server.close());
-beforeEach(() => { queries = []; rows = []; });
+beforeEach(() => { queries = []; rows = []; reachedCatchAll = []; });
 
 const report = async (body, ip = '10.0.0.1') => {
   const r = await fetch(`${base}/queue`, { method: 'POST', headers: { 'content-type': 'application/json', 'fly-client-ip': ip }, body: JSON.stringify(body) });
@@ -42,6 +43,14 @@ test('a report with a bad domain or a non-string label is dropped', async () => 
 
 test('a body over 64 KB is refused before it is stored', async () => {
   assert.equal(await report({ ...body, label: 'x'.repeat(70_000) }, '10.0.0.2'), 413);
+  assert.equal(queries.length, 0);
+  assert.deepEqual(reachedCatchAll, []);
+});
+
+test('a body that is not JSON is a 400 that never reaches the app-wide handler, which would log it', async () => {
+  const r = await fetch(`${base}/queue`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"failReason":"cut' });
+  assert.equal(r.status, 400);
+  assert.deepEqual(reachedCatchAll, []);
   assert.equal(queries.length, 0);
 });
 
