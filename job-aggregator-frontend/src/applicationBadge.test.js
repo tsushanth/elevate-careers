@@ -11,3 +11,7 @@ test('rows with no filled fields (phone "Yes, I applied") are Tracked, not Fille
   expect(extRowBadge({})).toBe('✓ Tracked');
   expect(extRowBadge(undefined)).toBe('✓ Tracked');
 });
+
+test('a link opened from the website is only Opened', () => {
+  expect(extRowBadge({ status: 'opened', fields_filled: 0 })).toBe('Opened');
+});

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { MapPin, ExternalLink, ArrowLeft, Briefcase } from 'lucide-react';
 import { supabase } from './supabase';
 import { descriptionToSafeHtml } from './descriptionHtml';
+import { trackFunnel } from './track';
+import { extensionVersion } from './onboarding/extension';
 
 const API_URL = 'https://elevate-careers-api.fly.dev';
 
@@ -25,6 +27,7 @@ export default function CompanyPage() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [signedIn, setSignedIn] = useState(null); // null until the session check answers
 
   useEffect(() => {
     setLoading(true);
@@ -37,6 +40,7 @@ export default function CompanyPage() {
     // for an anonymous/bot visitor, but not for a signed-in user with a
     // location preference set).
     supabase.auth.getSession().then(({ data: { session } }) => {
+      setSignedIn(!!session);
       const authHeaders = session?.access_token
         ? { Authorization: `Bearer ${session.access_token}` }
         : {};
@@ -52,8 +56,19 @@ export default function CompanyPage() {
     });
   }, [slug]);
 
+  const handleOpen = (job) => {
+    trackFunnel('job_open', { job_id: Number(job.id), from: 'company' });
+    setSelectedJob(job);
+  };
+
   const handleApply = (job) => {
+    trackFunnel('apply_click', { job_id: Number(job.id), signed_in: !!signedIn, ext: extensionVersion() !== null, from: 'company' });
     window.open(job.apply_url, '_blank', 'noopener');
+  };
+
+  const handleSignUp = () => {
+    trackFunnel('company_signup_click', { signed_in: false });
+    navigate('/?signup=1');
   };
 
   if (loading) return (
@@ -110,6 +125,23 @@ export default function CompanyPage() {
         </div>
       </div>
 
+      {/* Sign-up step for visitors who arrive here from a search engine */}
+      {signedIn === false && (
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 24px 0' }}>
+          <div style={{ background: '#fff', border: '1px solid #0a66c2', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0, flex: '1 1 260px' }}>
+              <div style={{ fontWeight: 600, fontSize: 15, color: '#000000e6' }}>Create a free SimplyApply account</div>
+              <div style={{ fontSize: 13, color: '#00000099', marginTop: 4 }}>
+                Save your details once, then the SimplyApply Chrome extension fills job applications for you on desktop.
+              </div>
+            </div>
+            <button type="button" onClick={handleSignUp} style={{ background: '#0a66c2', color: '#fff', border: 'none', borderRadius: 20, padding: '10px 22px', fontWeight: 600, fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Sign up free
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Job list + detail */}
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px', display: 'grid', gridTemplateColumns: '380px 1fr', gap: 20, alignItems: 'start' }}>
         {/* Left: job list */}
@@ -120,7 +152,7 @@ export default function CompanyPage() {
           {jobs.map(job => (
             <div
               key={job.id}
-              onClick={() => setSelectedJob(job)}
+              onClick={() => handleOpen(job)}
               style={{
                 background: '#fff',
                 border: `1px solid ${selectedJob?.id === job.id ? '#0a66c2' : '#0000001f'}`,
@@ -163,7 +195,7 @@ export default function CompanyPage() {
                 onClick={() => handleApply(selectedJob)}
                 style={{ background: '#0a66c2', color: '#fff', border: 'none', borderRadius: 9, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
               >
-                ⚡ Apply <ExternalLink size={14} />
+                Apply on company site <ExternalLink size={14} />
               </button>
             </div>
             {selectedJob.description_excerpt && (

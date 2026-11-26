@@ -24,7 +24,7 @@ const toDetailJob = (card) => ({
   countries: card.country ? [card.country] : [],
 });
 
-export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, detail, extensionUrl, preload, externalQuery, appliedJobIds, isSaved, onToggleSave }) {
+export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, detail, extensionUrl, preload, externalQuery, appliedJobIds, openedJobIds, isSaved, onToggleSave }) {
   const initial = useMemo(() => {
     const saved = loadSavedPlace();
     if (saved) return { place: saved, source: 'saved' };
@@ -179,7 +179,7 @@ export default function FeedPage({ apiBase, session, selectedJob, onSelectJob, d
           )}
           <div className={feed.loading ? 'feed-stale' : ''}>
             {visibleJobs.map(job => (
-              <JobCard key={job.id} job={job} selected={selectedJob?.id === job.id} viewed={viewed.has(job.id)} onSelect={choose}
+              <JobCard key={job.id} job={job} selected={selectedJob?.id === job.id} viewed={viewed.has(job.id)} opened={!!openedJobIds?.has(job.id)} onSelect={choose}
                 saved={isSaved ? isSaved(job.id) : false} onToggleSave={onToggleSave} />
             ))}
           </div>

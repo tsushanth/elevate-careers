@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { redactFailReason, redactHtml, redactLabel, identifierOrNull, createRateLimiter, OTHER_REASON } from './repairRedaction.js';
+import { redactFailReason, redactHtml, redactLabel, identifierOrNull, createRateLimiter, failKind, OTHER_REASON } from './repairRedaction.js';
 
 const PHONE = '+1 415-555-0142';
 const EMAIL = 'jo.person@example.com';
@@ -69,4 +69,13 @@ test('the SQL function lists the same fixed messages', () => {
   const js = readFileSync(new URL('./repairRedaction.js', import.meta.url), 'utf8');
   const block = js.slice(js.indexOf('const FIXED_REASONS'), js.indexOf(']);'));
   for (const [, message] of block.matchAll(/'([^']*)'/g)) assert.ok(sql.includes(`'${message}'`), message);
+});
+
+test('a failure is counted by kind, never by its text', () => {
+  const kinds = [
+    'Not signed in — open ⚙ to sign in', 'Session expired — open ⚙ to sign in again', 'no data for phone',
+    'No cover letter uploaded — add one in extension settings', 'no option for "[redacted]"', 'AI answer "[redacted]" matched no option',
+    'value did not stick after typing (site cleared it on blur)', 'API 500', null,
+  ].map(failKind);
+  assert.deepEqual(kinds, ['not_signed_in', 'session_expired', 'no_data', 'no_cover_letter', 'no_option', 'no_option', 'value_not_kept', 'other', 'other']);
 });

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { savePreferences } from './prefsApi';
 import { extRowBadge } from './applicationBadge';
+import { applyLabel, autofillUrl, trackBody } from './applyAction';
+import { trackFunnel } from './track';
 import { descriptionToSafeHtml } from './descriptionHtml';
 
 function statusBadge(status) {
@@ -9,6 +11,7 @@ function statusBadge(status) {
     running: { label: 'Running', color: '#915907', bg: 'rgba(145,89,7,0.12)' },
     preview: { label: 'Preview', color: '#0a66c2', bg: 'rgba(10,102,194,0.12)' },
     not_submitted: { label: 'Not submitted: apply on the company site', color: '#915907', bg: 'rgba(145,89,7,0.12)' },
+    opened: { label: 'Opened', color: '#00000099', bg: 'rgba(148,163,184,0.12)' },
     failed: { label: 'Failed', color: '#cc1016', bg: 'rgba(204,16,22,0.12)' },
   };
   const s = map[status] || { label: status, color: '#00000099', bg: 'rgba(148,163,184,0.1)' };
@@ -32,7 +35,7 @@ function fmtSalary(min, max) {
   return null;
 }
 
-export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendingApply, onPendingConsumed }) {
+export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendingApply, onPendingConsumed, extensionInstalled = false }) {
   // Preferences strip
   const [prefs, setPrefs] = useState({ keywords: [], remote: false, location: '', salary_min: '', daily_limit: 10, auto_apply_similar: false });
   const [prefsSaving, setPrefsSaving] = useState(false);
@@ -50,7 +53,6 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
   const [suggestedLoading, setSuggestedLoading] = useState(false);
   const [suggestedHasMore, setSuggestedHasMore] = useState(false);
   const [suggestedOffset, setSuggestedOffset] = useState(0);
-  const [seeding, setSeeding] = useState(null); // job.id being seeded
   const [dismissed, setDismissed] = useState(new Set());
   const [selectedSuggested, setSelectedSuggested] = useState(null);
 
@@ -195,20 +197,23 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
       .finally(() => setSuggestedLoading(false));
   };
 
-  // ── Auto-apply a suggested job ────────────────────────────────────────────
-  const autoApplySuggested = async (job) => {
-    if (!session) return;
-    setSeeding(job.id);
+  // ── Open a suggested job on the company site ──────────────────────────────
+  const openSuggested = async (job) => {
+    if (!session || !/^https?:\/\//i.test(job.apply_url || '')) return;
+    window.open(autofillUrl(job.apply_url), '_blank', 'noopener,noreferrer');
+    trackFunnel('apply_click', { job_id: Number(job.id), signed_in: true, ext: extensionInstalled, from: 'similar' });
+    setExtApps(prev => (prev.some(a => a.job_url === job.apply_url) ? prev : [{
+      id: `pending-${job.id}`, job_url: job.apply_url, job_title: job.title, company: job.company_name,
+      status: 'opened', filled_at: new Date().toISOString(),
+    }, ...prev]));
     try {
-      if (!window.__simplyApplyInstalled) {
-        window.open(EXTENSION_URL, '_blank', 'noopener,noreferrer');
-        return;
-      }
-      const url = new URL(job.apply_url);
-      url.searchParams.set('sa_autofill', '1');
-      window.open(url.toString(), '_blank', 'noopener,noreferrer');
-    } finally {
-      setSeeding(null);
+      await fetch(`${API_URL}/api/ai-resume/applications/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(trackBody({ jobUrl: job.apply_url, jobTitle: job.title, company: job.company_name, opened: true })),
+      });
+    } catch (e) {
+      console.error('Failed to record the opened job', e);
     }
   };
 
@@ -413,13 +418,13 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
                       borderRadius: 4, padding: '2px 7px',
                     }}>⚡ Auto</span>
                   )}
-                  {app._source === 'ext' && (
+                  {app._source === 'ext' && (app.status === 'opened' ? statusBadge('opened') : (
                     <span style={{
                       fontSize: 11, fontWeight: 600, color: '#057642',
                       background: 'rgba(5,118,66,0.1)', border: '1px solid rgba(5,118,66,0.3)',
                       borderRadius: 4, padding: '2px 7px',
                     }}>{extRowBadge(app)}</span>
-                  )}
+                  ))}
                 </div>
               </div>
             ))}
@@ -514,16 +519,21 @@ export default function ApplicationsTab({ session, API_URL, EXTENSION_URL, pendi
           )}
         </div>
         <button
-          onClick={() => autoApplySuggested(selectedSuggested)}
-          disabled={seeding === selectedSuggested.id}
+          onClick={() => openSuggested(selectedSuggested)}
           style={{
             width: '100%', padding: '10px 0', borderRadius: 8, fontSize: 14, fontWeight: 700,
             background: '#0a66c2', color: '#fff', border: 'none', cursor: 'pointer',
-            opacity: seeding === selectedSuggested.id ? 0.6 : 1, marginBottom: 20,
+            marginBottom: extensionInstalled ? 20 : 8,
           }}
         >
-          {seeding === selectedSuggested.id ? 'Opening…' : '⚡ Auto Apply'}
+          {extensionInstalled ? 'Open and autofill' : applyLabel({ ext: false })}
         </button>
+        {!extensionInstalled && (
+          <p style={{ fontSize: 12, color: '#00000099', margin: '0 0 20px' }}>
+            If you have the SimplyApply Chrome extension, it fills the form for you. No extension yet?{' '}
+            <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer" style={{ color: '#0a66c2' }}>Add it to Chrome</a> (desktop).
+          </p>
+        )}
         {selectedSuggested.description_excerpt ? (
           <div
             style={{ fontSize: 13, color: '#000000e6', lineHeight: 1.6 }}

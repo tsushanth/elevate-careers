@@ -108,7 +108,7 @@ router.get('/suggested', requireAuth, async (req, res) => {
     // Get already-applied jobs — prefer job_id (stable) over job_url
     // (drifts on re-ingestion), same reasoning as /jobs/personalized.
     const appliedResult = await db.query(
-      `SELECT job_id, job_url FROM job_applications WHERE user_id=$1`,
+      `SELECT job_id, job_url FROM job_applications WHERE user_id=$1 AND status NOT IN ('opened', 'attempted')`,
       [req.user.id]
     );
     const appliedJobIds = appliedResult.rows.map(r => r.job_id).filter(Boolean);

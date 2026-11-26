@@ -21,6 +21,7 @@ import { hasStoredSession } from './onboarding/storedSession';
 import { useSiteStats, fmtCount } from './siteStats';
 import { useSaved } from './feed/useSaved';
 import { BookmarkIcon } from './feed/JobCard';
+import { applyLabel, autofillUrl, trackBody } from './applyAction';
 
 // Loaded on demand so the wizard and its demo never weigh on the first paint.
 const OnboardingWizard = React.lazy(() => import('./onboarding/OnboardingWizard'));
@@ -106,6 +107,8 @@ function App() {
   const [recovering, setRecovering] = useState(RECOVERY_AT_LOAD);
   const [authView, setAuthView] = useState(RESET_PROBLEM_AT_LOAD ? 'forgot' : 'auth');
   useEffect(() => { if (RESET_PROBLEM_AT_LOAD) setShowAuthModal(true); }, []);
+  // "Sign up free" on a company page lands here with ?signup=1.
+  const signupAsked = React.useMemo(() => new URLSearchParams(window.location.search).get('signup') === '1', []);
   // Bookmark a job to the shortlist (same list as the phone app). Signed out: ask them to sign in first.
   const toggleSaved = async (job) => {
     const signedIn = await saved.toggle(job.id);
@@ -145,6 +148,18 @@ function App() {
       return next;
     });
   };
+  // Jobs opened on the company site without the extension in this session: labelled, never hidden.
+  const [openedJobIds, setOpenedJobIds] = useState(() => {
+    try { const s = sessionStorage.getItem('sa_openedJobIds'); return s ? new Set(JSON.parse(s)) : new Set(); } catch { return new Set(); }
+  });
+  const markOpened = (jobId) => {
+    setOpenedJobIds(prev => {
+      const next = new Set(prev);
+      next.add(jobId);
+      try { sessionStorage.setItem('sa_openedJobIds', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
   const fetchSeq = useRef(0);
   const PAGE_SIZE = 50;
 
@@ -173,6 +188,14 @@ function App() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!signupAsked || !sessionChecked) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('signup');
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+    if (!session) { setAuthTab('signup'); setShowAuthModal(true); }
+  }, [signupAsked, sessionChecked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open the setup wizard once per user per browser, after any sign-in path, when the
   // account has no saved profile. Reopen any time from the header.
@@ -439,9 +462,10 @@ function App() {
                   trackFunnel('apply_click', { job_id: Number(selectedJob.id), signed_in: !!session, ext: extensionInstalled });
                   if (!session) { setAuthTab('signin'); setShowAuthModal(true); return; }
                   setSeedingJob(selectedJob.id);
-                  const url = new URL(selectedJob.apply_url);
-                  url.searchParams.set('sa_autofill', '1');
-                  window.open(url.toString(), '_blank', 'noopener,noreferrer');
+                  // Without a visible extension the click only opens the page. The autofill flag still goes along:
+                  // published extension builds cannot be seen from here but do act on it.
+                  const openedOnly = !extensionInstalled;
+                  window.open(autofillUrl(selectedJob.apply_url), '_blank', 'noopener,noreferrer');
                   setPendingApply({
                     id: `pending-${Date.now()}`,
                     job_url: selectedJob.apply_url,
@@ -450,7 +474,7 @@ function App() {
                     status: 'opened',
                     created_at: new Date().toISOString(),
                   });
-                  markApplied(selectedJob.id);
+                  if (openedOnly) markOpened(selectedJob.id); else markApplied(selectedJob.id);
                   setSeedingJob(null);
 
                   // Persist the application — without this it only lived in
@@ -461,11 +485,12 @@ function App() {
                     await fetch(`${API_URL}/api/ai-resume/applications/track`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-                      body: JSON.stringify({
+                      body: JSON.stringify(trackBody({
                         jobUrl: selectedJob.apply_url,
                         jobTitle: selectedJob.title,
                         company: selectedJob.company_name,
-                      }),
+                        opened: openedOnly,
+                      })),
                     });
                   } catch (e) {
                     console.error('Failed to record application', e);
@@ -474,7 +499,7 @@ function App() {
               >
                 {seedingJob === selectedJob.id
                   ? 'Opening…'
-                  : appliedJobIds.has(selectedJob.id) ? '✓ Applied — Apply again?' : (feedV2 ? 'Apply with autofill' : '⚡ Apply')} <ExternalLink size={16} />
+                  : applyLabel({ ext: extensionInstalled, applied: appliedJobIds.has(selectedJob.id), opened: openedJobIds.has(selectedJob.id), feedV2 })} <ExternalLink size={16} />
               </button>
             </div>
             {extensionInstalled ? (
@@ -483,11 +508,12 @@ function App() {
               </p>
             ) : (
               <p className="hint-text">
-                ⚡ Auto-fill requires the{' '}
+                Opens the application on the company's site. If you have the SimplyApply Chrome extension, it fills
+                the form for you. No extension yet?{' '}
                 <a href={EXTENSION_URL} target="_blank" rel="noopener noreferrer">
-                  SimplyApply Chrome extension
+                  Add it to Chrome
                 </a>
-                {' '}— install it once, then click Apply.
+                {' '}(desktop).
               </p>
             )}
 
@@ -613,6 +639,7 @@ function App() {
             EXTENSION_URL={EXTENSION_URL}
             pendingApply={pendingApply}
             onPendingConsumed={() => setPendingApply(null)}
+            extensionInstalled={extensionInstalled}
           />
         </div>
       )}
@@ -732,8 +759,10 @@ function App() {
                     <div className="job-card-title">
                       <h3>{job.title}</h3>
                       <p className="company-name">{job.company_name}</p>
-                      {appliedJobIds.has(job.id) && (
+                      {appliedJobIds.has(job.id) ? (
                         <span className="applied-chip">✓ Applied</span>
+                      ) : openedJobIds.has(job.id) && (
+                        <span className="applied-chip">Opened</span>
                       )}
                     </div>
                     <div style={{ position: 'relative' }}>
@@ -837,6 +866,7 @@ function App() {
           preload={window.__feedPreload}
           externalQuery={feedQuery}
           appliedJobIds={appliedJobIds}
+          openedJobIds={openedJobIds}
           isSaved={saved.isSaved}
           onToggleSave={toggleSaved}
         />
